@@ -1,0 +1,30 @@
+# --- Gradle ---
+.gradle/
+**/build/
+
+# --- IntelliJ IDEA ---
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# --- VS Code --
+.vscode/
+
+# --- Java artifacts ---
+*.class
+hs_err_pid*
+replay_pid*
+*.hprof
+
+# --- Logs ---
+*.log
+logs/
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db
+
+# --- Optional env/secrets ---
+.env
+.env.*

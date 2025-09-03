@@ -1,0 +1,84 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.unicity'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+application {
+    mainClass = 'com.unicity.proxy.Main'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.eclipse.jetty:jetty-server:12.0.14'
+    implementation 'org.eclipse.jetty:jetty-client:12.0.14'
+    implementation 'org.eclipse.jetty.ee10:jetty-ee10-servlet:12.0.14'
+    implementation 'org.eclipse.jetty.ee10:jetty-ee10-proxy:12.0.14'
+
+    implementation 'commons-io:commons-io:2.20.0'
+    
+    implementation 'com.beust:jcommander:1.82'
+    
+    implementation 'org.slf4j:slf4j-api:2.0.16'
+    implementation 'ch.qos.logback:logback-classic:1.5.13'
+    
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+    testImplementation 'org.assertj:assertj-core:3.25.3'
+    testImplementation 'org.eclipse.jetty:jetty-server:12.0.14'
+    testImplementation 'org.eclipse.jetty:jetty-client:12.0.14'
+    testImplementation 'org.awaitility:awaitility:4.2.0'
+}
+
+// Virtual threads are stable in Java 21+, no preview needed
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events = ["passed", "skipped", "failed"]
+        exceptionFormat = "full"
+    }
+}
+
+tasks.named('run') {
+    standardInput = System.in
+    if (project.hasProperty('args')) {
+        args project.args.split()
+    }
+}
+
+// Create a distribution with all dependencies
+distributions {
+    main {
+        contents {
+            from jar
+            from configurations.runtimeClasspath
+        }
+    }
+}
+
+// Task to create a simple start script
+tasks.register('createStartScripts') {
+    doLast {
+        def scriptFile = file("$buildDir/scripts/start.sh")
+        scriptFile.parentFile.mkdirs()
+        scriptFile.text = """#!/bin/bash
+java --enable-preview -cp "lib/*" com.unicity.proxy.Main "\$@"
+"""
+        scriptFile.setExecutable(true)
+    }
+}
+
+tasks.named('assembleDist') {
+    dependsOn createStartScripts
+}
