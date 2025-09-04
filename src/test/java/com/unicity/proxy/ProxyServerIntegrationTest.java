@@ -9,6 +9,8 @@ import java.net.http.HttpResponse;
 import static java.net.http.HttpRequest.BodyPublishers.ofString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.jetty.http.HttpHeader.CONTENT_TYPE;
+import static org.eclipse.jetty.http.HttpHeader.WWW_AUTHENTICATE;
+import static org.eclipse.jetty.http.HttpStatus.*;
 import static org.eclipse.jetty.http.MimeTypes.Type.APPLICATION_JSON;
 
 /**
@@ -24,7 +26,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).isEqualTo("{\"message\":\"Hello from mock server\",\"path\":\"/test\"}");
         assertThat(response.headers().firstValue("X-Mock-Server")).isPresent()
             .hasValue("true");
@@ -40,7 +42,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(response.statusCode()).isEqualTo(CREATED_201);
         assertThat(response.body()).contains("\"received\":" + "{\"name\":\"test\",\"value\":123}".length());
         assertThat(response.body()).contains("\"method\":\"POST\"");
     }
@@ -56,7 +58,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).contains("\"X-Custom-Header\":\"test-value\"");
         assertThat(response.body()).contains("\"X-Another-Header\":\"another-value\"");
     }
@@ -70,7 +72,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.statusCode()).isEqualTo(NOT_FOUND_404);
         assertThat(response.body()).isEqualTo("Not Found");
     }
     
@@ -83,7 +85,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(500);
+        assertThat(response.statusCode()).isEqualTo(INTERNAL_SERVER_ERROR_500);
         assertThat(response.body()).isEqualTo("Internal Server Error");
     }
     
@@ -97,7 +99,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).contains("\"method\":\"PUT\"");
         assertThat(response.body()).contains("\"received\":" + "{\"updated\":true}".length());
     }
@@ -111,7 +113,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(response.statusCode()).isEqualTo(NO_CONTENT_204);
         assertThat(response.body()).isEmpty();
     }
     
@@ -124,7 +126,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).contains("\"query\":\"q=test&limit=10\"");
     }
     
@@ -138,9 +140,9 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(response.statusCode()).isEqualTo(UNAUTHORIZED_401);
         assertThat(response.body()).isEqualTo("Unauthorized");
-        assertThat(response.headers().firstValue("WWW-Authenticate")).isPresent()
+        assertThat(response.headers().firstValue(WWW_AUTHENTICATE.asString())).isPresent()
             .hasValue("Bearer");
     }
     
@@ -153,7 +155,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).contains("Hello from mock server");
     }
     
@@ -162,13 +164,13 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     void testApiKeyHeaderAuth() throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create("http://localhost:" + proxyPort + "/test"))
-            .header("X-API-Key", defaultApiKey)
+            .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
             .GET()
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).contains("Hello from mock server");
     }
 
@@ -183,7 +185,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(response.statusCode()).isEqualTo(UNAUTHORIZED_401);
         assertThat(response.body()).isEqualTo("Unauthorized");
     }
     
@@ -193,18 +195,18 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create("http://localhost:" + proxyPort + "/headers"))
             .header("Authorization", "Bearer " + defaultApiKey)
-            .header("X-API-Key", defaultApiKey)
+            .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
             .header("X-Custom-Header", "should-be-forwarded")
             .GET()
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
 
         assertThat(response.body()).contains("\"X-Custom-Header\":\"should-be-forwarded\"");
 
         assertThat(response.body()).doesNotContain("Authorization");
-        assertThat(response.body()).doesNotContain("X-API-Key");
+        assertThat(response.body()).doesNotContain(RequestHandler.HEADER_X_API_KEY);
     }
 }

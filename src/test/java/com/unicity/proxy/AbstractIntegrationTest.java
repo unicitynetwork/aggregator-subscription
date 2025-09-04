@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.awaitility.Awaitility.await;
 import static org.eclipse.jetty.http.HttpHeader.AUTHORIZATION;
+import static org.eclipse.jetty.http.HttpStatus.*;
 
 public abstract class AbstractIntegrationTest {
     public static final String APPLICATION_OCTET_STREAM = "application/octet-stream";
@@ -41,7 +42,7 @@ public abstract class AbstractIntegrationTest {
         proxyServer = new ProxyServer(config);
         proxyServer.start();
 
-        proxyPort = ((ServerConnector) getJettyServer(proxyServer).getConnectors()[0]).getLocalPort();
+        proxyPort = ((ServerConnector) proxyServer.getServer().getConnectors()[0]).getLocalPort();
 
         httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -74,20 +75,20 @@ public abstract class AbstractIntegrationTest {
 
                 switch (path) {
                     case "/test" -> {
-                        response.setStatus(200);
+                        response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"message\":\"Hello from mock server\",\"path\":\"" + path + "\"}";
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/api/data" -> {
                         byte[] requestBody = Content.Source.asByteBuffer(request).array();
-                        response.setStatus(201);
+                        response.setStatus(CREATED_201);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/headers" -> {
-                        response.setStatus(200);
+                        response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         StringBuilder headers = new StringBuilder("{");
                         request.getHeaders().forEach(field -> {
@@ -101,33 +102,33 @@ public abstract class AbstractIntegrationTest {
                         response.write(true, ByteBuffer.wrap(headers.toString().getBytes()), callback);
                     }
                     case "/not-found" -> {
-                        response.setStatus(404);
+                        response.setStatus(NOT_FOUND_404);
                         response.write(true, ByteBuffer.wrap("Not Found".getBytes()), callback);
                     }
                     case "/error" -> {
-                        response.setStatus(500);
+                        response.setStatus(INTERNAL_SERVER_ERROR_500);
                         response.write(true, ByteBuffer.wrap("Internal Server Error".getBytes()), callback);
                     }
                     case "/api/update" -> {
                         byte[] requestBody = Content.Source.asByteBuffer(request).array();
-                        response.setStatus(200);
+                        response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/api/delete/123" -> {
-                        response.setStatus(204);
+                        response.setStatus(NO_CONTENT_204);
                         callback.succeeded();
                     }
                     case "/search" -> {
                         String query = request.getHttpURI().getQuery();
-                        response.setStatus(200);
+                        response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"query\":\"" + query + "\"}";
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     default -> {
-                        response.setStatus(200);
+                        response.setStatus(OK_200);
                         response.write(true, ByteBuffer.wrap("OK".getBytes()), callback);
                     }
                 }
@@ -140,16 +141,6 @@ public abstract class AbstractIntegrationTest {
         server.addConnector(connector);
 
         return server;
-    }
-
-    static Server getJettyServer(ProxyServer proxyServer) {
-        try {
-            var field = ProxyServer.class.getDeclaredField("server");
-            field.setAccessible(true);
-            return (Server) field.get(proxyServer);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to get Jetty server", e);
-        }
     }
 
     private boolean isServerReady(int port) {
@@ -167,8 +158,12 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected HttpRequest.Builder getAuthorizedRequestBuilder(String urlPath) {
+        return getAuthorizedRequestBuilder(urlPath, defaultApiKey);
+    }
+    
+    protected HttpRequest.Builder getAuthorizedRequestBuilder(String urlPath, String apiKey) {
         return HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + proxyPort + urlPath))
-                .header(AUTHORIZATION.asString(), "Bearer " + defaultApiKey);
+                .header(AUTHORIZATION.asString(), "Bearer " + apiKey);
     }
 }

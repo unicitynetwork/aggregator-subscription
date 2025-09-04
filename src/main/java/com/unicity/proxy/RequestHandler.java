@@ -38,24 +38,24 @@ public class RequestHandler extends Handler.Abstract {
     public static final int MAX_HEADER_COUNT = 200;
 
     private static final Logger logger = LoggerFactory.getLogger(RequestHandler.class);
-    
-    // TODO: Hardcoded API key for testing (will be improved later)
-    private static final String MOCK_API_KEY = "supersecret";
 
     private static final Pattern BEARER_RX = Pattern.compile(
             "^\\s*[Bb]earer[ \\t]+([A-Za-z0-9\\-._~+/]+=*)\\s*$");
     private static final String BEARER_AUTHORIZATION = "Bearer";
-    private static final String HEADER_X_API_KEY = "X-API-Key";
+    static final String HEADER_X_API_KEY = "X-API-Key";
+    static final String HEADER_X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
 
     private final HttpClient httpClient;
     private final String targetUrl;
     private final Duration readTimeout;
     private final boolean useVirtualThreads;
+    private final RateLimiterManager rateLimiterManager;
     
     public RequestHandler(ProxyConfig config) {
         this.targetUrl = config.getTargetUrl();
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
+        this.rateLimiterManager = new RateLimiterManager();
         
         var httpClientBuilder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(config.getConnectTimeout()))
@@ -81,7 +81,8 @@ public class RequestHandler extends Handler.Abstract {
     
     @Override
     public boolean handle(Request request, Response response, Callback callback) throws Exception {
-        if (!isAuthenticated(request)) {
+        String apiKey = extractApiKey(request);
+        if (apiKey == null || !ApiKeyManager.isValidApiKey(apiKey)) {
             logger.debug("Authentication failed for request to {}", request.getHttpURI().getPath());
             response.setStatus(HttpStatus.UNAUTHORIZED_401);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
@@ -89,6 +90,18 @@ public class RequestHandler extends Handler.Abstract {
             response.write(true, ByteBuffer.wrap("Unauthorized".getBytes()), callback);
             return true;
         }
+        
+        RateLimiterManager.RateLimitResult rateLimitResult = rateLimiterManager.tryConsume(apiKey);
+        if (!rateLimitResult.isAllowed()) {
+            logger.info("Rate limit exceeded for API key: {}", apiKey);
+            response.setStatus(HttpStatus.TOO_MANY_REQUESTS_429);
+            response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
+            response.getHeaders().put(RETRY_AFTER, String.valueOf(rateLimitResult.getRetryAfterSeconds()));
+            response.write(true, ByteBuffer.wrap("Too Many Requests".getBytes()), callback);
+            return true;
+        }
+        
+        response.getHeaders().put(HEADER_X_RATE_LIMIT_REMAINING, String.valueOf(rateLimitResult.getRemainingTokens()));
         
         String validationError = validateRequestSizeLimits(request);
         if (validationError != null) {
@@ -243,30 +256,24 @@ public class RequestHandler extends Handler.Abstract {
             .collect(Collectors.toUnmodifiableSet());
     }
 
-    private boolean isAuthenticated(Request request) {
+    private String extractApiKey(Request request) {
         var authField = request.getHeaders().getField(AUTHORIZATION.asString());
         if (authField != null) {
             String authHeader = authField.getValue();
             if (authHeader != null) {
                 var m = BEARER_RX.matcher(authHeader);
                 if (m.matches()) {
-                    var token = m.group(1);
-                    return apiKeyIsAuthenticated(token);
+                    return m.group(1);
                 }
             }
         }
         
         var apiKeyField = request.getHeaders().getField(HEADER_X_API_KEY);
         if (apiKeyField != null) {
-            String apiKey = apiKeyField.getValue().trim();
-            return apiKeyIsAuthenticated(apiKey);
+            return apiKeyField.getValue().trim();
         }
         
-        return false;
-    }
-
-    private static boolean apiKeyIsAuthenticated(String token) {
-        return MOCK_API_KEY.equals(token);
+        return null;
     }
 
     private String validateRequestSizeLimits(Request request) {
@@ -298,5 +305,9 @@ public class RequestHandler extends Handler.Abstract {
         {
             return IOUtils.toByteArray(boundedStream);
         }
+    }
+
+    RateLimiterManager getRateLimiterManager() {
+        return rateLimiterManager;
     }
 }

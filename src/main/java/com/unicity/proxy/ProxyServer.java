@@ -86,4 +86,8 @@ public class ProxyServer {
         
         server.join();
     }
+
+    Server getServer() {
+        return server;
+    }
 }
