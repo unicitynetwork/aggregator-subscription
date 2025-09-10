@@ -4,7 +4,9 @@ import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.Content;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.util.Callback;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 
 import java.net.URI;
@@ -29,8 +31,21 @@ public abstract class AbstractIntegrationTest {
     protected int proxyPort;
     protected HttpClient httpClient;
 
+    @BeforeAll
+    static void setUpDatabase() {
+        TestDatabaseSetup.setupTestDatabase();
+        TestPricingPlans.createTestPlans();
+    }
+    
+    @AfterAll
+    static void tearDownDatabase() {
+        TestPricingPlans.deleteTestPlansAndTheirApiKeys();
+        TestDatabaseSetup.teardownTestDatabase();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
+        TestDatabaseSetup.resetDatabase();
         mockServer = createMockServer();
         mockServer.start();
         int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();

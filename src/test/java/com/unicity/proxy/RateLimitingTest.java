@@ -1,5 +1,6 @@
 package com.unicity.proxy;
 
+import com.unicity.proxy.repository.ApiKeyRepository;
 import io.github.bucket4j.TimeMeter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,14 +33,16 @@ class RateLimitingTest extends AbstractIntegrationTest {
     @BeforeEach
     @Override
     void setUp() throws Exception {
-        ApiKeyManager.setApiKeyForTesting(TEST_API_KEY, 
-            new ApiKeyManager.ApiKeyInfo(TEST_API_KEY, 10, 100_000));
-        ApiKeyManager.setApiKeyForTesting(PREMIUM_API_KEY, 
-            new ApiKeyManager.ApiKeyInfo(PREMIUM_API_KEY, 20, 500_000));
-        ApiKeyManager.setApiKeyForTesting(BASIC_API_KEY, 
-            new ApiKeyManager.ApiKeyInfo(BASIC_API_KEY, 5, 50_000));
-        
         super.setUp();
+        
+        ApiKeyRepository repository = new ApiKeyRepository();
+        repository.save(TEST_API_KEY, TestPricingPlans.STANDARD_PLAN_ID);
+        repository.save(PREMIUM_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID);
+        repository.save(BASIC_API_KEY, TestPricingPlans.BASIC_PLAN_ID);
+        
+        TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
+        TestDatabaseSetup.markForDeletionDuringReset(PREMIUM_API_KEY);
+        TestDatabaseSetup.markForDeletionDuringReset(BASIC_API_KEY);
         
         testTimeMeter = new TestTimeMeter();
         getRateLimiterManager().setBucketFactory(apiKeyInfo ->
@@ -49,7 +52,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
     @AfterEach
     @Override
     void tearDown() throws Exception {
-        ApiKeyManager.resetToDefaults();
+        CachedApiKeyManager.getInstance().clearCache();
         super.tearDown();
     }
     
@@ -178,8 +181,8 @@ class RateLimitingTest extends AbstractIntegrationTest {
     
     @Test
     void testDayLimitEnforced() throws Exception {
-        ApiKeyManager.setApiKeyForTesting("day-limit-test", 
-            new ApiKeyManager.ApiKeyInfo("day-limit-test", 1000, 3));
+        CachedApiKeyManager.getInstance().setApiKeyForTesting("day-limit-test",
+            new CachedApiKeyManager.ApiKeyInfo("day-limit-test", 1000, 3));
 
         List<HttpResponse<String>> responses = new ArrayList<>();
         for (int i = 0; i < 5; i++) {

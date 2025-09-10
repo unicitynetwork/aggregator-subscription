@@ -50,12 +50,14 @@ public class RequestHandler extends Handler.Abstract {
     private final Duration readTimeout;
     private final boolean useVirtualThreads;
     private final RateLimiterManager rateLimiterManager;
+    private final WebUIHandler webUIHandler;
     
     public RequestHandler(ProxyConfig config) {
         this.targetUrl = config.getTargetUrl();
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
         this.rateLimiterManager = new RateLimiterManager();
+        this.webUIHandler = new WebUIHandler();
         
         var httpClientBuilder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(config.getConnectTimeout()))
@@ -81,8 +83,16 @@ public class RequestHandler extends Handler.Abstract {
     
     @Override
     public boolean handle(Request request, Response response, Callback callback) throws Exception {
+        String path = request.getHttpURI().getPath();
+        
+        // Handle web UI routes
+        if ("/index.html".equals(path) || "/generate".equals(path)) {
+            return webUIHandler.handle(request, response, callback);
+        }
+        
         String apiKey = extractApiKey(request);
-        if (apiKey == null || !ApiKeyManager.isValidApiKey(apiKey)) {
+        CachedApiKeyManager apiKeyManager = CachedApiKeyManager.getInstance();
+        if (apiKey == null || !apiKeyManager.isValidApiKey(apiKey)) {
             logger.debug("Authentication failed for request to {}", request.getHttpURI().getPath());
             response.setStatus(HttpStatus.UNAUTHORIZED_401);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
@@ -244,6 +254,10 @@ public class RequestHandler extends Handler.Abstract {
                name.equalsIgnoreCase(HEADER_X_API_KEY);
     }
     
+    public RateLimiterManager getRateLimiterManager() {
+        return rateLimiterManager;
+    }
+    
     private static Set<String> parseConnectionTokens(HttpField connectionField) {
         String connectionHeader = connectionField != null ? connectionField.getValue() : null;
         if (connectionHeader == null || connectionHeader .isEmpty()) {
@@ -305,9 +319,5 @@ public class RequestHandler extends Handler.Abstract {
         {
             return IOUtils.toByteArray(boundedStream);
         }
-    }
-
-    RateLimiterManager getRateLimiterManager() {
-        return rateLimiterManager;
     }
 }

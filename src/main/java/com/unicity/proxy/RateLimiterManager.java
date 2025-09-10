@@ -15,20 +15,21 @@ public class RateLimiterManager {
     private static final Logger logger = LoggerFactory.getLogger(RateLimiterManager.class);
     
     private final ConcurrentMap<String, Bucket> buckets = new ConcurrentHashMap<>();
-    private Function<ApiKeyManager.ApiKeyInfo, Bucket> bucketFactory;
+    private Function<CachedApiKeyManager.ApiKeyInfo, Bucket> bucketFactory;
     
     public RateLimiterManager() {
         this.bucketFactory = this::createDefaultBucket;
         logger.info("RateLimiterManager initialized");
     }
     
-    public void setBucketFactory(Function<ApiKeyManager.ApiKeyInfo, Bucket> bucketFactory) {
+    public void setBucketFactory(Function<CachedApiKeyManager.ApiKeyInfo, Bucket> bucketFactory) {
         this.bucketFactory = bucketFactory;
         buckets.clear();
     }
     
     public RateLimitResult tryConsume(String apiKey) {
-        ApiKeyManager.ApiKeyInfo apiKeyInfo = ApiKeyManager.getApiKeyInfo(apiKey);
+        CachedApiKeyManager apiKeyManager = CachedApiKeyManager.getInstance();
+        CachedApiKeyManager.ApiKeyInfo apiKeyInfo = apiKeyManager.getApiKeyInfo(apiKey);
         if (apiKeyInfo == null) {
             logger.warn("Attempted to rate limit unknown API key: {}", apiKey);
             return RateLimitResult.denied(0);
@@ -54,25 +55,25 @@ public class RateLimiterManager {
         return 1L + (nanoseconds - 1L) / 1_000_000_000L;
     }
 
-    private Bucket createDefaultBucket(ApiKeyManager.ApiKeyInfo apiKeyInfo) {
+    private Bucket createDefaultBucket(CachedApiKeyManager.ApiKeyInfo apiKeyInfo) {
         return createBucketWithTimeMeter(apiKeyInfo, TimeMeter.SYSTEM_MILLISECONDS);
     }
     
-    public static Bucket createBucketWithTimeMeter(ApiKeyManager.ApiKeyInfo apiKeyInfo, TimeMeter timeMeter) {
+    public static Bucket createBucketWithTimeMeter(CachedApiKeyManager.ApiKeyInfo apiKeyInfo, TimeMeter timeMeter) {
         Bucket bucket = Bucket.builder()
             .addLimit(limit -> limit
-                .capacity(apiKeyInfo.getRequestsPerSecond())
-                .refillGreedy(apiKeyInfo.getRequestsPerSecond(), Duration.ofSeconds(1))
+                .capacity(apiKeyInfo.requestsPerSecond())
+                .refillGreedy(apiKeyInfo.requestsPerSecond(), Duration.ofSeconds(1))
             )
             .addLimit(limit -> limit
-                .capacity(apiKeyInfo.getRequestsPerDay())
-                .refillGreedy(apiKeyInfo.getRequestsPerDay(), Duration.ofDays(1))
+                .capacity(apiKeyInfo.requestsPerDay())
+                .refillGreedy(apiKeyInfo.requestsPerDay(), Duration.ofDays(1))
             )
             .withCustomTimePrecision(timeMeter)
             .build();
         
         logger.debug("Created rate limiter for API key {} with limits: {}/sec, {}/day",
-            apiKeyInfo.getApiKey(), apiKeyInfo.getRequestsPerSecond(), apiKeyInfo.getRequestsPerDay());
+            apiKeyInfo.apiKey(), apiKeyInfo.requestsPerSecond(), apiKeyInfo.requestsPerDay());
         
         return bucket;
     }
