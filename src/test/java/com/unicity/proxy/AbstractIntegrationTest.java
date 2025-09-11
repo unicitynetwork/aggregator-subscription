@@ -1,5 +1,6 @@
 package com.unicity.proxy;
 
+import io.github.bucket4j.TimeMeter;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.Content;
 import org.eclipse.jetty.server.*;
@@ -16,6 +17,7 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.awaitility.Awaitility.await;
 import static org.eclipse.jetty.http.HttpHeader.AUTHORIZATION;
@@ -30,6 +32,8 @@ public abstract class AbstractIntegrationTest {
     protected ProxyServer proxyServer;
     protected int proxyPort;
     protected HttpClient httpClient;
+
+    protected TestTimeMeter testTimeMeter;
 
     @BeforeAll
     static void setUpDatabase() {
@@ -65,6 +69,11 @@ public abstract class AbstractIntegrationTest {
 
         await().atMost(5, TimeUnit.SECONDS)
                 .until(() -> isServerReady(proxyPort));
+
+        testTimeMeter = new TestTimeMeter();
+        getRateLimiterManager().setBucketFactory(apiKeyInfo ->
+                RateLimiterManager.createBucketWithTimeMeter(apiKeyInfo, testTimeMeter));
+        CachedApiKeyManager.getInstance().setTimeMeter(testTimeMeter);
     }
 
     @AfterEach
@@ -180,5 +189,31 @@ public abstract class AbstractIntegrationTest {
         return HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + proxyPort + urlPath))
                 .header(AUTHORIZATION.asString(), "Bearer " + apiKey);
+    }
+
+    private RateLimiterManager getRateLimiterManager() {
+        return ((RequestHandler) proxyServer.getServer().getHandler()).getRateLimiterManager();
+    }
+
+    public static class TestTimeMeter implements TimeMeter {
+        private final AtomicLong currentTime = new AtomicLong(System.currentTimeMillis());
+
+        @Override
+        public long currentTimeNanos() {
+            return currentTime.get() * 1_000_000L;
+        }
+
+        @Override
+        public boolean isWallClockBased() {
+            return true;
+        }
+
+        public void addTime(long millis) {
+            currentTime.addAndGet(millis);
+        }
+
+        public void setTime(long millis) {
+            currentTime.set(millis);
+        }
     }
 }

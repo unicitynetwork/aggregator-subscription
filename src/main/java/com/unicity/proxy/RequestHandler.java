@@ -102,16 +102,16 @@ public class RequestHandler extends Handler.Abstract {
         }
         
         RateLimiterManager.RateLimitResult rateLimitResult = rateLimiterManager.tryConsume(apiKey);
-        if (!rateLimitResult.isAllowed()) {
+        if (!rateLimitResult.allowed()) {
             logger.info("Rate limit exceeded for API key: {}", apiKey);
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS_429);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
-            response.getHeaders().put(RETRY_AFTER, String.valueOf(rateLimitResult.getRetryAfterSeconds()));
+            response.getHeaders().put(RETRY_AFTER, String.valueOf(rateLimitResult.retryAfterSeconds()));
             response.write(true, ByteBuffer.wrap("Too Many Requests".getBytes()), callback);
             return true;
         }
         
-        response.getHeaders().put(HEADER_X_RATE_LIMIT_REMAINING, String.valueOf(rateLimitResult.getRemainingTokens()));
+        response.getHeaders().put(HEADER_X_RATE_LIMIT_REMAINING, String.valueOf(rateLimitResult.remainingTokens()));
         
         String validationError = validateRequestSizeLimits(request);
         if (validationError != null) {

@@ -15,9 +15,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static com.unicity.proxy.RequestHandler.HEADER_X_RATE_LIMIT_REMAINING;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.jetty.http.HttpHeader.WWW_AUTHENTICATE;
 import static org.eclipse.jetty.http.HttpStatus.*;
@@ -28,8 +28,6 @@ class RateLimitingTest extends AbstractIntegrationTest {
     private static final String PREMIUM_API_KEY = "premium-rate-limit-key";
     private static final String BASIC_API_KEY = "basic-rate-limit-key";
     
-    private TestTimeMeter testTimeMeter;
-
     @BeforeEach
     @Override
     void setUp() throws Exception {
@@ -43,10 +41,6 @@ class RateLimitingTest extends AbstractIntegrationTest {
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
         TestDatabaseSetup.markForDeletionDuringReset(PREMIUM_API_KEY);
         TestDatabaseSetup.markForDeletionDuringReset(BASIC_API_KEY);
-        
-        testTimeMeter = new TestTimeMeter();
-        getRateLimiterManager().setBucketFactory(apiKeyInfo ->
-            RateLimiterManager.createBucketWithTimeMeter(apiKeyInfo, testTimeMeter));
     }
     
     @AfterEach
@@ -56,10 +50,6 @@ class RateLimitingTest extends AbstractIntegrationTest {
         super.tearDown();
     }
     
-    private RateLimiterManager getRateLimiterManager() {
-        return ((RequestHandler) proxyServer.getServer().getHandler()).getRateLimiterManager();
-    }
-
     @Test
     void testPerSecondRateLimit() throws Exception {
         List<HttpResponse<String>> responses = new ArrayList<>();
@@ -82,13 +72,11 @@ class RateLimitingTest extends AbstractIntegrationTest {
             performSimpleGetRequest(getAuthorizedRequestBuilder("/test", BASIC_API_KEY));
         }
 
-        HttpResponse<String> blockedResponse = performSimpleGetRequest(getAuthorizedRequestBuilder("/test", BASIC_API_KEY));
-        assertThat(blockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
-        
+        checkTooManyRequestsErrorOnASimpleGetRequest();
+
         testTimeMeter.addTime(1100);
 
-        HttpResponse<String> allowedResponse = performSimpleGetRequest(getAuthorizedRequestBuilder("/test", BASIC_API_KEY));
-        assertThat(allowedResponse.statusCode()).isEqualTo(OK_200);
+        checkSimpleGetRequestSucceeds();
     }
 
     @Test
@@ -136,9 +124,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
             performSimpleGetRequest(getAuthorizedRequestBuilder("/test", BASIC_API_KEY));
         }
 
-        HttpResponse<String> blockedResponse = performSimpleGetRequest(getAuthorizedRequestBuilder("/test", BASIC_API_KEY));
-
-        assertThat(blockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
+        HttpResponse<String> blockedResponse = checkTooManyRequestsErrorOnASimpleGetRequest();
         assertThat(blockedResponse.headers().firstValue("Retry-After")).isPresent();
         
         long retryAfter = Long.parseLong(blockedResponse.headers().firstValue("Retry-After").get());
@@ -158,7 +144,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
         
         List<HttpResponse<String>> responses = new ArrayList<>();
         for (CompletableFuture<HttpResponse<String>> future : futures) {
-            responses.add(future.get(10, TimeUnit.SECONDS));
+            responses.add(future.get(10, SECONDS));
         }
         
         long successCount = responses.stream().filter(r -> r.statusCode() == OK_200).count();
@@ -199,27 +185,36 @@ class RateLimitingTest extends AbstractIntegrationTest {
         long retryAfter = Long.parseLong(responses.get(3).headers().firstValue("Retry-After").get());
         assertThat(retryAfter).isEqualTo(TimeUnit.HOURS.toSeconds(8));
     }
-    
-    private static class TestTimeMeter implements TimeMeter {
-        private final AtomicLong currentTime = new AtomicLong(System.currentTimeMillis());
-        
-        @Override
-        public long currentTimeNanos() {
-            return currentTime.get() * 1_000_000L;
+
+    @Test
+    void testRateLimitsUpdateAfterCacheExpiry() throws Exception {
+        // Use the basic key (5 requests/sec) and hit the rate limit
+        for (int i = 0; i < 5; i++) {
+            checkSimpleGetRequestSucceeds();
         }
-        
-        @Override
-        public boolean isWallClockBased() {
-            return true;
+        checkTooManyRequestsErrorOnASimpleGetRequest();
+
+        // Update the key's plan in the database to Premium (20 requests/sec)
+        new ApiKeyRepository().updatePricingPlan(BASIC_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID);
+        // Advance time by more than the cache TTL (1 minute) to force a refresh
+        testTimeMeter.addTime(SECONDS.toMillis(61));
+
+        // Confirm the new limit is in place by sending more requests
+        for (int i = 0; i < 20; i++) {
+            checkSimpleGetRequestSucceeds();
         }
-        
-        public void addTime(long millis) {
-            currentTime.addAndGet(millis);
-        }
-        
-        public void setTime(long millis) {
-            currentTime.set(millis);
-        }
+        checkTooManyRequestsErrorOnASimpleGetRequest();
+    }
+
+    private HttpResponse<String> checkTooManyRequestsErrorOnASimpleGetRequest() throws IOException, InterruptedException {
+        HttpResponse<String> blockedResponse = performSimpleGetRequest(getAuthorizedRequestBuilder("/test", BASIC_API_KEY));
+        assertThat(blockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
+        return blockedResponse;
+    }
+
+    private void checkSimpleGetRequestSucceeds() throws IOException, InterruptedException {
+        HttpResponse<String> response = performSimpleGetRequest(getAuthorizedRequestBuilder("/test", BASIC_API_KEY));
+        assertThat(response.statusCode()).isEqualTo(OK_200);
     }
 
     private HttpResponse<String> performSimpleGetRequest(HttpRequest.Builder requestBuilder) throws IOException, InterruptedException {

@@ -35,7 +35,9 @@ public class ApiKeyRepository {
     private static final String DELETE_SQL = "DELETE FROM api_keys WHERE api_key = ?";
     
     private static final String DELETE_BY_PLAN_ID_SQL = "DELETE FROM api_keys WHERE pricing_plan_id = ?";
-    
+
+    private static final String UPDATE_PLAN_SQL = "UPDATE api_keys SET pricing_plan_id = ? WHERE api_key = ?";
+
     public Optional<ApiKeyInfo> findByKeyIfActive(String apiKey) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(FIND_BY_KEY_SQL)) {
@@ -105,6 +107,23 @@ public class ApiKeyRepository {
             }
         } catch (SQLException e) {
             logger.error("Error deleting API keys for pricing plan id: " + planId, e);
+        }
+    }
+
+    public void updatePricingPlan(String apiKey, int newPricingPlanId) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(UPDATE_PLAN_SQL)) {
+
+            stmt.setInt(1, newPricingPlanId);
+            stmt.setString(2, apiKey);
+
+            int affected = stmt.executeUpdate();
+
+            if (affected > 0) {
+                logger.info("Updated pricing plan for API key: {} to plan_id: {}", apiKey, newPricingPlanId);
+            }
+        } catch (SQLException e) {
+            logger.error("Error updating pricing plan for API key: {}", apiKey, e);
         }
     }
 

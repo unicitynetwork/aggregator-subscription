@@ -1,6 +1,7 @@
 package com.unicity.proxy;
 
 import com.unicity.proxy.repository.ApiKeyRepository;
+import io.github.bucket4j.TimeMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +13,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 public class CachedApiKeyManager {
     private static final Logger logger = LoggerFactory.getLogger(CachedApiKeyManager.class);
@@ -21,9 +23,11 @@ public class CachedApiKeyManager {
     private final ApiKeyRepository repository;
     private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor;
-    
+
+    private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
+
     private static volatile CachedApiKeyManager instance;
-    
+
     private CachedApiKeyManager() {
         this.repository = new ApiKeyRepository();
         this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -61,7 +65,7 @@ public class CachedApiKeyManager {
     
     public ApiKeyInfo getApiKeyInfo(String apiKey) {
         CacheEntry entry = cache.get(apiKey);
-        if (entry != null && !entry.isExpired(System.currentTimeMillis())) {
+        if (entry != null && !entry.isExpired(NANOSECONDS.toMillis(timeMeter.currentTimeNanos()))) {
             logger.debug("Cache hit for API key: {}", apiKey);
             return entry.info;
         }
@@ -99,7 +103,7 @@ public class CachedApiKeyManager {
     
     private void cleanupExpiredEntries() {
         int removed = 0;
-        long currentTimeMillis = System.currentTimeMillis();
+        long currentTimeMillis = NANOSECONDS.toMillis(timeMeter.currentTimeNanos());
 
         for (Map.Entry<String, CacheEntry> e : cache.entrySet()) {
             CacheEntry v = e.getValue();
@@ -124,14 +128,18 @@ public class CachedApiKeyManager {
             Thread.currentThread().interrupt();
         }
     }
-    
-    private static class CacheEntry {
+
+    public void setTimeMeter(TimeMeter timeMeter) {
+        this.timeMeter = timeMeter;
+    }
+
+    private class CacheEntry {
         final ApiKeyInfo info;
         final long timestamp;
         
         CacheEntry(ApiKeyInfo info) {
             this.info = info;
-            this.timestamp = System.currentTimeMillis();
+            this.timestamp = NANOSECONDS.toMillis(timeMeter.currentTimeNanos());
         }
         
         boolean isExpired(long currentTimeMillis) {

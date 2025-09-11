@@ -13,10 +13,10 @@ import java.util.function.Function;
 
 public class RateLimiterManager {
     private static final Logger logger = LoggerFactory.getLogger(RateLimiterManager.class);
-    
-    private final ConcurrentMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+
+    private final ConcurrentMap<String, RateLimitEntry> buckets = new ConcurrentHashMap<>();
     private Function<CachedApiKeyManager.ApiKeyInfo, Bucket> bucketFactory;
-    
+
     public RateLimiterManager() {
         this.bucketFactory = this::createDefaultBucket;
         logger.info("RateLimiterManager initialized");
@@ -26,17 +26,24 @@ public class RateLimiterManager {
         this.bucketFactory = bucketFactory;
         buckets.clear();
     }
-    
+
     public RateLimitResult tryConsume(String apiKey) {
         CachedApiKeyManager apiKeyManager = CachedApiKeyManager.getInstance();
-        CachedApiKeyManager.ApiKeyInfo apiKeyInfo = apiKeyManager.getApiKeyInfo(apiKey);
-        if (apiKeyInfo == null) {
+        CachedApiKeyManager.ApiKeyInfo currentApiKeyInfo = apiKeyManager.getApiKeyInfo(apiKey);
+        if (currentApiKeyInfo == null) {
             logger.warn("Attempted to rate limit unknown API key: {}", apiKey);
             return RateLimitResult.denied(0);
         }
-        
-        Bucket bucket = buckets.computeIfAbsent(apiKey, k -> bucketFactory.apply(apiKeyInfo));
-        
+
+        RateLimitEntry entry = buckets.compute(apiKey, (key, existingEntry) -> {
+            if (existingEntry == null || !existingEntry.apiKeyInfo().equals(currentApiKeyInfo)) {
+                Bucket newBucket = bucketFactory.apply(currentApiKeyInfo);
+                return new RateLimitEntry(newBucket, currentApiKeyInfo);
+            }
+            return existingEntry;
+        });
+
+        Bucket bucket = entry.bucket();
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
         if (!probe.isConsumed()) {
             long waitTimeNanos = probe.getNanosToWaitForRefill();
@@ -77,46 +84,16 @@ public class RateLimiterManager {
         
         return bucket;
     }
-    
-    public void resetBucketForApiKey(String apiKey) {
-        buckets.remove(apiKey);
-        logger.info("Reset rate limiter bucket for API key: {}", apiKey);
-    }
-    
-    public void resetAllBuckets() {
-        buckets.clear();
-        logger.info("Reset all rate limiter buckets");
-    }
-    
-    public static class RateLimitResult {
-        private final boolean allowed;
-        private final long retryAfterSeconds;
-        private final long remainingTokens;
-        
-        private RateLimitResult(boolean allowed, long retryAfterSeconds, long remainingTokens) {
-            this.allowed = allowed;
-            this.retryAfterSeconds = retryAfterSeconds;
-            this.remainingTokens = remainingTokens;
-        }
-        
+
+    public record RateLimitResult(boolean allowed, long retryAfterSeconds, long remainingTokens) {
         public static RateLimitResult allowed(long remainingTokens) {
             return new RateLimitResult(true, 0, remainingTokens);
-        }
-        
+       }
+
         public static RateLimitResult denied(long retryAfterSeconds) {
             return new RateLimitResult(false, retryAfterSeconds, 0);
         }
-        
-        public boolean isAllowed() {
-            return allowed;
-        }
-        
-        public long getRetryAfterSeconds() {
-            return retryAfterSeconds;
-        }
-        
-        public long getRemainingTokens() {
-            return remainingTokens;
-        }
     }
+
+    private record RateLimitEntry(Bucket bucket, CachedApiKeyManager.ApiKeyInfo apiKeyInfo) {}
 }
