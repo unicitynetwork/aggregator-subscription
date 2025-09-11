@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
@@ -157,8 +158,8 @@ public class RequestHandler extends Handler.Abstract {
             forwardAllNonRestrictedHeaders(request, requestBuilder);
             forwardBody(request, method, requestBuilder);
             HttpRequest httpRequest = requestBuilder.build();
-            
-            httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray())
+
+            httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
                 .whenComplete((httpResponse, throwable) -> {
                     if (throwable != null) {
                         handleError(response, callback, throwable);
@@ -172,10 +173,20 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private void forwardBody(Request request, String method, HttpRequest.Builder requestBuilder) throws IOException {
+    private void forwardBody(Request request, String method, HttpRequest.Builder requestBuilder) {
         if (hasBody(method)) {
-            byte[] requestBody = readBodyWithLimit(request);
-            requestBuilder.method(method, HttpRequest.BodyPublishers.ofByteArray(requestBody));
+            HttpRequest.BodyPublisher streamingBodyPublisher = HttpRequest.BodyPublishers.ofInputStream(() -> {
+                try {
+                    InputStream requestInputStream = Content.Source.asInputStream(request);
+                    return BoundedInputStream.builder()
+                            .setInputStream(requestInputStream)
+                            .setMaxCount(MAX_PAYLOAD_SIZE_BYTES)
+                            .get();
+                } catch (IOException e) {
+                    throw new UncheckedIOException("Failed to get InputStream from request", e);
+                }
+            });
+            requestBuilder.method(method, streamingBodyPublisher);
         } else {
             requestBuilder.method(method, HttpRequest.BodyPublishers.noBody());
         }
@@ -191,7 +202,7 @@ public class RequestHandler extends Handler.Abstract {
         });
     }
 
-    private void forwardResponse(Response response, Callback callback, HttpResponse<byte[]> httpResponse) {
+    private void forwardResponse(Response response, Callback callback, HttpResponse<InputStream> httpResponse) {
         try {
             response.setStatus(httpResponse.statusCode());
             
@@ -203,14 +214,15 @@ public class RequestHandler extends Handler.Abstract {
                     }
                 }
             });
-            
-            byte[] body = httpResponse.body();
-            if (body != null && body.length > 0) {
-                response.write(true, ByteBuffer.wrap(body), callback);
-            } else {
+
+            try (InputStream responseBodyStream = httpResponse.body()) {
+                IOUtils.copy(responseBodyStream, Content.Sink.asOutputStream(response));
                 callback.succeeded();
+            } catch (IOException e) {
+                logger.error("Error streaming response body to client", e);
+                callback.failed(e);
             }
-            
+
             logger.debug("Response forwarded: {} {}", httpResponse.statusCode(), httpResponse.uri());
             
         } catch (Exception e) {
