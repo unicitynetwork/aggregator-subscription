@@ -39,8 +39,8 @@ public class TestDatabaseSetup {
     }
     
     public static void resetDatabase() {
-        CachedApiKeyManager.getInstance().clearCache();
-        
+        CachedApiKeyManager.getInstance().invalidateCache();
+
         if (!keysToDeleteOnReset.isEmpty()) {
             ApiKeyRepository repository = new ApiKeyRepository();
             for (String apiKey : keysToDeleteOnReset) {

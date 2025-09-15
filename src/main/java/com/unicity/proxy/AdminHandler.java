@@ -232,7 +232,7 @@ public class AdminHandler extends Handler.Abstract {
             apiKeyRepository.create(newApiKey, description, planId);
 
             // Clear cache to force reload
-            apiKeyManager.invalidateCache();
+            apiKeyManager.removeCacheEntry(newApiKey);
 
             ObjectNode responseJson = mapper.createObjectNode();
             responseJson.put("apiKey", newApiKey);
@@ -251,7 +251,7 @@ public class AdminHandler extends Handler.Abstract {
             apiKeyRepository.delete(id);
 
             // Clear cache to force reload
-            apiKeyManager.invalidateCache();
+            apiKeyManager.removeCacheEntry(keyId);
 
             ObjectNode responseJson = mapper.createObjectNode();
             responseJson.put("message", "API key deleted successfully");
@@ -285,7 +285,7 @@ public class AdminHandler extends Handler.Abstract {
             }
 
             // Clear cache to force reload
-            apiKeyManager.invalidateCache();
+            apiKeyManager.removeCacheEntry(keyId);
 
             ObjectNode responseJson = mapper.createObjectNode();
             responseJson.put("message", "API key updated successfully");

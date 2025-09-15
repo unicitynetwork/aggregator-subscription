@@ -91,10 +91,6 @@ public class CachedApiKeyManager {
     public void setApiKeyForTesting(String apiKey, ApiKeyInfo info) {
         cache.put(apiKey, new CacheEntry(info));
     }
-    
-    public void clearCache() {
-        cache.clear();
-    }
 
     public void invalidateCache() {
         cache.clear();
