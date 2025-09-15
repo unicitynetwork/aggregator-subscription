@@ -15,9 +15,11 @@ public class RateLimiterManager {
     private static final Logger logger = LoggerFactory.getLogger(RateLimiterManager.class);
 
     private final ConcurrentMap<String, RateLimitEntry> buckets = new ConcurrentHashMap<>();
+    private final CachedApiKeyManager apiKeyManager;
     private Function<CachedApiKeyManager.ApiKeyInfo, Bucket> bucketFactory;
 
-    public RateLimiterManager() {
+    public RateLimiterManager(CachedApiKeyManager apiKeyManager) {
+        this.apiKeyManager = apiKeyManager;
         this.bucketFactory = this::createDefaultBucket;
         logger.info("RateLimiterManager initialized");
     }
@@ -28,7 +30,6 @@ public class RateLimiterManager {
     }
 
     public RateLimitResult tryConsume(String apiKey) {
-        CachedApiKeyManager apiKeyManager = CachedApiKeyManager.getInstance();
         CachedApiKeyManager.ApiKeyInfo currentApiKeyInfo = apiKeyManager.getApiKeyInfo(apiKey);
         if (currentApiKeyInfo == null) {
             logger.warn("Attempted to rate limit unknown API key: {}", apiKey);

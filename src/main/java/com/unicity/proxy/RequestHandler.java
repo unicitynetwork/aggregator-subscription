@@ -50,6 +50,7 @@ public class RequestHandler extends Handler.Abstract {
     private final String targetUrl;
     private final Duration readTimeout;
     private final boolean useVirtualThreads;
+    private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
     private final WebUIHandler webUIHandler;
     
@@ -57,7 +58,8 @@ public class RequestHandler extends Handler.Abstract {
         this.targetUrl = config.getTargetUrl();
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
-        this.rateLimiterManager = new RateLimiterManager();
+        this.apiKeyManager = CachedApiKeyManager.getInstance();
+        this.rateLimiterManager = new RateLimiterManager(apiKeyManager);
         this.webUIHandler = new WebUIHandler();
         
         var httpClientBuilder = HttpClient.newBuilder()
@@ -98,7 +100,6 @@ public class RequestHandler extends Handler.Abstract {
         }
 
         String apiKey = extractApiKey(request);
-        CachedApiKeyManager apiKeyManager = CachedApiKeyManager.getInstance();
         if (apiKey == null || !apiKeyManager.isValidApiKey(apiKey)) {
             logger.warn("Authentication failed for request: {} {} - API key: {}", method, path,
                 apiKey != null ? "invalid" : "missing");
