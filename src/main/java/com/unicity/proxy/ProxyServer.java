@@ -13,6 +13,7 @@ public class ProxyServer {
     
     private final ProxyConfig config;
     private final Server server;
+    private final RateLimiterManager rateLimiterManager; 
     
     public ProxyServer(ProxyConfig config) {
         this.config = config;
@@ -24,10 +25,12 @@ public class ProxyServer {
 
         // Create handler chain with admin handler first
         RequestHandler requestHandler = new RequestHandler(config);
+        this.rateLimiterManager = requestHandler.getRateLimiterManager();
+        
         AdminHandler adminHandler = new AdminHandler(
             config.getAdminPassword(),
             requestHandler.getApiKeyManager(),
-            requestHandler.getRateLimiterManager()
+            this.rateLimiterManager
         );
 
         // Create a combined handler that tries admin first, then proxy
@@ -111,5 +114,9 @@ public class ProxyServer {
 
     Server getServer() {
         return server;
+    }
+
+    public RateLimiterManager getRateLimiterManager() {
+        return rateLimiterManager;
     }
 }

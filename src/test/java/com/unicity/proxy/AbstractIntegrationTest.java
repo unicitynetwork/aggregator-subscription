@@ -238,8 +238,8 @@ public abstract class AbstractIntegrationTest {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    private RateLimiterManager getRateLimiterManager() {
-        return ((RequestHandler) proxyServer.getServer().getHandler()).getRateLimiterManager();
+    protected RateLimiterManager getRateLimiterManager() {
+        return proxyServer.getRateLimiterManager();
     }
 
     public static class TestTimeMeter implements TimeMeter {
