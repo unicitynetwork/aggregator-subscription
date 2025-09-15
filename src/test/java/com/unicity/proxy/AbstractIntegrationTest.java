@@ -1,5 +1,6 @@
 package com.unicity.proxy;
 
+import com.unicity.proxy.testparameterization.AuthMode;
 import io.github.bucket4j.TimeMeter;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.Content;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,6 +26,29 @@ import static org.eclipse.jetty.http.HttpHeader.AUTHORIZATION;
 import static org.eclipse.jetty.http.HttpStatus.*;
 
 public abstract class AbstractIntegrationTest {
+
+    protected static final String SUBMIT_COMMITMENT_REQUEST = """
+        {
+            "jsonrpc": "2.0",
+            "method": "submit_commitment",
+            "params": {
+                "requestId": "test123"
+            },
+            "id": 1
+        }
+        """;
+
+    protected static final String GET_INCLUSION_PROOF_REQUEST = """
+        {
+            "jsonrpc": "2.0",
+            "method": "get_inclusion_proof",
+            "params": {
+                "requestId": "test123"
+            },
+            "id": 1
+        }
+        """;
+
     public static final String APPLICATION_OCTET_STREAM = "application/octet-stream";
 
     protected final String defaultApiKey = "supersecret";
@@ -182,14 +207,35 @@ public abstract class AbstractIntegrationTest {
         }
     }
 
+    protected HttpRequest.Builder getRequestBuilder(String urlPath, AuthMode authMode) {
+        return switch (authMode) {
+            case AUTHORIZED -> getAuthorizedRequestBuilder(urlPath);
+            case UNAUTHORIZED -> getNotAuthorizedRequestBuilder(urlPath);
+        };
+    }
+
     protected HttpRequest.Builder getAuthorizedRequestBuilder(String urlPath) {
         return getAuthorizedRequestBuilder(urlPath, defaultApiKey);
     }
     
     protected HttpRequest.Builder getAuthorizedRequestBuilder(String urlPath, String apiKey) {
-        return HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + proxyPort + urlPath))
+        return getNotAuthorizedRequestBuilder(urlPath)
                 .header(AUTHORIZATION.asString(), "Bearer " + apiKey);
+    }
+
+    protected HttpRequest.Builder getNotAuthorizedRequestBuilder(String urlPath) {
+        return HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + proxyPort + urlPath));
+    }
+
+    protected HttpResponse<String> performJsonRpcRequest(HttpRequest.Builder httpRequestBuilder, String httpBody) throws IOException, InterruptedException {
+        HttpRequest request = httpRequestBuilder
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(httpBody))
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private RateLimiterManager getRateLimiterManager() {

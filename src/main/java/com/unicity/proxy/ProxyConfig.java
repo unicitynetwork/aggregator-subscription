@@ -2,6 +2,10 @@ package com.unicity.proxy;
 
 import com.beust.jcommander.Parameter;
 
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 public class ProxyConfig {
     @Parameter(names = {"--port", "-p"}, description = "Proxy server port")
     private int port = 8080;
@@ -27,6 +31,9 @@ public class ProxyConfig {
     @Parameter(names = {"--admin-password"}, description = "Admin dashboard password")
     private String adminPassword = null;
 
+    @Parameter(names = {"--protected-methods"}, description = "Comma-separated list of JSON-RPC methods requiring authentication and rate limiting")
+    private String protectedMethods = "submit_commitment";
+    
     @Parameter(names = {"--help", "-h"}, help = true, description = "Show help")
     private boolean help = false;
 
@@ -84,13 +91,20 @@ public class ProxyConfig {
         return help;
     }
     
+    public Set<String> getProtectedMethods() {
+        return Arrays.stream(protectedMethods.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(Collectors.toSet());
+    }
+    
     @Override
     public String toString() {
         return String.format(
             "ProxyConfig{port=%d, targetUrl='%s', ioThreads=%d, workerThreads=%d, " +
-            "connectTimeout=%d, readTimeout=%d, idleTimeout=%d}",
-            port, targetUrl, ioThreads, workerThreads,
-            connectTimeout, readTimeout, idleTimeout
+            "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, protectedMethods='%s'}",
+            port, targetUrl, ioThreads, workerThreads, 
+            connectTimeout, readTimeout, idleTimeout, protectedMethods
         );
     }
 }
