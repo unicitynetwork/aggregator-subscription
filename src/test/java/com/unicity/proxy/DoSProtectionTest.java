@@ -1,7 +1,11 @@
 package com.unicity.proxy;
 
-import org.eclipse.jetty.http.HttpStatus;
-import org.junit.jupiter.api.*;
+import com.unicity.proxy.testparameterization.AuthMode;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -9,10 +13,16 @@ import java.time.Duration;
 
 import static java.net.http.HttpRequest.BodyPublishers.ofByteArray;
 import static java.net.http.HttpRequest.BodyPublishers.ofString;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.jetty.http.HttpHeader.CONTENT_TYPE;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.eclipse.jetty.http.HttpStatus.*;
 
+@ParameterizedClass
+@EnumSource(AuthMode.class)
 class DoSProtectionTest extends AbstractIntegrationTest {
+    @Parameter
+    AuthMode authMode;
+
     @Test
     @DisplayName("Should reject request with content length exceeding limit")
     void testRejectLargeContentLength() throws Exception {
@@ -27,8 +37,8 @@ class DoSProtectionTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        assertEquals(HttpStatus.BAD_REQUEST_400, response.statusCode());
-        assertTrue(response.body().contains("Request body too large"));
+        assertThat(response.statusCode()).isEqualTo(BAD_REQUEST_400);
+        assertThat(response.body()).contains("Request body too large");
     }
 
     @Test
@@ -44,7 +54,7 @@ class DoSProtectionTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        assertEquals(HttpStatus.OK_200, response.statusCode());
+        assertThat(response.statusCode()).isEqualTo(OK_200);
     }
 
     @Test
@@ -62,7 +72,7 @@ class DoSProtectionTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        assertEquals(HttpStatus.OK_200, response.statusCode());
+        assertThat(response.statusCode()).isEqualTo(OK_200);
     }
 
     @Test
@@ -81,8 +91,8 @@ class DoSProtectionTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertEquals(HttpStatus.BAD_REQUEST_400, response.statusCode());
-        assertTrue(response.body().contains("Too many headers"));
+        assertThat(response.statusCode()).isEqualTo(BAD_REQUEST_400);
+        assertThat(response.body()).contains("Too many headers");
     }
     
     @Test
@@ -97,7 +107,7 @@ class DoSProtectionTest extends AbstractIntegrationTest {
                 .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        assertEquals(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE_431, response.statusCode());
+        assertThat(response.statusCode()).isEqualTo(REQUEST_HEADER_FIELDS_TOO_LARGE_431);
     }
     
     @Test
@@ -112,7 +122,7 @@ class DoSProtectionTest extends AbstractIntegrationTest {
                 .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        assertEquals(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE_431, response.statusCode());
+        assertThat(response.statusCode()).isEqualTo(REQUEST_HEADER_FIELDS_TOO_LARGE_431);
     }
     
     @Test
@@ -120,7 +130,7 @@ class DoSProtectionTest extends AbstractIntegrationTest {
     void testMaxAllowedHeaders() throws Exception {
         HttpRequest.Builder requestBuilder = getAuthorizedRequestBuilder("/test");
         
-        for (int i = 0; i < RequestHandler.MAX_HEADER_COUNT - 10 ; i++) {
+        for (int i = 0; i < RequestHandler.MAX_HEADER_COUNT - 10; i++) {
             requestBuilder.header("X-Custom-Header-" + i, "value");
         }
         
@@ -131,7 +141,7 @@ class DoSProtectionTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
-        assertEquals(HttpStatus.OK_200, response.statusCode());
+        assertThat(response.statusCode()).isEqualTo(OK_200);
     }
 
     private static void fillWithSomething(byte[] largePayload) {

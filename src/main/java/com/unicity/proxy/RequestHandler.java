@@ -27,6 +27,8 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.io.IOException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.eclipse.jetty.http.HttpHeader.*;
@@ -51,6 +53,8 @@ public class RequestHandler extends Handler.Abstract {
     private final boolean useVirtualThreads;
     private final RateLimiterManager rateLimiterManager;
     private final WebUIHandler webUIHandler;
+    private final Set<String> protectedMethods;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     
     public RequestHandler(ProxyConfig config) {
         this.targetUrl = config.getTargetUrl();
@@ -58,6 +62,7 @@ public class RequestHandler extends Handler.Abstract {
         this.useVirtualThreads = config.isVirtualThreads();
         this.rateLimiterManager = new RateLimiterManager();
         this.webUIHandler = new WebUIHandler();
+        this.protectedMethods = config.getProtectedMethods();
         
         var httpClientBuilder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(config.getConnectTimeout()))
@@ -90,6 +95,44 @@ public class RequestHandler extends Handler.Abstract {
             return webUIHandler.handle(request, response, callback);
         }
         
+        byte[] requestBody = null;
+        if (hasBody(request.getMethod())) {
+            requestBody = readBodyWithLimit(request);
+        }
+
+        if (requiresAuthentication(request.getMethod(), requestBody)) {
+            if (!performAuthenticationAndRateLimiting(request, response, callback)) {
+                return true;
+            }
+        }
+
+        if (!performValidationOnRequestSizeLimits(request, response, callback)) {
+            return true;
+        }
+
+        if (useVirtualThreads) {
+            byte[] finalRequestBody = requestBody;
+            Thread.startVirtualThread(() -> handleRequestAsync(request, finalRequestBody, response, callback));
+        } else {
+            handleRequestAsync(request, requestBody, response, callback);
+        }
+        
+        return true;
+    }
+
+    private boolean performValidationOnRequestSizeLimits(Request request, Response response, Callback callback) {
+        String validationError = validateRequestSizeLimits(request);
+        if (validationError != null) {
+            logger.warn("Request validation failed: {}", validationError);
+            response.setStatus(HttpStatus.BAD_REQUEST_400);
+            response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
+            response.write(true, ByteBuffer.wrap(validationError.getBytes()), callback);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean performAuthenticationAndRateLimiting(Request request, Response response, Callback callback) {
         String apiKey = extractApiKey(request);
         CachedApiKeyManager apiKeyManager = CachedApiKeyManager.getInstance();
         if (apiKey == null || !apiKeyManager.isValidApiKey(apiKey)) {
@@ -98,9 +141,9 @@ public class RequestHandler extends Handler.Abstract {
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.getHeaders().put(HttpHeader.WWW_AUTHENTICATE, BEARER_AUTHORIZATION);
             response.write(true, ByteBuffer.wrap("Unauthorized".getBytes()), callback);
-            return true;
+            return false;
         }
-        
+
         RateLimiterManager.RateLimitResult rateLimitResult = rateLimiterManager.tryConsume(apiKey);
         if (!rateLimitResult.allowed()) {
             logger.info("Rate limit exceeded for API key: {}", apiKey);
@@ -108,32 +151,27 @@ public class RequestHandler extends Handler.Abstract {
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.getHeaders().put(RETRY_AFTER, String.valueOf(rateLimitResult.retryAfterSeconds()));
             response.write(true, ByteBuffer.wrap("Too Many Requests".getBytes()), callback);
-            return true;
+            return false;
         }
-        
+
         response.getHeaders().put(HEADER_X_RATE_LIMIT_REMAINING, String.valueOf(rateLimitResult.remainingTokens()));
-        
-        String validationError = validateRequestSizeLimits(request);
-        if (validationError != null) {
-            logger.warn("Request validation failed: {}", validationError);
-            response.setStatus(HttpStatus.BAD_REQUEST_400);
-            response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
-            response.write(true, ByteBuffer.wrap(validationError.getBytes()), callback);
-            return true;
-        }
-        
-        if (useVirtualThreads) {
-            Thread.startVirtualThread(() -> handleRequestAsync(request, response, callback));
-        } else {
-            handleRequestAsync(request, response, callback);
-        }
-        
         return true;
     }
-    
-    private void handleRequestAsync(Request request, Response response, Callback callback) {
+
+    private boolean requiresAuthentication(String method, byte[] requestBody) {
+        boolean requiresAuth = false;
+        if ("POST".equals(method) && requestBody != null) {
+            String jsonRpcMethod = extractJsonRpcMethodFromBody(requestBody);
+            if (jsonRpcMethod != null && protectedMethods.contains(jsonRpcMethod)) {
+                requiresAuth = true;
+            }
+        }
+        return requiresAuth;
+    }
+
+    private void handleRequestAsync(Request request, byte[] cachedBody, Response response, Callback callback) {
         try {
-            proxyRequest(request, response, callback);
+            proxyRequest(request, cachedBody, response, callback);
         } catch (Exception e) {
             logger.error("Error handling request", e);
             response.setStatus(HttpStatus.BAD_GATEWAY_502);
@@ -141,7 +179,7 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
     
-    private void proxyRequest(Request request, Response response, Callback callback) {
+    private void proxyRequest(Request request, byte[] cachedBody, Response response, Callback callback) {
         try {
             String method = request.getMethod();
             String path = Request.getPathInContext(request);
@@ -155,7 +193,7 @@ public class RequestHandler extends Handler.Abstract {
                 .uri(URI.create(targetUri))
                 .timeout(readTimeout);
             forwardAllNonRestrictedHeaders(request, requestBuilder);
-            forwardBody(request, method, requestBuilder);
+            forwardBody(cachedBody, method, requestBuilder);
             HttpRequest httpRequest = requestBuilder.build();
             
             httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray())
@@ -172,9 +210,8 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private void forwardBody(Request request, String method, HttpRequest.Builder requestBuilder) throws IOException {
-        if (hasBody(method)) {
-            byte[] requestBody = readBodyWithLimit(request);
+    private void forwardBody(byte[] requestBody, String method, HttpRequest.Builder requestBuilder) throws IOException {
+        if (requestBody != null) {
             requestBuilder.method(method, HttpRequest.BodyPublishers.ofByteArray(requestBody));
         } else {
             requestBuilder.method(method, HttpRequest.BodyPublishers.noBody());
@@ -319,5 +356,21 @@ public class RequestHandler extends Handler.Abstract {
         {
             return IOUtils.toByteArray(boundedStream);
         }
+    }
+    
+    private String extractJsonRpcMethodFromBody(byte[] body) {
+        try {
+            if (body.length == 0) {
+                return null;
+            }
+            
+            JsonNode root = objectMapper.readTree(body);
+            if (root.has("method")) {
+                return root.get("method").asText();
+            }
+        } catch (Exception e) {
+            logger.debug("Could not extract JSON-RPC method from request body", e);
+        }
+        return null;
     }
 }
