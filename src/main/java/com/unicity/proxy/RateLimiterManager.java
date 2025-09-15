@@ -7,8 +7,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 public class RateLimiterManager {
@@ -17,6 +20,7 @@ public class RateLimiterManager {
     private final ConcurrentMap<String, RateLimitEntry> buckets = new ConcurrentHashMap<>();
     private final CachedApiKeyManager apiKeyManager;
     private Function<CachedApiKeyManager.ApiKeyInfo, Bucket> bucketFactory;
+    private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
 
     public RateLimiterManager(CachedApiKeyManager apiKeyManager) {
         this.apiKeyManager = apiKeyManager;
@@ -29,6 +33,11 @@ public class RateLimiterManager {
         buckets.clear();
     }
 
+    public void setTimeMeter(TimeMeter timeMeter) {
+        this.timeMeter = timeMeter;
+        buckets.clear();
+    }
+
     public RateLimitResult tryConsume(String apiKey) {
         CachedApiKeyManager.ApiKeyInfo currentApiKeyInfo = apiKeyManager.getApiKeyInfo(apiKey);
         if (currentApiKeyInfo == null) {
@@ -37,16 +46,26 @@ public class RateLimiterManager {
         }
 
         RateLimitEntry entry = buckets.compute(apiKey, (key, existingEntry) -> {
-            if (existingEntry == null || !existingEntry.apiKeyInfo().equals(currentApiKeyInfo)) {
+            if (existingEntry == null || !existingEntry.apiKeyInfo.equals(currentApiKeyInfo)) {
                 Bucket newBucket = bucketFactory.apply(currentApiKeyInfo);
                 return new RateLimitEntry(newBucket, currentApiKeyInfo);
             }
             return existingEntry;
         });
 
-        Bucket bucket = entry.bucket();
+        Bucket bucket = entry.bucket;
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
-        if (!probe.isConsumed()) {
+        if (probe.isConsumed()) {
+            // Record consumption for tracking
+            entry.recordConsumption();
+
+            if (logger.isTraceEnabled()) {
+                logger.trace("Request allowed for API key {} (remaining: {})",
+                    apiKey, probe.getRemainingTokens());
+            }
+
+            return RateLimitResult.allowed(probe.getRemainingTokens());
+        } else {
             long waitTimeNanos = probe.getNanosToWaitForRefill();
             long waitTimeSeconds = Math.max(1, nanosToSecondsRoundUp(waitTimeNanos));
             if (logger.isDebugEnabled()) {
@@ -54,13 +73,6 @@ public class RateLimiterManager {
             }
             return RateLimitResult.denied(waitTimeSeconds);
         }
-        
-        if (logger.isTraceEnabled()) {
-            logger.trace("Request allowed for API key {} (remaining: {})",
-                apiKey, probe.getRemainingTokens());
-        }
-        
-        return RateLimitResult.allowed(probe.getRemainingTokens());
     }
 
     private static long nanosToSecondsRoundUp(long nanoseconds) {
@@ -70,6 +82,7 @@ public class RateLimiterManager {
     private Bucket createDefaultBucket(CachedApiKeyManager.ApiKeyInfo apiKeyInfo) {
         return createBucketWithTimeMeter(apiKeyInfo, TimeMeter.SYSTEM_MILLISECONDS);
     }
+
     
     public static Bucket createBucketWithTimeMeter(CachedApiKeyManager.ApiKeyInfo apiKeyInfo, TimeMeter timeMeter) {
         Bucket bucket = Bucket.builder()
@@ -102,5 +115,135 @@ public class RateLimiterManager {
         }
     }
 
-    private record RateLimitEntry(Bucket bucket, CachedApiKeyManager.ApiKeyInfo apiKeyInfo) {}
+    private static class RateLimitEntry {
+        private final Bucket bucket;
+        private final CachedApiKeyManager.ApiKeyInfo apiKeyInfo;
+        private final AtomicLong consumedPerSecond = new AtomicLong(0);
+        private final AtomicLong consumedPerDay = new AtomicLong(0);
+        private volatile long lastSecondReset = System.currentTimeMillis();
+        private volatile long lastDayReset = System.currentTimeMillis();
+
+        RateLimitEntry(Bucket bucket, CachedApiKeyManager.ApiKeyInfo apiKeyInfo) {
+            this.bucket = bucket;
+            this.apiKeyInfo = apiKeyInfo;
+        }
+
+        void recordConsumption() {
+            long now = System.currentTimeMillis();
+
+            // Reset per-second counter if more than 1 second has passed
+            if (now - lastSecondReset >= 1000) {
+                consumedPerSecond.set(1);
+                lastSecondReset = now;
+            } else {
+                consumedPerSecond.incrementAndGet();
+            }
+
+            // Reset per-day counter if more than 24 hours have passed
+            if (now - lastDayReset >= 86400000) { // 24 * 60 * 60 * 1000
+                consumedPerDay.set(1);
+                lastDayReset = now;
+            } else {
+                consumedPerDay.incrementAndGet();
+            }
+        }
+
+        long getConsumedPerSecond() {
+            long now = System.currentTimeMillis();
+            if (now - lastSecondReset >= 1000) {
+                return 0;
+            }
+            return consumedPerSecond.get();
+        }
+
+        long getConsumedPerDay() {
+            long now = System.currentTimeMillis();
+            if (now - lastDayReset >= 86400000) {
+                return 0;
+            }
+            return consumedPerDay.get();
+        }
+    }
+
+    public static class UtilizationInfo {
+        private final String apiKey;
+        private final long availableTokensPerSecond;
+        private final long maxTokensPerSecond;
+        private final long availableTokensPerDay;
+        private final long maxTokensPerDay;
+        private final long consumedPerSecond;
+        private final long consumedPerDay;
+        private final double utilizationPercentPerSecond;
+        private final double utilizationPercentPerDay;
+
+        public UtilizationInfo(String apiKey, long availablePerSec, long maxPerSec,
+                              long availablePerDay, long maxPerDay) {
+            this.apiKey = apiKey;
+            this.availableTokensPerSecond = availablePerSec;
+            this.maxTokensPerSecond = maxPerSec;
+            this.availableTokensPerDay = availablePerDay;
+            this.maxTokensPerDay = maxPerDay;
+            this.consumedPerSecond = maxPerSec - availablePerSec;
+            this.consumedPerDay = maxPerDay - availablePerDay;
+            this.utilizationPercentPerSecond = maxPerSec > 0 ?
+                (100.0 * consumedPerSecond / maxPerSec) : 0;
+            this.utilizationPercentPerDay = maxPerDay > 0 ?
+                (100.0 * consumedPerDay / maxPerDay) : 0;
+        }
+
+        // Getters
+        public String getApiKey() { return apiKey; }
+        public long getAvailableTokensPerSecond() { return availableTokensPerSecond; }
+        public long getMaxTokensPerSecond() { return maxTokensPerSecond; }
+        public long getAvailableTokensPerDay() { return availableTokensPerDay; }
+        public long getMaxTokensPerDay() { return maxTokensPerDay; }
+        public long getConsumedPerSecond() { return consumedPerSecond; }
+        public long getConsumedPerDay() { return consumedPerDay; }
+        public double getUtilizationPercentPerSecond() { return utilizationPercentPerSecond; }
+        public double getUtilizationPercentPerDay() { return utilizationPercentPerDay; }
+    }
+
+    public UtilizationInfo getUtilization(String apiKey) {
+        RateLimitEntry entry = buckets.get(apiKey);
+        if (entry == null) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("No bucket entry found for API key: {}", apiKey);
+            }
+            return null;
+        }
+
+        CachedApiKeyManager.ApiKeyInfo apiKeyInfo = entry.apiKeyInfo;
+
+        // Get consumption from tracking
+        long consumedPerSec = entry.getConsumedPerSecond();
+        long consumedPerDay = entry.getConsumedPerDay();
+
+        long availablePerSecond = apiKeyInfo.requestsPerSecond() - consumedPerSec;
+        long availablePerDay = apiKeyInfo.requestsPerDay() - consumedPerDay;
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Utilization for {}: consumed per sec={}/{}, per day={}/{}",
+                apiKey, consumedPerSec, apiKeyInfo.requestsPerSecond(),
+                consumedPerDay, apiKeyInfo.requestsPerDay());
+        }
+
+        return new UtilizationInfo(
+            apiKey,
+            availablePerSecond,
+            apiKeyInfo.requestsPerSecond(),
+            availablePerDay,
+            apiKeyInfo.requestsPerDay()
+        );
+    }
+
+    public Map<String, UtilizationInfo> getAllUtilizations() {
+        Map<String, UtilizationInfo> utilizations = new HashMap<>();
+        for (Map.Entry<String, RateLimitEntry> entry : buckets.entrySet()) {
+            UtilizationInfo info = getUtilization(entry.getKey());
+            if (info != null) {
+                utilizations.put(entry.getKey(), info);
+            }
+        }
+        return utilizations;
+    }
 }

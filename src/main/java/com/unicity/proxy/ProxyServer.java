@@ -1,6 +1,7 @@
 package com.unicity.proxy;
 
 import org.eclipse.jetty.server.*;
+import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,12 +21,33 @@ public class ProxyServer {
 
         ServerConnector connector = getServerConnector(config);
         server.addConnector(connector);
-        
+
+        // Create handler chain with admin handler first
         RequestHandler requestHandler = new RequestHandler(config);
-        server.setHandler(requestHandler);
-        
-        logger.info("Proxy server configured on port {} targeting {}", 
+        AdminHandler adminHandler = new AdminHandler(
+            config.getAdminPassword(),
+            requestHandler.getApiKeyManager(),
+            requestHandler.getRateLimiterManager()
+        );
+
+        // Create a combined handler that tries admin first, then proxy
+        Handler.Abstract combinedHandler = new Handler.Abstract() {
+            @Override
+            public boolean handle(Request request, Response response, Callback callback) throws Exception {
+                // Try admin handler first
+                if (adminHandler.handle(request, response, callback)) {
+                    return true;
+                }
+                // Fall back to proxy handler
+                return requestHandler.handle(request, response, callback);
+            }
+        };
+
+        server.setHandler(combinedHandler);
+
+        logger.info("Proxy server configured on port {} targeting {}",
             config.getPort(), config.getTargetUrl());
+        logger.info("Admin dashboard available at http://localhost:{}/admin", config.getPort());
     }
 
     private static QueuedThreadPool getQueuedThreadPool(ProxyConfig config) {

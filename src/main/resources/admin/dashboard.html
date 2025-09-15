@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unicity Subscription Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --secondary: #64748b;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .login-card {
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: var(--shadow-lg);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .login-header h1 {
+            font-size: 1.875rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .login-header p {
+            color: var(--text-muted);
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 0.625rem 0.875rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgb(37 99 235 / 0.1);
+        }
+
+        .btn {
+            padding: 0.625rem 1.25rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .btn-block {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .navbar {
+            background: var(--card-bg);
+            padding: 1rem 2rem;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .navbar-brand {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .navbar-nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 2rem 3rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: -1.5rem -1.5rem 2rem -1.5rem;
+            padding: 1.5rem 2rem;
+            background: linear-gradient(to bottom, #fafafa, transparent);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+        }
+        .tab-content .card {
+            overflow-x: auto;
+        }
+
+        .table th {
+            text-align: left;
+            padding: 1rem 1.5rem;
+            border-bottom: 2px solid var(--border);
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            white-space: nowrap;
+            text-transform: uppercase;
+        }
+
+        .table td {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgb(16 185 129 / 0.1);
+            color: var(--success);
+        }
+
+        .badge-danger {
+            background: rgb(239 68 68 / 0.1);
+            color: var(--danger);
+        }
+
+        .badge-warning {
+            background: rgb(245 158 11 / 0.1);
+            color: var(--warning);
+        }
+
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .modal-footer {
+            margin-top: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            border-bottom: 2px solid var(--border);
+            margin-bottom: 2rem;
+        }
+
+        .tab {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            color: var(--text-muted);
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .alert {
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+
+        .alert-error {
+            background: rgb(239 68 68 / 0.1);
+            color: var(--danger);
+            border: 1px solid rgb(239 68 68 / 0.2);
+        }
+
+        .alert-success {
+            background: rgb(16 185 129 / 0.1);
+            color: var(--success);
+            border: 1px solid rgb(16 185 129 / 0.2);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .api-key-display {
+            font-family: 'Courier New', monospace;
+            background: var(--bg);
+            padding: 0.5rem;
+            border-radius: 4px;
+            word-break: break-all;
+            font-size: 0.875rem;
+        }
+
+        .truncate {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 200px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 28px;
+            background: #f0f0f0;
+            border-radius: 14px;
+            overflow: visible;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 14px;
+            transition: width 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill.low {
+            background: linear-gradient(90deg, #10b981, #22c55e);
+        }
+
+        .progress-fill.medium {
+            background: linear-gradient(90deg, #f59e0b, #fbbf24);
+        }
+
+        .progress-fill.high {
+            background: linear-gradient(90deg, #ef4444, #f87171);
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 10px;
+            transform: translateY(-50%);
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #333;
+            text-shadow: 0 0 3px rgba(255,255,255,0.8);
+            z-index: 2;
+        }
+
+        .utilization-cell {
+            min-width: 300px;
+        }
+
+        .utilization-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .utilization-stat {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .table {
+                font-size: 0.875rem;
+            }
+
+            .navbar {
+                padding: 1rem;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            .utilization-cell {
+                min-width: 200px;
+            }
+        }
+
+        @media (max-width: 1400px) {
+            .container {
+                max-width: 100%;
+                padding: 2rem;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .utilization-cell {
+                min-width: 250px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>Admin Dashboard</h1>
+                <p>Enter your admin password to continue</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required autofocus>
+                </div>
+                <div id="loginError" class="alert alert-error hidden">
+                    Invalid password. Please try again.
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">
+                    Login
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden">
+        <nav class="navbar">
+            <div class="navbar-brand">Unicity Subscription Dashboard</div>
+            <div class="navbar-nav">
+                <span id="sessionInfo"></span>
+                <button class="btn btn-secondary" onclick="logout()">Logout</button>
+            </div>
+        </nav>
+
+        <div class="container">
+            <!-- Stats Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total API Keys</div>
+                    <div class="stat-value" id="totalKeys">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Active API Keys</div>
+                    <div class="stat-value" id="activeKeys">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Pricing Plans</div>
+                    <div class="stat-value" id="totalPlans">-</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <div class="tab active" data-tab="keys">API Keys</div>
+                <div class="tab" data-tab="utilization">Utilization</div>
+                <div class="tab" data-tab="plans">Pricing Plans</div>
+            </div>
+
+            <!-- API Keys Tab -->
+            <div id="keysTab" class="tab-content active">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">API Keys Management</h2>
+                        <button class="btn btn-primary" onclick="showCreateKeyModal()">
+                            + New API Key
+                        </button>
+                    </div>
+                    <div id="keysLoading" class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading API keys...</p>
+                    </div>
+                    <table class="table" id="keysTable" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>API Key</th>
+                                <th>Description</th>
+                                <th>Plan</th>
+                                <th>Status</th>
+                                <th>Rate Limits</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="keysTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Utilization Tab -->
+            <div id="utilizationTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Real-time API Key Utilization</h2>
+                        <button class="btn btn-primary" onclick="loadUtilization()">
+                            ↻ Refresh
+                        </button>
+                    </div>
+                    <div id="utilizationLoading" class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading utilization data...</p>
+                    </div>
+                    <table class="table" id="utilizationTable" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>API Key</th>
+                                <th>Description</th>
+                                <th>Per Second</th>
+                                <th>Per Day</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="utilizationTableBody">
+                        </tbody>
+                    </table>
+                    <div style="margin-top: 1rem; color: var(--text-muted); font-size: 0.875rem;">
+                        <label>
+                            <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
+                            Auto-refresh every 5 seconds
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pricing Plans Tab -->
+            <div id="plansTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Pricing Plans</h2>
+                        <button class="btn btn-primary" onclick="showCreatePlanModal()">
+                            + New Plan
+                        </button>
+                    </div>
+                    <div id="plansLoading" class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading pricing plans...</p>
+                    </div>
+                    <table class="table" id="plansTable" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Requests/Second</th>
+                                <th>Requests/Day</th>
+                                <th>Price</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="plansTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create API Key Modal -->
+    <div id="createKeyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Create New API Key</h2>
+            </div>
+            <form id="createKeyForm">
+                <div class="form-group">
+                    <label for="keyDescription">Description</label>
+                    <input type="text" id="keyDescription" placeholder="e.g., Production API Key" required>
+                </div>
+                <div class="form-group">
+                    <label for="keyPlan">Pricing Plan</label>
+                    <select id="keyPlan" required>
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('createKeyModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Key</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Pricing Plan Modal -->
+    <div id="createPlanModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Create New Pricing Plan</h2>
+            </div>
+            <form id="createPlanForm">
+                <div class="form-group">
+                    <label for="planName">Plan Name</label>
+                    <input type="text" id="planName" placeholder="e.g., Premium" required>
+                </div>
+                <div class="form-group">
+                    <label for="planRps">Requests per Second</label>
+                    <input type="number" id="planRps" min="1" value="100" required>
+                </div>
+                <div class="form-group">
+                    <label for="planRpd">Requests per Day</label>
+                    <input type="number" id="planRpd" min="1" value="10000" required>
+                </div>
+                <div class="form-group">
+                    <label for="planPrice">Price (optional)</label>
+                    <input type="number" id="planPrice" min="0" step="0.01" placeholder="0.00">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('createPlanModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Plan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit API Key Modal -->
+    <div id="editKeyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Edit API Key</h2>
+            </div>
+            <form id="editKeyForm">
+                <input type="hidden" id="editKeyId">
+                <div class="form-group">
+                    <label for="editKeyDescription">Description</label>
+                    <input type="text" id="editKeyDescription" placeholder="e.g., Production API Key">
+                </div>
+                <div class="form-group">
+                    <label for="editKeyPlan">Pricing Plan</label>
+                    <select id="editKeyPlan" required>
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('editKeyModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Pricing Plan Modal -->
+    <div id="editPlanModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Edit Pricing Plan</h2>
+            </div>
+            <form id="editPlanForm">
+                <input type="hidden" id="editPlanId">
+                <div class="form-group">
+                    <label for="editPlanName">Plan Name</label>
+                    <input type="text" id="editPlanName" required>
+                </div>
+                <div class="form-group">
+                    <label for="editPlanRps">Requests per Second</label>
+                    <input type="number" id="editPlanRps" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label for="editPlanRpd">Requests per Day</label>
+                    <input type="number" id="editPlanRpd" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label for="editPlanPrice">Price</label>
+                    <input type="number" id="editPlanPrice" min="0" step="0.01" placeholder="0.00">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('editPlanModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Success!</h2>
+            </div>
+            <div id="successMessage"></div>
+            <div class="api-key-display" id="newApiKey" style="display: none;"></div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('successModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = localStorage.getItem('adminToken');
+        let apiKeys = [];
+        let pricingPlans = [];
+        let utilizationData = [];
+        let autoRefreshInterval = null;
+
+        // Check if already logged in
+        if (authToken) {
+            showDashboard();
+        }
+
+        // Login form handler
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('/admin/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.token;
+                    localStorage.setItem('adminToken', authToken);
+                    showDashboard();
+                } else {
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        });
+
+        function showDashboard() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            loadStats();
+            loadApiKeys();
+            loadPricingPlans();
+            loadUtilization();
+        }
+
+        function logout() {
+            localStorage.removeItem('adminToken');
+            authToken = null;
+            location.reload();
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+
+                tab.classList.add('active');
+                const tabId = tab.dataset.tab + 'Tab';
+                document.getElementById(tabId).classList.add('active');
+            });
+        });
+
+        async function apiCall(url, options = {}) {
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${authToken}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+
+            if (response.status === 401) {
+                logout();
+                return;
+            }
+
+            return response;
+        }
+
+        async function loadStats() {
+            try {
+                const response = await apiCall('/admin/api/stats');
+                const stats = await response.json();
+
+                document.getElementById('totalKeys').textContent = stats.totalApiKeys || 0;
+                document.getElementById('activeKeys').textContent = stats.activeApiKeys || 0;
+                document.getElementById('totalPlans').textContent = stats.totalPricingPlans || 0;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        async function loadApiKeys() {
+            document.getElementById('keysLoading').style.display = 'block';
+            document.getElementById('keysTable').style.display = 'none';
+
+            try {
+                const response = await apiCall('/admin/api/keys');
+                apiKeys = await response.json();
+                renderApiKeys();
+            } catch (error) {
+                console.error('Failed to load API keys:', error);
+            }
+        }
+
+        function renderApiKeys() {
+            const tbody = document.getElementById('keysTableBody');
+            tbody.innerHTML = '';
+
+            apiKeys.forEach(key => {
+                const tr = document.createElement('tr');
+                const createdDate = new Date(key.createdAt).toLocaleDateString();
+                const statusBadge = key.status === 'active' ? 'badge-success' : 'badge-danger';
+
+                tr.innerHTML = `
+                    <td>
+                        <div class="api-key-display truncate" title="${key.apiKey}">
+                            ${key.apiKey.substring(0, 10)}...${key.apiKey.substring(key.apiKey.length - 10)}
+                        </div>
+                    </td>
+                    <td>${key.description || '-'}</td>
+                    <td>${key.planName || '-'}</td>
+                    <td><span class="badge ${statusBadge}">${key.status}</span></td>
+                    <td>
+                        <small>${key.requestsPerSecond || '-'} req/s<br>
+                        ${key.requestsPerDay || '-'} req/day</small>
+                    </td>
+                    <td>${createdDate}</td>
+                    <td>
+                        <div class="actions">
+                            <button class="btn btn-secondary" onclick="showEditKeyModal(${key.id})">Edit</button>
+                            <button class="btn btn-secondary" onclick="toggleKeyStatus(${key.id}, '${key.status}')">
+                                ${key.status === 'active' ? 'Disable' : 'Enable'}
+                            </button>
+                            <button class="btn btn-danger" onclick="deleteKey(${key.id})">Delete</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('keysLoading').style.display = 'none';
+            document.getElementById('keysTable').style.display = 'table';
+        }
+
+        async function loadPricingPlans() {
+            document.getElementById('plansLoading').style.display = 'block';
+            document.getElementById('plansTable').style.display = 'none';
+
+            try {
+                const response = await apiCall('/admin/api/plans');
+                pricingPlans = await response.json();
+                renderPricingPlans();
+                updatePlanSelect();
+            } catch (error) {
+                console.error('Failed to load pricing plans:', error);
+            }
+        }
+
+        function renderPricingPlans() {
+            const tbody = document.getElementById('plansTableBody');
+            tbody.innerHTML = '';
+
+            pricingPlans.forEach(plan => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${plan.name}</strong></td>
+                    <td>${plan.requestsPerSecond}</td>
+                    <td>${plan.requestsPerDay.toLocaleString()}</td>
+                    <td>$${plan.price || 0}</td>
+                    <td>
+                        <div class="actions">
+                            <button class="btn btn-secondary" onclick="showEditPlanModal(${plan.id})">Edit</button>
+                            <button class="btn btn-danger" onclick="deletePlan(${plan.id})">Delete</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('plansLoading').style.display = 'none';
+            document.getElementById('plansTable').style.display = 'table';
+        }
+
+        function updatePlanSelect() {
+            const select = document.getElementById('keyPlan');
+            select.innerHTML = '';
+
+            pricingPlans.forEach(plan => {
+                const option = document.createElement('option');
+                option.value = plan.id;
+                option.textContent = `${plan.name} (${plan.requestsPerSecond} req/s, ${plan.requestsPerDay} req/day)`;
+                select.appendChild(option);
+            });
+        }
+
+        async function toggleKeyStatus(keyId, currentStatus) {
+            const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+
+            try {
+                const response = await apiCall(`/admin/api/keys/${keyId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ status: newStatus })
+                });
+
+                if (response.ok) {
+                    loadApiKeys();
+                    loadStats();
+                }
+            } catch (error) {
+                console.error('Failed to update key status:', error);
+            }
+        }
+
+        async function deleteKey(keyId) {
+            if (!confirm('Are you sure you want to delete this API key?')) return;
+
+            try {
+                const response = await apiCall(`/admin/api/keys/${keyId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadApiKeys();
+                    loadStats();
+                }
+            } catch (error) {
+                console.error('Failed to delete key:', error);
+            }
+        }
+
+        function showCreateKeyModal() {
+            document.getElementById('createKeyModal').classList.add('show');
+        }
+
+        function showEditKeyModal(keyId) {
+            const key = apiKeys.find(k => k.id === keyId);
+            if (!key) return;
+
+            document.getElementById('editKeyId').value = key.id;
+            document.getElementById('editKeyDescription').value = key.description || '';
+
+            // Populate plan selector
+            const planSelect = document.getElementById('editKeyPlan');
+            planSelect.innerHTML = '';
+            pricingPlans.forEach(plan => {
+                const option = document.createElement('option');
+                option.value = plan.id;
+                option.textContent = `${plan.name} (${plan.requestsPerSecond} req/s, ${plan.requestsPerDay.toLocaleString()} req/day)`;
+                if (plan.id === key.pricingPlanId) {
+                    option.selected = true;
+                }
+                planSelect.appendChild(option);
+            });
+
+            document.getElementById('editKeyModal').classList.add('show');
+        }
+
+        function showEditPlanModal(planId) {
+            const plan = pricingPlans.find(p => p.id === planId);
+            if (!plan) return;
+
+            document.getElementById('editPlanId').value = plan.id;
+            document.getElementById('editPlanName').value = plan.name;
+            document.getElementById('editPlanRps').value = plan.requestsPerSecond;
+            document.getElementById('editPlanRpd').value = plan.requestsPerDay;
+            document.getElementById('editPlanPrice').value = plan.price || 0;
+
+            document.getElementById('editPlanModal').classList.add('show');
+        }
+
+        async function deletePlan(planId) {
+            if (!confirm('Are you sure you want to delete this pricing plan?')) return;
+            try {
+                const response = await apiCall(`/admin/api/plans/${planId}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    loadPricingPlans();
+                    loadStats();
+                }
+            } catch (error) {
+                console.error('Failed to delete pricing plan:', error);
+            }
+        }
+
+        function showCreatePlanModal() {
+            document.getElementById('createPlanModal').classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+            if (modalId === 'successModal') {
+                loadApiKeys();
+                loadPricingPlans();
+                loadStats();
+            }
+        }
+
+        // Create API Key form handler
+        document.getElementById('createKeyForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const description = document.getElementById('keyDescription').value;
+            const pricingPlanId = parseInt(document.getElementById('keyPlan').value);
+
+            try {
+                const response = await apiCall('/admin/api/keys', {
+                    method: 'POST',
+                    body: JSON.stringify({ description, pricingPlanId })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    closeModal('createKeyModal');
+                    document.getElementById('successMessage').textContent = 'API key created successfully. Please save this key, it will not be shown again:';
+                    document.getElementById('newApiKey').style.display = 'block';
+                    document.getElementById('newApiKey').textContent = data.apiKey;
+                    document.getElementById('successModal').classList.add('show');
+                    document.getElementById('createKeyForm').reset();
+                }
+            } catch (error) {
+                console.error('Failed to create API key:', error);
+            }
+        });
+
+        // Create Pricing Plan form handler
+        document.getElementById('createPlanForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const name = document.getElementById('planName').value;
+            const requestsPerSecond = parseInt(document.getElementById('planRps').value);
+            const requestsPerDay = parseInt(document.getElementById('planRpd').value);
+            const price = parseFloat(document.getElementById('planPrice').value) || 0;
+
+            try {
+                const response = await apiCall('/admin/api/plans', {
+                    method: 'POST',
+                    body: JSON.stringify({ name, requestsPerSecond, requestsPerDay, price })
+                });
+
+                if (response.ok) {
+                    closeModal('createPlanModal');
+                    document.getElementById('successMessage').textContent = 'Pricing plan created successfully!';
+                    document.getElementById('newApiKey').style.display = 'none';
+                    document.getElementById('successModal').classList.add('show');
+                    document.getElementById('createPlanForm').reset();
+                }
+            } catch (error) {
+                console.error('Failed to create pricing plan:', error);
+            }
+        });
+
+        // Edit API Key form
+        document.getElementById('editKeyForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editKeyId').value;
+            const description = document.getElementById('editKeyDescription').value;
+            const pricingPlanId = parseInt(document.getElementById('editKeyPlan').value);
+
+            try {
+                const response = await apiCall(`/admin/api/keys/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ description, pricingPlanId })
+                });
+                if (response.ok) {
+                    closeModal('editKeyModal');
+                    await loadApiKeys();
+                    await loadStats();
+                }
+            } catch (error) {
+                console.error('Failed to update API key:', error);
+            }
+        });
+
+        // Edit Pricing Plan form
+        document.getElementById('editPlanForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editPlanId').value;
+            const name = document.getElementById('editPlanName').value;
+            const requestsPerSecond = parseInt(document.getElementById('editPlanRps').value);
+            const requestsPerDay = parseInt(document.getElementById('editPlanRpd').value);
+            const price = parseFloat(document.getElementById('editPlanPrice').value) || 0;
+
+            try {
+                const response = await apiCall(`/admin/api/plans/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name, requestsPerSecond, requestsPerDay, price })
+                });
+                if (response.ok) {
+                    closeModal('editPlanModal');
+                    await loadPricingPlans();
+                    await loadApiKeys(); // Refresh to show updated plan names
+                }
+            } catch (error) {
+                console.error('Failed to update pricing plan:', error);
+            }
+        });
+
+        // Close modal when clicking outside
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.remove('show');
+                }
+            });
+        });
+
+        // Utilization functions
+        async function loadUtilization() {
+            document.getElementById('utilizationLoading').style.display = 'block';
+            document.getElementById('utilizationTable').style.display = 'none';
+
+            try {
+                const response = await apiCall('/admin/api/utilization');
+                utilizationData = await response.json();
+                renderUtilization();
+            } catch (error) {
+                console.error('Failed to load utilization:', error);
+            }
+        }
+
+        function renderUtilization() {
+            const tbody = document.getElementById('utilizationTableBody');
+            tbody.innerHTML = '';
+
+            utilizationData.forEach(item => {
+                const tr = document.createElement('tr');
+
+                // Calculate progress bar classes
+                const percentPerSec = item.utilizationPercentPerSecond || 0;
+                const percentPerDay = item.utilizationPercentPerDay || 0;
+
+                const getProgressClass = (percent) => {
+                    if (percent < 50) return 'low';
+                    if (percent < 80) return 'medium';
+                    return 'high';
+                };
+
+                const statusBadge = item.status === 'active' ? 'badge-success' : 'badge-danger';
+
+                tr.innerHTML = `
+                    <td>
+                        <div class="api-key-display truncate" title="${item.apiKey}">
+                            ${item.apiKey.substring(0, 10)}...${item.apiKey.substring(item.apiKey.length - 10)}
+                        </div>
+                    </td>
+                    <td>${item.description || '-'}</td>
+                    <td class="utilization-cell">
+                        <div class="utilization-stats">
+                            <div class="progress-bar">
+                                <div class="progress-fill ${getProgressClass(percentPerSec)}"
+                                     style="width: ${Math.min(percentPerSec, 100)}%">
+                                    <div class="progress-text">${percentPerSec.toFixed(1)}%</div>
+                                </div>
+                            </div>
+                            <div class="utilization-stat">
+                                ${item.consumedPerSecond || 0} / ${item.maxPerSecond || 0} req/s
+                            </div>
+                        </div>
+                    </td>
+                    <td class="utilization-cell">
+                        <div class="utilization-stats">
+                            <div class="progress-bar">
+                                <div class="progress-fill ${getProgressClass(percentPerDay)}"
+                                     style="width: ${Math.min(percentPerDay, 100)}%">
+                                    <div class="progress-text">${percentPerDay.toFixed(1)}%</div>
+                                </div>
+                            </div>
+                            <div class="utilization-stat">
+                                ${item.consumedPerDay || 0} / ${item.maxPerDay || 0} req/day
+                            </div>
+                        </div>
+                    </td>
+                    <td><span class="badge ${statusBadge}">${item.status}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('utilizationLoading').style.display = 'none';
+            document.getElementById('utilizationTable').style.display = 'table';
+        }
+
+        function toggleAutoRefresh() {
+            const checkbox = document.getElementById('autoRefresh');
+            if (checkbox.checked) {
+                // Start auto-refresh
+                autoRefreshInterval = setInterval(() => {
+                    loadUtilization();
+                }, 5000);
+                loadUtilization(); // Load immediately
+            } else {
+                // Stop auto-refresh
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+        }
+
+        // Clean up interval on page unload
+        window.addEventListener('beforeunload', () => {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>
