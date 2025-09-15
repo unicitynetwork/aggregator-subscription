@@ -6,6 +6,7 @@ import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.Content;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.util.Callback;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -21,8 +22,11 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static com.unicity.proxy.testparameterization.AuthMode.AUTHORIZED;
+import static java.net.http.HttpRequest.BodyPublishers.ofString;
 import static org.awaitility.Awaitility.await;
 import static org.eclipse.jetty.http.HttpHeader.AUTHORIZATION;
+import static org.eclipse.jetty.http.HttpHeader.CONTENT_TYPE;
 import static org.eclipse.jetty.http.HttpStatus.*;
 
 public abstract class AbstractIntegrationTest {
@@ -49,6 +53,20 @@ public abstract class AbstractIntegrationTest {
         }
         """;
 
+    private static final String JSON_RPC_TEMPLATE = """
+        {
+            "jsonrpc": "2.0",
+            "method": "submit_commitment",
+            "params": {
+                "requestId": "test123",
+                "data": "PLACEHOLDER"
+            },
+            "id": 1
+        }
+        """;
+
+    private static final String REGULAR_CONTENT_TEMPLATE = "PLACEHOLDER";
+
     public static final String APPLICATION_OCTET_STREAM = "application/octet-stream";
 
     protected final String defaultApiKey = "supersecret";
@@ -59,6 +77,11 @@ public abstract class AbstractIntegrationTest {
     protected HttpClient httpClient;
 
     protected TestTimeMeter testTimeMeter;
+    
+    // Mock server configuration
+    protected volatile int mockResponseStatus;
+    protected volatile String mockResponseBody;
+    protected volatile boolean mockShouldReturnError;
 
     @BeforeAll
     static void setUpDatabase() {
@@ -75,6 +98,11 @@ public abstract class AbstractIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         TestDatabaseSetup.resetDatabase();
+
+        mockResponseStatus = OK_200;
+        mockResponseBody = null;
+        mockShouldReturnError = false;
+        
         mockServer = createMockServer();
         mockServer.start();
         int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();
@@ -111,6 +139,19 @@ public abstract class AbstractIntegrationTest {
             mockServer.stop();
         }
     }
+    
+    protected void configureMockResponse(int status, String body) {
+        this.mockResponseStatus = status;
+        this.mockResponseBody = body;
+    }
+    
+    protected void configureMockError(boolean shouldReturnError) {
+        this.mockShouldReturnError = shouldReturnError;
+        if (shouldReturnError) {
+            this.mockResponseStatus = INTERNAL_SERVER_ERROR_500;
+            this.mockResponseBody = "Internal Server Error";
+        }
+    }
 
     private Server createMockServer() {
         Server server = new Server(0); // Random port
@@ -122,6 +163,22 @@ public abstract class AbstractIntegrationTest {
 
                 // Add custom header to all responses
                 response.getHeaders().put("X-Mock-Server", "true");
+
+                // Check if we should return a configured error response
+                if (mockShouldReturnError) {
+                    response.setStatus(mockResponseStatus);
+                    String errorBody = mockResponseBody != null ? mockResponseBody : "Error";
+                    response.write(true, ByteBuffer.wrap(errorBody.getBytes()), callback);
+                    return true;
+                }
+                
+                // Check if we have a custom configured response
+                if (mockResponseBody != null) {
+                    response.setStatus(mockResponseStatus);
+                    response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
+                    response.write(true, ByteBuffer.wrap(mockResponseBody.getBytes()), callback);
+                    return true;
+                }
 
                 switch (path) {
                     case "/test" -> {
@@ -141,14 +198,22 @@ public abstract class AbstractIntegrationTest {
                         response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         StringBuilder headers = new StringBuilder("{");
+                        StringBuilder responseHeaders = new StringBuilder(",\"responseHeaders\":{");
+                        final boolean[] hasResponseHeaders = {false};
                         request.getHeaders().forEach(field -> {
                             if (field.getName().startsWith("X-")) {
                                 if (headers.length() > 1) headers.append(",");
                                 headers.append("\"").append(field.getName()).append("\":\"")
                                         .append(field.getValue()).append("\"");
+                                // Also add to response headers for forwarding verification
+                                response.getHeaders().put(field.getName(), field.getValue());
+                                if (hasResponseHeaders[0]) responseHeaders.append(",");
+                                responseHeaders.append("\"").append(field.getName()).append("\":\"")
+                                        .append(field.getValue()).append("\"");
+                                hasResponseHeaders[0] = true;
                             }
                         });
-                        headers.append("}");
+                        headers.append(responseHeaders).append("}}");
                         response.write(true, ByteBuffer.wrap(headers.toString().getBytes()), callback);
                     }
                     case "/not-found" -> {
@@ -207,6 +272,10 @@ public abstract class AbstractIntegrationTest {
         }
     }
 
+    protected String getProxyUrl() {
+        return "http://localhost:" + proxyPort;
+    }
+    
     protected HttpRequest.Builder getRequestBuilder(String urlPath, AuthMode authMode) {
         return switch (authMode) {
             case AUTHORIZED -> getAuthorizedRequestBuilder(urlPath);
@@ -225,7 +294,7 @@ public abstract class AbstractIntegrationTest {
 
     protected HttpRequest.Builder getNotAuthorizedRequestBuilder(String urlPath) {
         return HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + proxyPort + urlPath));
+                .uri(URI.create(getProxyUrl() + urlPath));
     }
 
     protected HttpResponse<String> performJsonRpcRequest(HttpRequest.Builder httpRequestBuilder, String httpBody) throws IOException, InterruptedException {
@@ -240,6 +309,48 @@ public abstract class AbstractIntegrationTest {
 
     protected RateLimiterManager getRateLimiterManager() {
         return proxyServer.getRateLimiterManager();
+    }
+
+    protected HttpResponse<String> sendRequestWithContent(int targetSize, AuthMode authMode) throws IOException, InterruptedException {
+        if (authMode == AUTHORIZED) {
+            String jsonBody = fillPlaceholderUpToTargetLength(targetSize, JSON_RPC_TEMPLATE, "PLACEHOLDER");
+
+            return performJsonRpcRequest(
+                    getRequestBuilder("/", authMode),
+                    jsonBody);
+        } else {
+            String content = fillPlaceholderUpToTargetLength(targetSize, REGULAR_CONTENT_TEMPLATE, "PLACEHOLDER");
+
+            HttpRequest request = getRequestBuilder("/test", authMode)
+                    .header(CONTENT_TYPE.asString(), APPLICATION_OCTET_STREAM)
+                    .POST(ofString(content))
+                    .timeout(Duration.ofSeconds(30))
+                    .build();
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        }
+    }
+
+    private @NotNull String fillPlaceholderUpToTargetLength(int targetSize, String template, String placeholder) {
+        int baseSize = template.length() - placeholder.length();
+        int paddingSize = Math.max(0, targetSize - baseSize);
+        return template.replace(placeholder, "A".repeat(paddingSize));
+    }
+
+    protected HttpResponse<String> sendRequestWithHeadersPrepared(HttpRequest.Builder requestBuilder, AuthMode authMode) throws IOException, InterruptedException {
+        HttpRequest request;
+        if (authMode == AUTHORIZED) {
+            request = requestBuilder
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(SUBMIT_COMMITMENT_REQUEST))
+                    .timeout(Duration.ofSeconds(5))
+                    .build();
+        } else {
+            request = requestBuilder
+                    .GET()
+                    .timeout(Duration.ofSeconds(5))
+                    .build();
+        }
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     public static class TestTimeMeter implements TimeMeter {
