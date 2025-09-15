@@ -12,7 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
@@ -28,6 +27,8 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.io.IOException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.eclipse.jetty.http.HttpHeader.*;
@@ -53,7 +54,9 @@ public class RequestHandler extends Handler.Abstract {
     private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
     private final WebUIHandler webUIHandler;
-    
+    private final Set<String> protectedMethods;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     public RequestHandler(ProxyConfig config) {
         this.targetUrl = config.getTargetUrl();
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
@@ -61,7 +64,8 @@ public class RequestHandler extends Handler.Abstract {
         this.apiKeyManager = CachedApiKeyManager.getInstance();
         this.rateLimiterManager = new RateLimiterManager(apiKeyManager);
         this.webUIHandler = new WebUIHandler();
-        
+        this.protectedMethods = config.getProtectedMethods();
+
         var httpClientBuilder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(config.getConnectTimeout()))
             .version(HttpClient.Version.HTTP_1_1)
@@ -98,23 +102,62 @@ public class RequestHandler extends Handler.Abstract {
         if ("/index.html".equals(path) || "/generate".equals(path)) {
             return webUIHandler.handle(request, response, callback);
         }
+        
+        byte[] requestBody;
+        if (hasBody(request.getMethod())) {
+            requestBody = readBodyWithLimit(request);
+        } else {
+            requestBody = null;
+        }
 
+        if (requiresAuthentication(request.getMethod(), requestBody)) {
+            if (!performAuthenticationAndRateLimiting(request, response, callback, method, path)) {
+                return true;
+            }
+        }
+
+        if (!performValidationOnRequestSizeLimits(request, response, callback)) {
+            return true;
+        }
+
+        if (useVirtualThreads) {
+            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, response, callback));
+        } else {
+            handleRequestAsync(request, requestBody, response, callback);
+        }
+        
+        return true;
+    }
+
+    private boolean performValidationOnRequestSizeLimits(Request request, Response response, Callback callback) {
+        String validationError = validateRequestSizeLimits(request);
+        if (validationError != null) {
+            logger.warn("Request validation failed: {}", validationError);
+            response.setStatus(HttpStatus.BAD_REQUEST_400);
+            response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
+            response.write(true, ByteBuffer.wrap(validationError.getBytes()), callback);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean performAuthenticationAndRateLimiting(Request request, Response response, Callback callback, String method, String path) {
         String apiKey = extractApiKey(request);
         if (apiKey == null || !apiKeyManager.isValidApiKey(apiKey)) {
             logger.warn("Authentication failed for request: {} {} - API key: {}", method, path,
-                apiKey != null ? "invalid" : "missing");
+                    apiKey != null ? "invalid" : "missing");
             response.setStatus(HttpStatus.UNAUTHORIZED_401);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.getHeaders().put(HttpHeader.WWW_AUTHENTICATE, BEARER_AUTHORIZATION);
             response.write(true, ByteBuffer.wrap("Unauthorized".getBytes()), callback);
-            return true;
+            return false;
         }
 
         if (logger.isDebugEnabled()) {
             logger.debug("Request authenticated with API key ending in: ...{}",
-                apiKey.length() > 4 ? apiKey.substring(apiKey.length() - 4) : "***");
+                    apiKey.length() > 4 ? apiKey.substring(apiKey.length() - 4) : "***");
         }
-        
+
         RateLimiterManager.RateLimitResult rateLimitResult = rateLimiterManager.tryConsume(apiKey);
         if (!rateLimitResult.allowed()) {
             logger.info("Rate limit exceeded for API key: {}", apiKey);
@@ -122,32 +165,27 @@ public class RequestHandler extends Handler.Abstract {
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.getHeaders().put(RETRY_AFTER, String.valueOf(rateLimitResult.retryAfterSeconds()));
             response.write(true, ByteBuffer.wrap("Too Many Requests".getBytes()), callback);
-            return true;
+            return false;
         }
-        
+
         response.getHeaders().put(HEADER_X_RATE_LIMIT_REMAINING, String.valueOf(rateLimitResult.remainingTokens()));
-        
-        String validationError = validateRequestSizeLimits(request);
-        if (validationError != null) {
-            logger.warn("Request validation failed: {}", validationError);
-            response.setStatus(HttpStatus.BAD_REQUEST_400);
-            response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
-            response.write(true, ByteBuffer.wrap(validationError.getBytes()), callback);
-            return true;
-        }
-        
-        if (useVirtualThreads) {
-            Thread.startVirtualThread(() -> handleRequestAsync(request, response, callback));
-        } else {
-            handleRequestAsync(request, response, callback);
-        }
-        
         return true;
     }
-    
-    private void handleRequestAsync(Request request, Response response, Callback callback) {
+
+    private boolean requiresAuthentication(String method, byte[] requestBody) {
+        boolean requiresAuth = false;
+        if ("POST".equals(method) && requestBody != null) {
+            String jsonRpcMethod = extractJsonRpcMethodFromBody(requestBody);
+            if (jsonRpcMethod != null && protectedMethods.contains(jsonRpcMethod)) {
+                requiresAuth = true;
+            }
+        }
+        return requiresAuth;
+    }
+
+    private void handleRequestAsync(Request request, byte[] cachedBody, Response response, Callback callback) {
         try {
-            proxyRequest(request, response, callback);
+            proxyRequest(request, cachedBody, response, callback);
         } catch (Exception e) {
             logger.error("Error handling request", e);
             response.setStatus(HttpStatus.BAD_GATEWAY_502);
@@ -155,7 +193,7 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
     
-    private void proxyRequest(Request request, Response response, Callback callback) {
+    private void proxyRequest(Request request, byte[] cachedBody, Response response, Callback callback) {
         try {
             String method = request.getMethod();
             String path = Request.getPathInContext(request);
@@ -173,10 +211,10 @@ public class RequestHandler extends Handler.Abstract {
                 .uri(URI.create(targetUri))
                 .timeout(readTimeout);
             forwardAllNonRestrictedHeaders(request, requestBuilder);
-            forwardBody(request, method, requestBuilder);
+            forwardBody(cachedBody, method, requestBuilder);
             HttpRequest httpRequest = requestBuilder.build();
 
-            httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+            httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray())
                 .whenComplete((httpResponse, throwable) -> {
                     if (throwable != null) {
                         logger.error("Failed to proxy request to {}: {}", targetUri, throwable.getMessage());
@@ -194,34 +232,14 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private void forwardBody(Request request, String method, HttpRequest.Builder requestBuilder) {
-        if (hasBody(method)) {
-            // For debugging: optionally log request body (only in TRACE mode to avoid performance impact)
+    private void forwardBody(byte[] requestBody, String method, HttpRequest.Builder requestBuilder) {
+        if (requestBody != null) {
             if (logger.isTraceEnabled()) {
-                try {
-                    byte[] bodyBytes = IOUtils.toByteArray(Content.Source.asInputStream(request));
-                    String bodyStr = new String(bodyBytes, 0, Math.min(bodyBytes.length, 1000));
-                    logger.trace("Request body (first 1000 chars): {}", bodyStr);
-                    // Use the captured bytes
-                    requestBuilder.method(method, HttpRequest.BodyPublishers.ofByteArray(bodyBytes));
-                    return;
-                } catch (IOException e) {
-                    logger.warn("Failed to log request body", e);
-                }
+                String bodyStr = new String(requestBody, 0, Math.min(requestBody.length, 1000));
+                logger.trace("Request body (first 1000 chars): {}", bodyStr);
             }
 
-            HttpRequest.BodyPublisher streamingBodyPublisher = HttpRequest.BodyPublishers.ofInputStream(() -> {
-                try {
-                    InputStream requestInputStream = Content.Source.asInputStream(request);
-                    return BoundedInputStream.builder()
-                            .setInputStream(requestInputStream)
-                            .setMaxCount(MAX_PAYLOAD_SIZE_BYTES)
-                            .get();
-                } catch (IOException e) {
-                    throw new UncheckedIOException("Failed to get InputStream from request", e);
-                }
-            });
-            requestBuilder.method(method, streamingBodyPublisher);
+            requestBuilder.method(method, HttpRequest.BodyPublishers.ofByteArray(requestBody));
         } else {
             requestBuilder.method(method, HttpRequest.BodyPublishers.noBody());
         }
@@ -237,7 +255,7 @@ public class RequestHandler extends Handler.Abstract {
         });
     }
 
-    private void forwardResponse(Response response, Callback callback, HttpResponse<InputStream> httpResponse) {
+    private void forwardResponse(Response response, Callback callback, HttpResponse<byte[]> httpResponse) {
         try {
             response.setStatus(httpResponse.statusCode());
             
@@ -250,12 +268,11 @@ public class RequestHandler extends Handler.Abstract {
                 }
             });
 
-            try (InputStream responseBodyStream = httpResponse.body()) {
-                IOUtils.copy(responseBodyStream, Content.Sink.asOutputStream(response));
+            byte[] body = httpResponse.body();
+            if (body != null && body.length > 0) {
+                response.write(true, ByteBuffer.wrap(body), callback);
+            } else {
                 callback.succeeded();
-            } catch (IOException e) {
-                logger.error("Error streaming response body to client", e);
-                callback.failed(e);
             }
 
             if (logger.isDebugEnabled()) {
@@ -368,5 +385,21 @@ public class RequestHandler extends Handler.Abstract {
         {
             return IOUtils.toByteArray(boundedStream);
         }
+    }
+
+    private String extractJsonRpcMethodFromBody(byte[] body) {
+        try {
+            if (body.length == 0) {
+                return null;
+            }
+
+            JsonNode root = objectMapper.readTree(body);
+            if (root.has("method")) {
+                return root.get("method").asText();
+            }
+        } catch (Exception e) {
+            logger.debug("Could not extract JSON-RPC method from request body", e);
+        }
+        return null;
     }
 }

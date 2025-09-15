@@ -20,7 +20,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should proxy GET requests correctly")
     void testGetRequest() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/test")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/test")
             .GET()
             .build();
         
@@ -35,7 +35,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should proxy POST requests with body")
     void testPostRequest() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/api/data")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/api/data")
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
             .POST(ofString("{\"name\":\"test\",\"value\":123}"))
             .build();
@@ -50,7 +50,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should forward custom headers")
     void testHeaderForwarding() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/headers")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/headers")
             .header("X-Custom-Header", "test-value")
             .header("X-Another-Header", "another-value")
             .GET()
@@ -66,7 +66,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should handle 404 responses")
     void testNotFoundResponse() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/not-found")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/not-found")
             .GET()
             .build();
         
@@ -79,7 +79,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should handle server errors")
     void testServerError() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/error")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/error")
             .GET()
             .build();
         
@@ -92,7 +92,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should handle PUT requests")
     void testPutRequest() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/api/update")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/api/update")
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
             .PUT(ofString("{\"updated\":true}"))
             .build();
@@ -107,7 +107,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should handle DELETE requests")
     void testDeleteRequest() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/api/delete/123")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/api/delete/123")
             .DELETE()
             .build();
         
@@ -120,7 +120,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should handle query parameters")
     void testQueryParameters() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/search?q=test&limit=10")
+        HttpRequest request = getNotAuthorizedRequestBuilder("/search?q=test&limit=10")
             .GET()
             .build();
         
@@ -131,14 +131,11 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     }
     
     @Test
-    @DisplayName("Should reject requests without authentication")
-    void testAuthenticationRequired() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + proxyPort + "/test"))
-            .GET()
-            .build();
-        
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    @DisplayName("Should reject protected JSON-RPC requests without authentication")
+    void testProtectedJsonRpcRequiresAuth() throws Exception {
+        HttpResponse<String> response = performJsonRpcRequest(
+                getNotAuthorizedRequestBuilder("/"),
+                SUBMIT_COMMITMENT_REQUEST);
         
         assertThat(response.statusCode()).isEqualTo(UNAUTHORIZED_401);
         assertThat(response.body()).isEqualTo("Unauthorized");
@@ -147,40 +144,36 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     }
     
     @Test
-    @DisplayName("Should accept requests with valid Bearer token")
+    @DisplayName("Should accept protected JSON-RPC requests with valid Bearer token")
     void testBearerTokenAuth() throws Exception {
-        HttpRequest request = getAuthorizedRequestBuilder("/test")
-            .GET()
-            .build();
-        
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = performJsonRpcRequest(
+                getAuthorizedRequestBuilder("/"),
+                SUBMIT_COMMITMENT_REQUEST);
         
         assertThat(response.statusCode()).isEqualTo(OK_200);
-        assertThat(response.body()).contains("Hello from mock server");
     }
     
     @Test
-    @DisplayName("Should accept requests with valid X-API-Key header")
+    @DisplayName("Should accept protected JSON-RPC requests with valid X-API-Key header")
     void testApiKeyHeaderAuth() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + proxyPort + "/test"))
+        HttpRequest request = getNotAuthorizedRequestBuilder("/")
             .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
-            .GET()
+            .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
+            .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
         assertThat(response.statusCode()).isEqualTo(OK_200);
-        assertThat(response.body()).contains("Hello from mock server");
     }
 
     @Test
-    @DisplayName("Should reject requests with invalid Bearer token")
+    @DisplayName("Should reject protected JSON-RPC requests with invalid Bearer token")
     void testInvalidBearerToken() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + proxyPort + "/test"))
+        HttpRequest request = getNotAuthorizedRequestBuilder("/")
             .header("Authorization", "Bearer wrongtoken")
-            .GET()
+            .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
+            .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -190,23 +183,85 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     }
     
     @Test
-    @DisplayName("Should not forward authentication headers to target server")
-    void testAuthHeadersNotForwarded() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + proxyPort + "/headers"))
-            .header("Authorization", "Bearer " + defaultApiKey)
-            .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
-            .header("X-Custom-Header", "should-be-forwarded")
+    @DisplayName("Should allow non-JSON-RPC requests without authentication")
+    void testNonJsonRpcRequestsAllowed() throws Exception {
+        HttpRequest request = getNotAuthorizedRequestBuilder("/test")
             .GET()
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         
         assertThat(response.statusCode()).isEqualTo(OK_200);
-
+        assertThat(response.body()).contains("Hello from mock server");
+    }
+    
+    @Test
+    @DisplayName("Should allow unprotected JSON-RPC methods without authentication")
+    void testUnprotectedJsonRpcAllowed() throws Exception {
+        HttpResponse<String> response = performJsonRpcRequest(
+                getNotAuthorizedRequestBuilder("/"),
+                GET_INCLUSION_PROOF_REQUEST);
+        
+        assertThat(response.statusCode()).isEqualTo(OK_200);
+    }
+    
+    @Test
+    @DisplayName("Should not forward authentication headers to target server for authenticated JSON-RPC")
+    void testAuthHeadersNotForwardedForJsonRpc() throws Exception {
+        HttpRequest request = getNotAuthorizedRequestBuilder("/headers")
+            .header("Authorization", "Bearer " + defaultApiKey)
+            .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
+            .header("X-Custom-Header", "should-be-forwarded")
+            .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
+            .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
+            .build();
+        
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        
+        assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).contains("\"X-Custom-Header\":\"should-be-forwarded\"");
-
         assertThat(response.body()).doesNotContain("Authorization");
         assertThat(response.body()).doesNotContain(RequestHandler.HEADER_X_API_KEY);
+    }
+    
+    @Test
+    @DisplayName("Should forward custom headers bidirectionally for authenticated requests")
+    void testBidirectionalHeaderForwardingWithAuth() throws Exception {
+        HttpRequest request = getAuthorizedRequestBuilder("/headers")
+            .header("X-Request-Id", "test-123")
+            .header("X-Custom-Header", "custom-value")
+            .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
+            .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
+            .build();
+        
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        
+        assertThat(response.statusCode()).isEqualTo(OK_200);
+        assertThat(response.body()).contains("\"X-Request-Id\":\"test-123\"");
+        assertThat(response.body()).contains("\"X-Custom-Header\":\"custom-value\"");
+        
+        assertThat(response.headers().firstValue("X-Mock-Server")).isPresent()
+            .hasValue("true");
+        
+        assertThat(response.headers().firstValue(RequestHandler.HEADER_X_RATE_LIMIT_REMAINING)).isPresent();
+    }
+    
+    @Test
+    @DisplayName("Should forward custom headers bidirectionally for non-authenticated requests")
+    void testBidirectionalHeaderForwardingWithoutAuth() throws Exception {
+        HttpRequest request = getNotAuthorizedRequestBuilder("/test")
+            .header("X-Request-Id", "test-456")
+            .header("X-Trace-Id", "trace-789")
+            .GET()
+            .build();
+        
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        
+        assertThat(response.statusCode()).isEqualTo(OK_200);
+        
+        assertThat(response.headers().firstValue("X-Mock-Server")).isPresent()
+            .hasValue("true");
+        
+        assertThat(response.headers().firstValue(RequestHandler.HEADER_X_RATE_LIMIT_REMAINING)).isEmpty();
     }
 }
