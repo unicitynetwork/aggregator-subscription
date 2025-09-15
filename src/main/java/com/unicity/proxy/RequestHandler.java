@@ -85,21 +85,33 @@ public class RequestHandler extends Handler.Abstract {
     @Override
     public boolean handle(Request request, Response response, Callback callback) throws Exception {
         String path = request.getHttpURI().getPath();
-        
+        String method = request.getMethod();
+
+        // Log incoming request
+        if (logger.isDebugEnabled()) {
+            logger.debug("Incoming request: {} {} from {}", method, path, request.getConnectionMetaData().getRemoteSocketAddress());
+        }
+
         // Handle web UI routes
         if ("/index.html".equals(path) || "/generate".equals(path)) {
             return webUIHandler.handle(request, response, callback);
         }
-        
+
         String apiKey = extractApiKey(request);
         CachedApiKeyManager apiKeyManager = CachedApiKeyManager.getInstance();
         if (apiKey == null || !apiKeyManager.isValidApiKey(apiKey)) {
-            logger.debug("Authentication failed for request to {}", request.getHttpURI().getPath());
+            logger.warn("Authentication failed for request: {} {} - API key: {}", method, path,
+                apiKey != null ? "invalid" : "missing");
             response.setStatus(HttpStatus.UNAUTHORIZED_401);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.getHeaders().put(HttpHeader.WWW_AUTHENTICATE, BEARER_AUTHORIZATION);
             response.write(true, ByteBuffer.wrap("Unauthorized".getBytes()), callback);
             return true;
+        }
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Request authenticated with API key ending in: ...{}",
+                apiKey.length() > 4 ? apiKey.substring(apiKey.length() - 4) : "***");
         }
         
         RateLimiterManager.RateLimitResult rateLimitResult = rateLimiterManager.tryConsume(apiKey);
@@ -149,9 +161,13 @@ public class RequestHandler extends Handler.Abstract {
             String queryString = request.getHttpURI().getQuery();
             String fullPath = queryString != null ? path + "?" + queryString : path;
             String targetUri = targetUrl + fullPath;
-            
-            logger.debug("Proxying {} {} to {}", method, fullPath, targetUri);
-            
+
+            if (logger.isDebugEnabled()) {
+                logger.debug("Proxying {} {} to {}", method, fullPath, targetUri);
+                request.getHeaders().forEach(field ->
+                    logger.debug("Request header: {}: {}", field.getName(), field.getValue()));
+            }
+
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(targetUri))
                 .timeout(readTimeout);
@@ -162,8 +178,12 @@ public class RequestHandler extends Handler.Abstract {
             httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
                 .whenComplete((httpResponse, throwable) -> {
                     if (throwable != null) {
+                        logger.error("Failed to proxy request to {}: {}", targetUri, throwable.getMessage());
                         handleError(response, callback, throwable);
                     } else {
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Received response from {}: status {}", targetUri, httpResponse.statusCode());
+                        }
                         forwardResponse(response, callback, httpResponse);
                     }
                 });
@@ -175,6 +195,20 @@ public class RequestHandler extends Handler.Abstract {
 
     private void forwardBody(Request request, String method, HttpRequest.Builder requestBuilder) {
         if (hasBody(method)) {
+            // For debugging: optionally log request body (only in TRACE mode to avoid performance impact)
+            if (logger.isTraceEnabled()) {
+                try {
+                    byte[] bodyBytes = IOUtils.toByteArray(Content.Source.asInputStream(request));
+                    String bodyStr = new String(bodyBytes, 0, Math.min(bodyBytes.length, 1000));
+                    logger.trace("Request body (first 1000 chars): {}", bodyStr);
+                    // Use the captured bytes
+                    requestBuilder.method(method, HttpRequest.BodyPublishers.ofByteArray(bodyBytes));
+                    return;
+                } catch (IOException e) {
+                    logger.warn("Failed to log request body", e);
+                }
+            }
+
             HttpRequest.BodyPublisher streamingBodyPublisher = HttpRequest.BodyPublishers.ofInputStream(() -> {
                 try {
                     InputStream requestInputStream = Content.Source.asInputStream(request);
@@ -223,7 +257,9 @@ public class RequestHandler extends Handler.Abstract {
                 callback.failed(e);
             }
 
-            logger.debug("Response forwarded: {} {}", httpResponse.statusCode(), httpResponse.uri());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Response forwarded: {} {}", httpResponse.statusCode(), httpResponse.uri());
+            }
             
         } catch (Exception e) {
             logger.error("Error forwarding response", e);

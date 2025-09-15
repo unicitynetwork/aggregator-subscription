@@ -1,7 +1,5 @@
 package com.unicity.proxy;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.LoggerContext;
 import com.beust.jcommander.JCommander;
 import com.unicity.proxy.repository.DatabaseConfig;
 import org.slf4j.Logger;
@@ -29,9 +27,7 @@ public class Main {
             commander.usage();
             return;
         }
-        
-        configureLogging(config.getLogLevel());
-        
+
         logger.info("Starting Aggregator Subscription Proxy");
         logger.info("Configuration: {}", config);
         
@@ -49,21 +45,7 @@ public class Main {
             shutdown();
         }
     }
-    
-    private static void configureLogging(String level) {
-        LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
-        ch.qos.logback.classic.Logger rootLogger = loggerContext.getLogger("ROOT");
-        
-        try {
-            Level logLevel = Level.toLevel(level, Level.INFO);
-            rootLogger.setLevel(logLevel);
-            logger.info("Log level set to: {}", logLevel);
-        } catch (Exception e) {
-            logger.warn("Invalid log level '{}', using INFO", level);
-            rootLogger.setLevel(Level.INFO);
-        }
-    }
-    
+
     private static void initializeDatabase(ProxyConfig config) {
         String jdbcUrl = System.getenv("DB_URL");
         String dbUser = System.getenv("DB_USER");

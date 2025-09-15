@@ -38,14 +38,19 @@ public class DatabaseConfig {
     }
     
     private static void runMigrations() {
-        Flyway flyway = Flyway.configure()
-            .dataSource(dataSource)
-            .locations("classpath:db/migration")
-            .baselineOnMigrate(true)
-            .load();
-        
-        flyway.migrate();
-        logger.info("Database migrations completed");
+        try {
+            Flyway flyway = Flyway.configure()
+                .dataSource(dataSource)
+                .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
+                .load();
+
+            var result = flyway.migrate();
+            logger.info("Database migrations completed. Applied {} migrations", result.migrationsExecuted);
+        } catch (Exception e) {
+            logger.error("Failed to run database migrations", e);
+            throw new RuntimeException("Database migration failed", e);
+        }
     }
     
     public static DataSource getDataSource() {

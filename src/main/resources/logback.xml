@@ -12,10 +12,19 @@
         <discardingThreshold>0</discardingThreshold>
     </appender>
 
-    <logger name="com.unicity.proxy" level="INFO"/>
+    <!-- Default log levels for specific packages -->
     <logger name="org.eclipse.jetty" level="WARN"/>
+    <logger name="org.flywaydb" level="INFO"/>
+    <logger name="com.zaxxer.hikari" level="INFO"/>
 
-    <root level="INFO">
+    <!--
+    Log levels can be configured via environment variables:
+    - LOG_LEVEL: Sets the root logger level (default: INFO)
+    - Individual package levels can be set via Java system properties:
+      Example in docker-compose: JAVA_OPTS="-Dlogging.level.com.unicity.proxy=DEBUG"
+    -->
+
+    <root level="${LOG_LEVEL:-INFO}">
         <appender-ref ref="ASYNC"/>
     </root>
 </configuration>

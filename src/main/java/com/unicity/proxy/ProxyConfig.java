@@ -24,9 +24,6 @@ public class ProxyConfig {
     @Parameter(names = {"--idle-timeout"}, description = "Idle timeout in milliseconds")
     private int idleTimeout = 3000;
 
-    @Parameter(names = {"--log-level"}, description = "Log level (TRACE, DEBUG, INFO, WARN, ERROR)")
-    private String logLevel = "INFO";
-    
     @Parameter(names = {"--help", "-h"}, help = true, description = "Show help")
     private boolean help = false;
 
@@ -70,10 +67,6 @@ public class ProxyConfig {
         return idleTimeout;
     }
 
-    public String getLogLevel() {
-        return logLevel;
-    }
-
     public boolean isHelp() {
         return help;
     }
@@ -82,9 +75,9 @@ public class ProxyConfig {
     public String toString() {
         return String.format(
             "ProxyConfig{port=%d, targetUrl='%s', ioThreads=%d, workerThreads=%d, " +
-            "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, logLevel='%s'}",
-            port, targetUrl, ioThreads, workerThreads, 
-            connectTimeout, readTimeout, idleTimeout, logLevel
+            "connectTimeout=%d, readTimeout=%d, idleTimeout=%d}",
+            port, targetUrl, ioThreads, workerThreads,
+            connectTimeout, readTimeout, idleTimeout
         );
     }
 }

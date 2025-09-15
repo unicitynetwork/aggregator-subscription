@@ -45,18 +45,9 @@ To display all options, use the option ```--help```.
 ### Test with curl
 
 ```bash
-# Test JSON-RPC endpoint
-% curl -X POST http://localhost:8080/ \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer supersecret" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "get_inclusion_proof",
-    "params": {
-      "requestId": "0000981012b1c865f65d3d5523819cb34fa2c6827e792efd4579b4927144eb243122"
-    },
-    "id": 1
-  }'
+curl 'http://localhost:8080/' -H "Authorization: Bearer supersecret" \
+    -H 'Content-Type: application/json' \
+    --data-raw '{"jsonrpc":"2.0","method":"get_inclusion_proof","params":{"requestId":"0000981012b1c865f65d3d5523819cb34fa2c6827e792efd4579b4927144eb243122"},"id":1}'
 ```
 
 ## Development

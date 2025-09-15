@@ -48,12 +48,16 @@ public class RateLimiterManager {
         if (!probe.isConsumed()) {
             long waitTimeNanos = probe.getNanosToWaitForRefill();
             long waitTimeSeconds = Math.max(1, nanosToSecondsRoundUp(waitTimeNanos));
-            logger.debug("Rate limit exceeded for API key {}", apiKey);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Rate limit exceeded for API key {}", apiKey);
+            }
             return RateLimitResult.denied(waitTimeSeconds);
         }
         
-        logger.trace("Request allowed for API key {} (remaining: {})", 
-            apiKey, probe.getRemainingTokens());
+        if (logger.isTraceEnabled()) {
+            logger.trace("Request allowed for API key {} (remaining: {})",
+                apiKey, probe.getRemainingTokens());
+        }
         
         return RateLimitResult.allowed(probe.getRemainingTokens());
     }
@@ -79,8 +83,10 @@ public class RateLimiterManager {
             .withCustomTimePrecision(timeMeter)
             .build();
         
-        logger.debug("Created rate limiter for API key {} with limits: {}/sec, {}/day",
-            apiKeyInfo.apiKey(), apiKeyInfo.requestsPerSecond(), apiKeyInfo.requestsPerDay());
+        if (logger.isDebugEnabled()) {
+            logger.debug("Created rate limiter for API key {} with limits: {}/sec, {}/day",
+                apiKeyInfo.apiKey(), apiKeyInfo.requestsPerSecond(), apiKeyInfo.requestsPerDay());
+        }
         
         return bucket;
     }
