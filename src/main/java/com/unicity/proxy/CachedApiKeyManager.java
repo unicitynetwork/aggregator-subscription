@@ -91,11 +91,12 @@ public class CachedApiKeyManager {
     public void setApiKeyForTesting(String apiKey, ApiKeyInfo info) {
         cache.put(apiKey, new CacheEntry(info));
     }
-    
-    public void clearCache() {
+
+    public void invalidateCache() {
         cache.clear();
+        logger.info("API key cache invalidated");
     }
-    
+
     public void removeCacheEntry(String apiKey) {
         cache.remove(apiKey);
         logger.debug("Removed cache entry for API key: {}", apiKey);

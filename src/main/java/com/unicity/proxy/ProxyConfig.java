@@ -28,6 +28,9 @@ public class ProxyConfig {
     @Parameter(names = {"--idle-timeout"}, description = "Idle timeout in milliseconds")
     private int idleTimeout = 3000;
 
+    @Parameter(names = {"--admin-password"}, description = "Admin dashboard password")
+    private String adminPassword = null;
+
     @Parameter(names = {"--protected-methods"}, description = "Comma-separated list of JSON-RPC methods requiring authentication and rate limiting")
     private String protectedMethods = "submit_commitment";
     
@@ -72,6 +75,16 @@ public class ProxyConfig {
 
     public int getIdleTimeout() {
         return idleTimeout;
+    }
+
+    public String getAdminPassword() {
+        // Check environment variable first, then command line parameter
+        String envPassword = System.getenv("ADMIN_PASSWORD");
+        if (envPassword != null && !envPassword.isEmpty()) {
+            return envPassword;
+        }
+        // If no env var and no command line param, use default
+        return adminPassword != null ? adminPassword : "admin";
     }
 
     public boolean isHelp() {

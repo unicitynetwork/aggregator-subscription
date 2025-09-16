@@ -323,6 +323,10 @@ public class RequestHandler extends Handler.Abstract {
     public RateLimiterManager getRateLimiterManager() {
         return rateLimiterManager;
     }
+
+    public CachedApiKeyManager getApiKeyManager() {
+        return apiKeyManager;
+    }
     
     private static Set<String> parseConnectionTokens(HttpField connectionField) {
         String connectionHeader = connectionField != null ? connectionField.getValue() : null;

@@ -124,6 +124,7 @@ public abstract class AbstractIntegrationTest {
                 .until(() -> isServerReady(proxyPort));
 
         testTimeMeter = new TestTimeMeter();
+        getRateLimiterManager().setTimeMeter(testTimeMeter);
         getRateLimiterManager().setBucketFactory(apiKeyInfo ->
                 RateLimiterManager.createBucketWithTimeMeter(apiKeyInfo, testTimeMeter));
         CachedApiKeyManager.getInstance().setTimeMeter(testTimeMeter);
@@ -306,6 +307,10 @@ public abstract class AbstractIntegrationTest {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    protected RateLimiterManager getRateLimiterManager() {
+        return proxyServer.getRateLimiterManager();
+    }
+
     protected HttpResponse<String> sendRequestWithContent(int targetSize, AuthMode authMode) throws IOException, InterruptedException {
         if (authMode == AUTHORIZED) {
             String jsonBody = fillPlaceholderUpToTargetLength(targetSize, JSON_RPC_TEMPLATE, "PLACEHOLDER");
@@ -346,10 +351,6 @@ public abstract class AbstractIntegrationTest {
                     .build();
         }
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-    }
-
-    private RateLimiterManager getRateLimiterManager() {
-        return ((RequestHandler) proxyServer.getServer().getHandler()).getRateLimiterManager();
     }
 
     public static class TestTimeMeter implements TimeMeter {

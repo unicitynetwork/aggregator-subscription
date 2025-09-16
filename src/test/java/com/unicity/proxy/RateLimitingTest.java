@@ -43,7 +43,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
     @AfterEach
     @Override
     void tearDown() throws Exception {
-        CachedApiKeyManager.getInstance().clearCache();
+        CachedApiKeyManager.getInstance().invalidateCache();
         super.tearDown();
     }
     
