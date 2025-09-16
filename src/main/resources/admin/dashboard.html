@@ -128,6 +128,27 @@
             color: white;
         }
 
+        .btn-copy {
+            background: transparent;
+            border: 1px solid var(--border);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s ease;
+            min-width: 32px;
+        }
+
+        .btn-copy:hover {
+            background: var(--bg);
+            transform: scale(1.1);
+        }
+
+        .btn-copy.copied {
+            background: #10b981;
+            color: white;
+        }
+
         .btn-secondary {
             background: var(--secondary);
             color: white;
@@ -385,12 +406,19 @@
             to { transform: rotate(360deg); }
         }
 
+        .api-key-cell {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
         .api-key-display {
             font-family: 'Courier New', monospace;
             background: var(--bg);
             padding: 0.5rem;
             border-radius: 4px;
             word-break: break-all;
+            flex: 1;
             font-size: 0.875rem;
         }
 
@@ -717,6 +745,15 @@
             <form id="editKeyForm">
                 <input type="hidden" id="editKeyId">
                 <div class="form-group">
+                    <label>API Key</label>
+                    <div class="api-key-cell">
+                        <input type="text" id="editKeyApiKey" class="api-key-display" readonly style="flex: 1; cursor: text;">
+                        <button type="button" class="btn-copy" onclick="copyToClipboard(document.getElementById('editKeyApiKey').value)" title="Copy API Key">
+                            📋
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
                     <label for="editKeyDescription">Description</label>
                     <input type="text" id="editKeyDescription" placeholder="e.g., Production API Key">
                 </div>
@@ -902,8 +939,13 @@
 
                 tr.innerHTML = `
                     <td>
-                        <div class="api-key-display truncate" title="${key.apiKey}">
-                            ${key.apiKey.substring(0, 10)}...${key.apiKey.substring(key.apiKey.length - 10)}
+                        <div class="api-key-cell">
+                            <div class="api-key-display truncate" title="${key.apiKey}">
+                                ${key.apiKey.substring(0, 10)}...${key.apiKey.substring(key.apiKey.length - 10)}
+                            </div>
+                            <button class="btn-copy" onclick="copyToClipboard('${key.apiKey}')" title="Copy API Key">
+                                📋
+                            </button>
                         </div>
                     </td>
                     <td>${key.description || '-'}</td>
@@ -1017,6 +1059,36 @@
             }
         }
 
+        function copyToClipboard(text) {
+            // Create temporary textarea
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+
+            try {
+                document.execCommand('copy');
+
+                // Find the button that was clicked and show feedback
+                const button = event.target;
+                const originalHTML = button.innerHTML;
+                button.innerHTML = '✅';
+                button.classList.add('copied');
+
+                setTimeout(() => {
+                    button.innerHTML = originalHTML;
+                    button.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy API key');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
         function showCreateKeyModal() {
             document.getElementById('createKeyModal').classList.add('show');
         }
@@ -1026,6 +1098,7 @@
             if (!key) return;
 
             document.getElementById('editKeyId').value = key.id;
+            document.getElementById('editKeyApiKey').value = key.apiKey;
             document.getElementById('editKeyDescription').value = key.description || '';
 
             // Populate plan selector
