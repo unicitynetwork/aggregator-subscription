@@ -16,14 +16,11 @@ import org.eclipse.jetty.util.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -44,18 +41,10 @@ public class AdminHandler extends Handler.Abstract {
     private final ConcurrentHashMap<String, SessionInfo> sessions = new ConcurrentHashMap<>();
     private static final long SESSION_DURATION_HOURS = 24;
 
-    private static class SessionInfo {
-        final String token;
-        final Instant expiresAt;
-
-        SessionInfo(String token, Instant expiresAt) {
-            this.token = token;
-            this.expiresAt = expiresAt;
-        }
-
+    private record SessionInfo(String token, Instant expiresAt) {
         boolean isExpired() {
-            return Instant.now().isAfter(expiresAt);
-        }
+                return Instant.now().isAfter(expiresAt);
+            }
     }
 
     public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager) {
@@ -68,7 +57,7 @@ public class AdminHandler extends Handler.Abstract {
     }
 
     @Override
-    public boolean handle(Request request, Response response, Callback callback) throws Exception {
+    public boolean handle(Request request, Response response, Callback callback) {
         String path = request.getHttpURI().getPath();
         String method = request.getMethod();
 
@@ -138,13 +127,15 @@ public class AdminHandler extends Handler.Abstract {
 
     private void serveAdminDashboard(Response response, Callback callback) {
         try {
-            InputStream dashboardStream = getClass().getResourceAsStream("/admin/dashboard.html");
-            if (dashboardStream == null) {
-                sendNotFound(response, callback);
-                return;
-            }
+            byte[] content;
+            try (InputStream dashboardStream = getClass().getResourceAsStream("/admin/dashboard.html")) {
+                if (dashboardStream == null) {
+                    sendNotFound(response, callback);
+                    return;
+                }
 
-            byte[] content = dashboardStream.readAllBytes();
+                content = dashboardStream.readAllBytes();
+            }
             response.setStatus(HttpStatus.OK_200);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, MimeTypes.Type.TEXT_HTML.asString());
             response.write(true, ByteBuffer.wrap(content), callback);
@@ -327,7 +318,7 @@ public class AdminHandler extends Handler.Abstract {
             String name = planRequest.get("name").asText();
             int requestsPerSecond = planRequest.get("requestsPerSecond").asInt();
             int requestsPerDay = planRequest.get("requestsPerDay").asInt();
-            double price = planRequest.has("price") ? planRequest.get("price").asDouble() : 0.0;
+            BigInteger price = planRequest.has("price") ? new BigInteger(planRequest.get("price").asText()) : BigInteger.ZERO;
 
             pricingPlanRepository.create(name, requestsPerSecond, requestsPerDay, price);
 
@@ -350,7 +341,7 @@ public class AdminHandler extends Handler.Abstract {
             String name = planRequest.get("name").asText();
             int requestsPerSecond = planRequest.get("requestsPerSecond").asInt();
             int requestsPerDay = planRequest.get("requestsPerDay").asInt();
-            double price = planRequest.has("price") ? planRequest.get("price").asDouble() : 0.0;
+            BigInteger price = planRequest.has("price") ? new BigInteger(planRequest.get("price").asText()) : BigInteger.ZERO;
 
             pricingPlanRepository.update(id, name, requestsPerSecond, requestsPerDay, price);
 
@@ -366,7 +357,7 @@ public class AdminHandler extends Handler.Abstract {
 
     private void handleDeletePricingPlan(String planId, Response response, Callback callback) {
         try {
-            Long id = Long.parseLong(planId);
+            long id = Long.parseLong(planId);
             pricingPlanRepository.delete(id);
 
             ObjectNode responseJson = mapper.createObjectNode();

@@ -15,16 +15,10 @@ public class ApiKeyRepository {
     private static final Logger logger = LoggerFactory.getLogger(ApiKeyRepository.class);
     
     private static final String FIND_BY_KEY_SQL = """
-        SELECT ak.api_key, ak.status, pp.requests_per_second, pp.requests_per_day
+        SELECT ak.api_key, ak.status, ak.pricing_plan_id, pp.requests_per_second, pp.requests_per_day
         FROM api_keys ak
         JOIN pricing_plans pp ON ak.pricing_plan_id = pp.id
         WHERE ak.api_key = ?
-        """;
-    
-    private static final String FIND_ALL_SQL = """
-        SELECT ak.api_key, ak.status, pp.requests_per_second, pp.requests_per_day
-        FROM api_keys ak
-        JOIN pricing_plans pp ON ak.pricing_plan_id = pp.id
         """;
     
     private static final String INSERT_SQL = """
@@ -78,7 +72,8 @@ public class ApiKeyRepository {
                     return Optional.of(new ApiKeyInfo(
                         rs.getString("api_key"),
                         rs.getInt("requests_per_second"),
-                        rs.getInt("requests_per_day")
+                        rs.getInt("requests_per_day"),
+                        rs.getLong("pricing_plan_id")
                     ));
                 }
             }
@@ -88,12 +83,12 @@ public class ApiKeyRepository {
         return Optional.empty();
     }
     
-    public void save(String apiKey, int pricingPlanId) {
+    public void save(String apiKey, long pricingPlanId) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(INSERT_SQL)) {
             
             stmt.setString(1, apiKey);
-            stmt.setInt(2, pricingPlanId);
+            stmt.setLong(2, pricingPlanId);
             stmt.setString(3, "active");
             
             stmt.executeUpdate();
@@ -118,11 +113,11 @@ public class ApiKeyRepository {
         }
     }
     
-    public void deleteByPricingPlanId(int planId) {
+    public void deleteByPricingPlanId(long planId) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_BY_PLAN_ID_SQL)) {
             
-            stmt.setInt(1, planId);
+            stmt.setLong(1, planId);
             int affected = stmt.executeUpdate();
             
             if (affected > 0) {
@@ -133,11 +128,11 @@ public class ApiKeyRepository {
         }
     }
 
-    public void updatePricingPlan(String apiKey, int newPricingPlanId) {
+    public void updatePricingPlan(String apiKey, long newPricingPlanId) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_PLAN_SQL)) {
 
-            stmt.setInt(1, newPricingPlanId);
+            stmt.setLong(1, newPricingPlanId);
             stmt.setString(2, apiKey);
 
             int affected = stmt.executeUpdate();
@@ -150,7 +145,7 @@ public class ApiKeyRepository {
         }
     }
 
-    public record ApiKeyInfo(String apiKey, int requestsPerSecond, int requestsPerDay) {
+    public record ApiKeyInfo(String apiKey, int requestsPerSecond, int requestsPerDay, Long pricingPlanId) {
     }
 
     public static class ApiKeyDetail {

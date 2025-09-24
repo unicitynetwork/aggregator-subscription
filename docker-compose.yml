@@ -28,6 +28,8 @@ services:
       PROXY_ARGS: "--port 8080 --target ${TARGET_URL:-http://host.docker.internal:3000}"
       # Admin dashboard configuration
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # Server secret for API operations (must be hex string with even length)
+      SERVER_SECRET: ${SERVER_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       # Logging configuration (used by logback.xml)
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Database configuration

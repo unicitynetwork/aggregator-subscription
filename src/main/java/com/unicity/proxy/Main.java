@@ -4,10 +4,13 @@ import com.beust.jcommander.JCommander;
 import com.unicity.proxy.repository.DatabaseConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.sdk.util.HexConverter;
 
 public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
-    
+
+    public static final String SERVER_SECRET = "SERVER_SECRET";
+
     public static void main(String[] args) {
         ProxyConfig config = new ProxyConfig();
         JCommander commander = JCommander.newBuilder()
@@ -34,7 +37,11 @@ public class Main {
         initializeDatabase(config);
         
         try {
-            ProxyServer server = new ProxyServer(config);
+            String serverSecret = System.getenv(SERVER_SECRET);
+            if (serverSecret == null || serverSecret.isBlank()) {
+               throw new RuntimeException(SERVER_SECRET + " environment variable not set");
+            }
+            ProxyServer server = new ProxyServer(config, HexConverter.decode(serverSecret));
             server.start();
             
             server.awaitTermination();
