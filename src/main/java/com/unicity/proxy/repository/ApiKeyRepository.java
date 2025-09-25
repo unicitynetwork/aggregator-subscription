@@ -2,6 +2,7 @@ package com.unicity.proxy.repository;
 
 import com.unicity.proxy.CachedApiKeyManager;
 import com.unicity.proxy.model.ApiKeyStatus;
+import io.github.bucket4j.TimeMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -9,15 +10,19 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 public class ApiKeyRepository {
     private static final Logger logger = LoggerFactory.getLogger(ApiKeyRepository.class);
+    private static final Duration PAYMENT_VALIDITY_DURATION = Duration.ofDays(30);
+    private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
     
     private static final String FIND_BY_KEY_SQL = """
-        SELECT ak.api_key, ak.status, ak.pricing_plan_id, pp.requests_per_second, pp.requests_per_day
+        SELECT ak.api_key, ak.status, ak.pricing_plan_id, ak.active_until, pp.requests_per_second, pp.requests_per_day
         FROM api_keys ak
         LEFT JOIN pricing_plans pp ON ak.pricing_plan_id = pp.id
         WHERE ak.api_key = ?
@@ -60,12 +65,34 @@ public class ApiKeyRepository {
     public ApiKeyRepository() {
     }
 
+    public void setTimeMeter(TimeMeter timeMeter) {
+        this.timeMeter = timeMeter;
+    }
+
+    public static Duration getPaymentValidityDuration() {
+        return PAYMENT_VALIDITY_DURATION;
+    }
+
     public Optional<ApiKeyInfo> findByKeyIfNotRevokedAndHasPaid(String apiKey) {
         Optional<ApiKeyInfo> apiKeyInfo = findByKeyIfNotRevoked(apiKey);
-        if (apiKeyInfo.isPresent() && apiKeyInfo.get().pricingPlanId() == null) {
+        if (apiKeyInfo.isEmpty()) {
+            return Optional.empty();
+        }
+
+        ApiKeyInfo info = apiKeyInfo.get();
+        if (info.pricingPlanId() == null) {
             logger.debug("API key {} has no active pricing plan", apiKey);
             return Optional.empty();
         }
+
+        if (info.activeUntil() != null) {
+            long currentTime = timeMeter.currentTimeNanos() / 1_000_000;
+            if (currentTime > info.activeUntil().getTime()) {
+                logger.debug("API key {} has expired", apiKey);
+                return Optional.empty();
+            }
+        }
+
         return apiKeyInfo;
     }
 
@@ -85,12 +112,14 @@ public class ApiKeyRepository {
 
                     Object planIdObj = rs.getObject("pricing_plan_id");
                     Long planId = planIdObj == null ? null : ((Number) planIdObj).longValue();
+                    Timestamp activeUntil = rs.getTimestamp("active_until");
 
                     return Optional.of(new ApiKeyInfo(
                             rs.getString("api_key"),
                             rs.getInt("requests_per_second"),
                             rs.getInt("requests_per_day"),
-                            planId
+                            planId,
+                            activeUntil
                     ));
                 }
             }
@@ -165,33 +194,44 @@ public class ApiKeyRepository {
         }
     }
 
-    public record ApiKeyInfo(String apiKey, int requestsPerSecond, int requestsPerDay, Long pricingPlanId) {
+    public void updatePricingPlanAndExtendExpiry(String apiKey, long newPricingPlanId) {
+        String sql = """
+            UPDATE api_keys
+            SET pricing_plan_id = ?,
+                active_until = CASE
+                    WHEN active_until IS NULL OR active_until < CURRENT_TIMESTAMP
+                    THEN CURRENT_TIMESTAMP + INTERVAL '1 day' * ?
+                    ELSE active_until + INTERVAL '1 day' * ?
+                END
+            WHERE api_key = ?
+            """;
+
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            long daysToAdd = PAYMENT_VALIDITY_DURATION.toDays();
+            stmt.setLong(1, newPricingPlanId);
+            stmt.setLong(2, daysToAdd);
+            stmt.setLong(3, daysToAdd);
+            stmt.setString(4, apiKey);
+
+            int affected = stmt.executeUpdate();
+
+            if (affected > 0) {
+                logger.info("Updated pricing plan and extended expiry for API key: {} to plan_id: {} for {} days",
+                           apiKey, newPricingPlanId, daysToAdd);
+                CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
+            }
+        } catch (SQLException e) {
+            logger.error("Error updating pricing plan and expiry for API key: {}", apiKey, e);
+        }
     }
 
-    public static class ApiKeyDetail {
-        private final Long id;
-        private final String apiKey;
-        private final String description;
-        private final ApiKeyStatus status;
-        private final Long pricingPlanId;
-        private final java.sql.Timestamp createdAt;
+    public record ApiKeyInfo(String apiKey, int requestsPerSecond, int requestsPerDay, Long pricingPlanId, Timestamp activeUntil) {
+    }
 
-        public ApiKeyDetail(Long id, String apiKey, String description, ApiKeyStatus status,
-                          Long pricingPlanId, java.sql.Timestamp createdAt) {
-            this.id = id;
-            this.apiKey = apiKey;
-            this.description = description;
-            this.status = status;
-            this.pricingPlanId = pricingPlanId;
-            this.createdAt = createdAt;
-        }
-
-        public Long getId() { return id; }
-        public String getApiKey() { return apiKey; }
-        public String getDescription() { return description; }
-        public ApiKeyStatus getStatus() { return status; }
-        public Long getPricingPlanId() { return pricingPlanId; }
-        public java.sql.Timestamp getCreatedAt() { return createdAt; }
+    public record ApiKeyDetail(Long id, String apiKey, String description, ApiKeyStatus status, Long pricingPlanId,
+                               Timestamp createdAt) {
     }
 
     public List<ApiKeyDetail> findAll() {

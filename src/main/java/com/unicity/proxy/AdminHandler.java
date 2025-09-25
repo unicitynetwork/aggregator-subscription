@@ -180,22 +180,22 @@ public class AdminHandler extends Handler.Abstract {
 
             for (var key : keys) {
                 ObjectNode keyNode = mapper.createObjectNode();
-                keyNode.put("id", key.getId());
-                keyNode.put("apiKey", key.getApiKey());
-                keyNode.put("description", key.getDescription());
-                keyNode.put("status", key.getStatus().getValue());
-                keyNode.put("pricingPlanId", key.getPricingPlanId());
-                keyNode.put("createdAt", key.getCreatedAt().toString());
+                keyNode.put("id", key.id());
+                keyNode.put("apiKey", key.apiKey());
+                keyNode.put("description", key.description());
+                keyNode.put("status", key.status().getValue());
+                keyNode.put("pricingPlanId", key.pricingPlanId());
+                keyNode.put("createdAt", key.createdAt().toString());
 
                 // Add current rate limit info
-                var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.getApiKey());
+                var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.apiKey());
                 if (apiKeyInfo != null) {
                     keyNode.put("requestsPerSecond", apiKeyInfo.requestsPerSecond());
                     keyNode.put("requestsPerDay", apiKeyInfo.requestsPerDay());
                 }
 
                 // Add plan name
-                var plan = pricingPlanRepository.findById(key.getPricingPlanId());
+                var plan = pricingPlanRepository.findById(key.pricingPlanId());
                 if (plan != null) {
                     keyNode.put("planName", plan.getName());
                 }
@@ -401,13 +401,13 @@ public class AdminHandler extends Handler.Abstract {
 
             for (var key : keys) {
                 ObjectNode keyUtilization = mapper.createObjectNode();
-                keyUtilization.put("id", key.getId());
-                keyUtilization.put("apiKey", key.getApiKey());
-                keyUtilization.put("description", key.getDescription());
-                keyUtilization.put("status", key.getStatus().getValue());
+                keyUtilization.put("id", key.id());
+                keyUtilization.put("apiKey", key.apiKey());
+                keyUtilization.put("description", key.description());
+                keyUtilization.put("status", key.status().getValue());
 
                 // Get utilization info from rate limiter
-                var utilization = rateLimiterManager.getUtilization(key.getApiKey());
+                var utilization = rateLimiterManager.getUtilization(key.apiKey());
                 if (utilization != null) {
                     keyUtilization.put("consumedPerSecond", utilization.getConsumedPerSecond());
                     keyUtilization.put("maxPerSecond", utilization.getMaxTokensPerSecond());
@@ -422,7 +422,7 @@ public class AdminHandler extends Handler.Abstract {
                         Math.round(utilization.getUtilizationPercentPerDay() * 100) / 100.0);
                 } else {
                     // No utilization data yet (key hasn't been used)
-                    var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.getApiKey());
+                    var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.apiKey());
                     if (apiKeyInfo != null) {
                         keyUtilization.put("consumedPerSecond", 0);
                         keyUtilization.put("maxPerSecond", apiKeyInfo.requestsPerSecond());

@@ -217,7 +217,7 @@ public class PaymentService {
                 );
             }
 
-            apiKeyRepository.updatePricingPlan(
+            apiKeyRepository.updatePricingPlanAndExtendExpiry(
                 session.getApiKey(), session.getTargetPlanId()
             );
 

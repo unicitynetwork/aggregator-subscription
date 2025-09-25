@@ -30,6 +30,7 @@ public class CachedApiKeyManager {
 
     private CachedApiKeyManager() {
         this.repository = new ApiKeyRepository();
+        this.repository.setTimeMeter(timeMeter);
         this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "api-key-cache-cleaner");
             thread.setDaemon(true);
@@ -132,6 +133,7 @@ public class CachedApiKeyManager {
 
     public void setTimeMeter(TimeMeter timeMeter) {
         this.timeMeter = timeMeter;
+        this.repository.setTimeMeter(timeMeter);
     }
 
     private class CacheEntry {

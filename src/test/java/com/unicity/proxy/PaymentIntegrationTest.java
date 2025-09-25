@@ -29,6 +29,7 @@ import org.unicitylabs.sdk.transaction.MintTransactionData;
 import org.unicitylabs.sdk.transaction.MintTransactionReason;
 import org.unicitylabs.sdk.transaction.TransferCommitment;
 import org.unicitylabs.sdk.util.InclusionProofUtils;
+import io.github.bucket4j.TimeMeter;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -95,6 +96,19 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
 
         PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, createResponse.getApiKey());
+        assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
+
+        signAndSubmitPayment(paymentSession);
+
+        pollUntilPaymentSucceeded(paymentSession.getSessionId(), createResponse.getApiKey(), 3);
+        assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
+
+        // Make the key expire, then pay for it again
+        testTimeMeter.addTime(ApiKeyRepository.getPaymentValidityDuration().toMillis() + 10_000);
+
+        assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
+
+        paymentSession = initiatePaymentSession(3, createResponse.getApiKey());
         assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
 
         signAndSubmitPayment(paymentSession);
