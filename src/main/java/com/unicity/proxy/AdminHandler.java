@@ -3,8 +3,10 @@ package com.unicity.proxy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.unicity.proxy.model.ApiKeyStatus;
 import com.unicity.proxy.repository.ApiKeyRepository;
 import com.unicity.proxy.repository.PricingPlanRepository;
+import com.unicity.proxy.service.ApiKeyService;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MimeTypes;
@@ -181,7 +183,7 @@ public class AdminHandler extends Handler.Abstract {
                 keyNode.put("id", key.getId());
                 keyNode.put("apiKey", key.getApiKey());
                 keyNode.put("description", key.getDescription());
-                keyNode.put("status", key.getStatus());
+                keyNode.put("status", key.getStatus().getValue());
                 keyNode.put("pricingPlanId", key.getPricingPlanId());
                 keyNode.put("createdAt", key.getCreatedAt().toString());
 
@@ -217,7 +219,7 @@ public class AdminHandler extends Handler.Abstract {
             Long planId = keyRequest.has("pricingPlanId") ? keyRequest.get("pricingPlanId").asLong() : 1L;
 
             // Generate new API key
-            String newApiKey = "sk_" + UUID.randomUUID().toString().replace("-", "");
+            String newApiKey = ApiKeyService.generateApiKey();
 
             // Save to database
             apiKeyRepository.create(newApiKey, description, planId);
@@ -261,8 +263,16 @@ public class AdminHandler extends Handler.Abstract {
             ObjectNode updateRequest = (ObjectNode) mapper.readTree(body);
 
             if (updateRequest.has("status")) {
-                String status = updateRequest.get("status").asText();
-                apiKeyRepository.updateStatus(id, status);
+                String statusStr = updateRequest.get("status").asText();
+                try {
+                    ApiKeyStatus status = ApiKeyStatus.fromValue(statusStr);
+                    apiKeyRepository.updateStatus(id, status);
+                } catch (IllegalArgumentException e) {
+                    ObjectNode error = mapper.createObjectNode();
+                    error.put("error", "Invalid status value. Must be 'active' or 'revoked'");
+                    sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);
+                    return;
+                }
             }
 
             if (updateRequest.has("pricingPlanId")) {
@@ -394,7 +404,7 @@ public class AdminHandler extends Handler.Abstract {
                 keyUtilization.put("id", key.getId());
                 keyUtilization.put("apiKey", key.getApiKey());
                 keyUtilization.put("description", key.getDescription());
-                keyUtilization.put("status", key.getStatus());
+                keyUtilization.put("status", key.getStatus().getValue());
 
                 // Get utilization info from rate limiter
                 var utilization = rateLimiterManager.getUtilization(key.getApiKey());

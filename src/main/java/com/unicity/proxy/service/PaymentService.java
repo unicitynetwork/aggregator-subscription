@@ -73,8 +73,8 @@ public class PaymentService {
         String apiKey = request.getApiKey();
         long targetPlanId = request.getTargetPlanId();
 
-        if (apiKeyRepository.findByKeyIfActive(apiKey).isEmpty()) {
-            throw new IllegalArgumentException("Invalid or inactive API key");
+        if (apiKeyRepository.findByKeyIfNotRevoked(apiKey).isEmpty()) {
+            throw new IllegalArgumentException("Unknown API key");
         }
 
         if (pricingPlanRepository.findById(targetPlanId) == null) {
@@ -94,7 +94,7 @@ public class PaymentService {
 
         byte[] receiverNonce = random32Bytes();
 
-        SigningService signingService = SigningService.createFromSecret(
+        SigningService signingService = SigningService.createFromMaskedSecret(
             serverSecret, receiverNonce
         );
 
@@ -183,7 +183,7 @@ public class PaymentService {
             Transaction<TransferTransactionData> transferTransaction =
                 transferCommitment.toTransaction(sourceToken, inclusionProof);
 
-            SigningService receiverSigningService = SigningService.createFromSecret(
+            SigningService receiverSigningService = SigningService.createFromMaskedSecret(
                 serverSecret, session.getReceiverNonce()
             );
 

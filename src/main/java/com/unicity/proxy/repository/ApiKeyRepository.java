@@ -1,5 +1,7 @@
 package com.unicity.proxy.repository;
 
+import com.unicity.proxy.CachedApiKeyManager;
+import com.unicity.proxy.model.ApiKeyStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +19,7 @@ public class ApiKeyRepository {
     private static final String FIND_BY_KEY_SQL = """
         SELECT ak.api_key, ak.status, ak.pricing_plan_id, pp.requests_per_second, pp.requests_per_day
         FROM api_keys ak
-        JOIN pricing_plans pp ON ak.pricing_plan_id = pp.id
+        LEFT JOIN pricing_plans pp ON ak.pricing_plan_id = pp.id
         WHERE ak.api_key = ?
         """;
     
@@ -55,25 +57,40 @@ public class ApiKeyRepository {
         VALUES (?, ?, ?, 'active'::api_key_status)
         """;
 
-    public Optional<ApiKeyInfo> findByKeyIfActive(String apiKey) {
+    public ApiKeyRepository() {
+    }
+
+    public Optional<ApiKeyInfo> findByKeyIfNotRevokedAndHasPaid(String apiKey) {
+        Optional<ApiKeyInfo> apiKeyInfo = findByKeyIfNotRevoked(apiKey);
+        if (apiKeyInfo.isPresent() && apiKeyInfo.get().pricingPlanId() == null) {
+            logger.debug("API key {} has no active pricing plan", apiKey);
+            return Optional.empty();
+        }
+        return apiKeyInfo;
+    }
+
+    public Optional<ApiKeyInfo> findByKeyIfNotRevoked(String apiKey) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(FIND_BY_KEY_SQL)) {
-            
+
             stmt.setString(1, apiKey);
-            
+
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    String status = rs.getString("status");
-                    if ("revoked".equals(status)) {
+                    ApiKeyStatus status = ApiKeyStatus.fromValue(rs.getString("status"));
+                    if (status == ApiKeyStatus.REVOKED) {
                         logger.debug("API key {} is revoked", apiKey);
                         return Optional.empty();
                     }
-                    
+
+                    Object planIdObj = rs.getObject("pricing_plan_id");
+                    Long planId = planIdObj == null ? null : ((Number) planIdObj).longValue();
+
                     return Optional.of(new ApiKeyInfo(
-                        rs.getString("api_key"),
-                        rs.getInt("requests_per_second"),
-                        rs.getInt("requests_per_day"),
-                        rs.getLong("pricing_plan_id")
+                            rs.getString("api_key"),
+                            rs.getInt("requests_per_second"),
+                            rs.getInt("requests_per_day"),
+                            planId
                     ));
                 }
             }
@@ -82,17 +99,18 @@ public class ApiKeyRepository {
         }
         return Optional.empty();
     }
-    
+
     public void save(String apiKey, long pricingPlanId) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(INSERT_SQL)) {
             
             stmt.setString(1, apiKey);
             stmt.setLong(2, pricingPlanId);
-            stmt.setString(3, "active");
+            stmt.setString(3, ApiKeyStatus.ACTIVE.getValue());
             
             stmt.executeUpdate();
             logger.info("Saved API key: {} with pricing plan id: {}", apiKey, pricingPlanId);
+            CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
         } catch (SQLException e) {
             logger.error("Error saving API key: " + apiKey, e);
         }
@@ -107,6 +125,7 @@ public class ApiKeyRepository {
             
             if (affected > 0) {
                 logger.info("Deleted API key: {}", apiKey);
+                CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
             }
         } catch (SQLException e) {
             logger.error("Error deleting API key: {}", apiKey, e);
@@ -139,6 +158,7 @@ public class ApiKeyRepository {
 
             if (affected > 0) {
                 logger.info("Updated pricing plan for API key: {} to plan_id: {}", apiKey, newPricingPlanId);
+                CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
             }
         } catch (SQLException e) {
             logger.error("Error updating pricing plan for API key: {}", apiKey, e);
@@ -152,11 +172,11 @@ public class ApiKeyRepository {
         private final Long id;
         private final String apiKey;
         private final String description;
-        private final String status;
+        private final ApiKeyStatus status;
         private final Long pricingPlanId;
         private final java.sql.Timestamp createdAt;
 
-        public ApiKeyDetail(Long id, String apiKey, String description, String status,
+        public ApiKeyDetail(Long id, String apiKey, String description, ApiKeyStatus status,
                           Long pricingPlanId, java.sql.Timestamp createdAt) {
             this.id = id;
             this.apiKey = apiKey;
@@ -169,7 +189,7 @@ public class ApiKeyRepository {
         public Long getId() { return id; }
         public String getApiKey() { return apiKey; }
         public String getDescription() { return description; }
-        public String getStatus() { return status; }
+        public ApiKeyStatus getStatus() { return status; }
         public Long getPricingPlanId() { return pricingPlanId; }
         public java.sql.Timestamp getCreatedAt() { return createdAt; }
     }
@@ -185,7 +205,7 @@ public class ApiKeyRepository {
                     rs.getLong("id"),
                     rs.getString("api_key"),
                     rs.getString("description"),
-                    rs.getString("status"),
+                    ApiKeyStatus.fromValue(rs.getString("status")),
                     rs.getLong("pricing_plan_id"),
                     rs.getTimestamp("created_at")
                 ));
@@ -206,6 +226,7 @@ public class ApiKeyRepository {
 
             stmt.executeUpdate();
             logger.info("Created API key: {} with description: {}", apiKey, description);
+            CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
         } catch (SQLException e) {
             logger.error("Error creating API key", e);
         }
@@ -226,11 +247,11 @@ public class ApiKeyRepository {
         }
     }
 
-    public void updateStatus(Long id, String status) {
+    public void updateStatus(Long id, ApiKeyStatus status) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_STATUS_SQL)) {
 
-            stmt.setString(1, status);
+            stmt.setString(1, status.getValue());
             stmt.setLong(2, id);
 
             int affected = stmt.executeUpdate();
@@ -297,6 +318,48 @@ public class ApiKeyRepository {
             }
         } catch (SQLException e) {
             logger.error("Error updating description for API key id: {}", id, e);
+        }
+    }
+
+    /**
+     * Create an API key without a pricing plan.
+     * The key will be inactive until a plan is purchased.
+     */
+    public void createWithoutPlan(String apiKey) {
+        String sql = """
+            INSERT INTO api_keys (api_key, description, pricing_plan_id, status)
+            VALUES (?, '', NULL, 'active'::api_key_status)
+            """;
+
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, apiKey);
+
+            stmt.executeUpdate();
+            logger.info("Created API key without plan: {}", apiKey);
+        } catch (SQLException e) {
+            logger.error("Error creating API key without plan: " + apiKey, e);
+            throw new RuntimeException("Failed to create API key", e);
+        }
+    }
+
+    /**
+     * Check if an API key exists (regardless of status or plan)
+     */
+    public boolean exists(String apiKey) {
+        String sql = "SELECT 1 FROM api_keys WHERE api_key = ?";
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, apiKey);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            logger.error("Error checking API key existence: " + apiKey, e);
+            return false;
         }
     }
 }

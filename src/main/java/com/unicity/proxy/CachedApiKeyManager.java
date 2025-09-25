@@ -71,7 +71,7 @@ public class CachedApiKeyManager {
         }
         
         logger.debug("Cache miss for API key: {}, fetching from database", apiKey);
-        Optional<ApiKeyRepository.ApiKeyInfo> repoInfo = repository.findByKeyIfActive(apiKey);
+        Optional<ApiKeyRepository.ApiKeyInfo> repoInfo = repository.findByKeyIfNotRevokedAndHasPaid(apiKey);
         
         if (repoInfo.isPresent()) {
             ApiKeyRepository.ApiKeyInfo dbInfo = repoInfo.get();

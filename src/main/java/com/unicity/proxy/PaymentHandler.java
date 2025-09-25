@@ -2,6 +2,7 @@ package com.unicity.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unicity.proxy.model.PaymentModels;
+import com.unicity.proxy.service.ApiKeyService;
 import com.unicity.proxy.service.PaymentService;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.io.Content;
@@ -21,10 +22,12 @@ public class PaymentHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(PaymentHandler.class);
 
     private final PaymentService paymentService;
+    private final ApiKeyService apiKeyService;
     private final ObjectMapper objectMapper;
 
     public PaymentHandler(ProxyConfig config, byte[] serverSecret) {
         this.paymentService = new PaymentService(config, serverSecret);
+        this.apiKeyService = new ApiKeyService();
         this.objectMapper = new ObjectMapper();
         this.objectMapper.findAndRegisterModules(); // For Java 8 time support
     }
@@ -39,7 +42,10 @@ public class PaymentHandler extends Handler.Abstract {
         }
 
         try {
-            if ("POST".equals(method) && "/api/payment/initiate".equals(path)) {
+            if ("POST".equals(method) && "/api/payment/create-key".equals(path)) {
+                handleCreateApiKey(request, response, callback);
+                return true;
+            } else if ("POST".equals(method) && "/api/payment/initiate".equals(path)) {
                 handleInitiatePayment(request, response, callback);
                 return true;
             } else if ("POST".equals(method) && "/api/payment/complete".equals(path)) {
@@ -141,6 +147,17 @@ public class PaymentHandler extends Handler.Abstract {
             logger.error("Error completing payment", e);
             sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
                 "Internal Server Error", "Payment processing failed: " + e.getMessage());
+        }
+    }
+
+    private void handleCreateApiKey(Request request, Response response, Callback callback) {
+        try {
+            PaymentModels.CreateApiKeyResponse createResponse = apiKeyService.createApiKeyWithoutPricingPlan();
+            sendJsonResponse(response, callback, HttpStatus.OK_200, createResponse);
+        } catch (Exception e) {
+            logger.error("Error creating API key", e);
+            sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
+                "Internal Server Error", "Failed to create API key: " + e.getMessage());
         }
     }
 
