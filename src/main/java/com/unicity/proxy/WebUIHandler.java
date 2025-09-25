@@ -12,8 +12,7 @@ import java.nio.ByteBuffer;
 import java.util.UUID;
 
 public class WebUIHandler extends Handler.Abstract {
-    
-    private static final int STANDARD_PLAN_ID = 2; // ID for standard pricing plan
+
     private final ApiKeyRepository repository = new ApiKeyRepository();
     
     @Override
@@ -100,8 +99,8 @@ public class WebUIHandler extends Handler.Abstract {
                     <div class="api-key">
                         <div class="success">Success! Your new API key:</div>
                         """ + generatedKey + """
-                        <div style="margin-top: 15px; font-size: 14px; color: #aaa;">
-                            Plan: Standard (10 req/sec, 100,000 req/day)
+                        <div style="margin-top: 15px; font-size: 14px; color: #ffaa00;">
+                            Note: This key requires payment activation before use.
                         </div>
                     </div>
             """ : "") + """
@@ -119,8 +118,7 @@ public class WebUIHandler extends Handler.Abstract {
         String newApiKey = "key_" + UUID.randomUUID().toString();
         
         try {
-            repository.save(newApiKey, STANDARD_PLAN_ID);
-            // Remove this key's potential negative cache entry
+            repository.createWithoutPlan(newApiKey);
             CachedApiKeyManager.getInstance().removeCacheEntry(newApiKey);
             handleHomePage(response, callback, newApiKey);
         } catch (Exception e) {
