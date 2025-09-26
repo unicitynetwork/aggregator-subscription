@@ -15,7 +15,7 @@ public class ProxyServer {
     private final Server server;
     private final RateLimiterManager rateLimiterManager; 
     
-    public ProxyServer(ProxyConfig config) {
+    public ProxyServer(ProxyConfig config, byte[] serverSecret) {
         this.config = config;
 
         this.server = new Server(getQueuedThreadPool(config));
@@ -26,18 +26,25 @@ public class ProxyServer {
         // Create handler chain with admin handler first
         RequestHandler requestHandler = new RequestHandler(config);
         this.rateLimiterManager = requestHandler.getRateLimiterManager();
-        
+
         AdminHandler adminHandler = new AdminHandler(
             config.getAdminPassword(),
             requestHandler.getApiKeyManager(),
             this.rateLimiterManager
         );
 
-        // Create a combined handler that tries admin first, then proxy
+        // Create payment handler
+        PaymentHandler paymentHandler = new PaymentHandler(config, serverSecret);
+
+        // Create a combined handler that tries handlers in order: payment, admin, then proxy
         Handler.Abstract combinedHandler = new Handler.Abstract() {
             @Override
             public boolean handle(Request request, Response response, Callback callback) throws Exception {
-                // Try admin handler first
+                // Try payment handler first (for /api/payment/* endpoints)
+                if (paymentHandler.handle(request, response, callback)) {
+                    return true;
+                }
+                // Try admin handler next
                 if (adminHandler.handle(request, response, callback)) {
                     return true;
                 }

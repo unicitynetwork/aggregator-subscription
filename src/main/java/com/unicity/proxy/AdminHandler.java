@@ -3,8 +3,10 @@ package com.unicity.proxy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.unicity.proxy.model.ApiKeyStatus;
 import com.unicity.proxy.repository.ApiKeyRepository;
 import com.unicity.proxy.repository.PricingPlanRepository;
+import com.unicity.proxy.service.ApiKeyService;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MimeTypes;
@@ -16,14 +18,11 @@ import org.eclipse.jetty.util.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -44,18 +43,10 @@ public class AdminHandler extends Handler.Abstract {
     private final ConcurrentHashMap<String, SessionInfo> sessions = new ConcurrentHashMap<>();
     private static final long SESSION_DURATION_HOURS = 24;
 
-    private static class SessionInfo {
-        final String token;
-        final Instant expiresAt;
-
-        SessionInfo(String token, Instant expiresAt) {
-            this.token = token;
-            this.expiresAt = expiresAt;
-        }
-
+    private record SessionInfo(String token, Instant expiresAt) {
         boolean isExpired() {
-            return Instant.now().isAfter(expiresAt);
-        }
+                return Instant.now().isAfter(expiresAt);
+            }
     }
 
     public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager) {
@@ -68,7 +59,7 @@ public class AdminHandler extends Handler.Abstract {
     }
 
     @Override
-    public boolean handle(Request request, Response response, Callback callback) throws Exception {
+    public boolean handle(Request request, Response response, Callback callback) {
         String path = request.getHttpURI().getPath();
         String method = request.getMethod();
 
@@ -138,13 +129,15 @@ public class AdminHandler extends Handler.Abstract {
 
     private void serveAdminDashboard(Response response, Callback callback) {
         try {
-            InputStream dashboardStream = getClass().getResourceAsStream("/admin/dashboard.html");
-            if (dashboardStream == null) {
-                sendNotFound(response, callback);
-                return;
-            }
+            byte[] content;
+            try (InputStream dashboardStream = getClass().getResourceAsStream("/admin/dashboard.html")) {
+                if (dashboardStream == null) {
+                    sendNotFound(response, callback);
+                    return;
+                }
 
-            byte[] content = dashboardStream.readAllBytes();
+                content = dashboardStream.readAllBytes();
+            }
             response.setStatus(HttpStatus.OK_200);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, MimeTypes.Type.TEXT_HTML.asString());
             response.write(true, ByteBuffer.wrap(content), callback);
@@ -187,22 +180,22 @@ public class AdminHandler extends Handler.Abstract {
 
             for (var key : keys) {
                 ObjectNode keyNode = mapper.createObjectNode();
-                keyNode.put("id", key.getId());
-                keyNode.put("apiKey", key.getApiKey());
-                keyNode.put("description", key.getDescription());
-                keyNode.put("status", key.getStatus());
-                keyNode.put("pricingPlanId", key.getPricingPlanId());
-                keyNode.put("createdAt", key.getCreatedAt().toString());
+                keyNode.put("id", key.id());
+                keyNode.put("apiKey", key.apiKey());
+                keyNode.put("description", key.description());
+                keyNode.put("status", key.status().getValue());
+                keyNode.put("pricingPlanId", key.pricingPlanId());
+                keyNode.put("createdAt", key.createdAt().toString());
 
                 // Add current rate limit info
-                var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.getApiKey());
+                var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.apiKey());
                 if (apiKeyInfo != null) {
                     keyNode.put("requestsPerSecond", apiKeyInfo.requestsPerSecond());
                     keyNode.put("requestsPerDay", apiKeyInfo.requestsPerDay());
                 }
 
                 // Add plan name
-                var plan = pricingPlanRepository.findById(key.getPricingPlanId());
+                var plan = pricingPlanRepository.findById(key.pricingPlanId());
                 if (plan != null) {
                     keyNode.put("planName", plan.getName());
                 }
@@ -226,7 +219,7 @@ public class AdminHandler extends Handler.Abstract {
             Long planId = keyRequest.has("pricingPlanId") ? keyRequest.get("pricingPlanId").asLong() : 1L;
 
             // Generate new API key
-            String newApiKey = "sk_" + UUID.randomUUID().toString().replace("-", "");
+            String newApiKey = ApiKeyService.generateApiKey();
 
             // Save to database
             apiKeyRepository.create(newApiKey, description, planId);
@@ -270,8 +263,16 @@ public class AdminHandler extends Handler.Abstract {
             ObjectNode updateRequest = (ObjectNode) mapper.readTree(body);
 
             if (updateRequest.has("status")) {
-                String status = updateRequest.get("status").asText();
-                apiKeyRepository.updateStatus(id, status);
+                String statusStr = updateRequest.get("status").asText();
+                try {
+                    ApiKeyStatus status = ApiKeyStatus.fromValue(statusStr);
+                    apiKeyRepository.updateStatus(id, status);
+                } catch (IllegalArgumentException e) {
+                    ObjectNode error = mapper.createObjectNode();
+                    error.put("error", "Invalid status value. Must be 'active' or 'revoked'");
+                    sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);
+                    return;
+                }
             }
 
             if (updateRequest.has("pricingPlanId")) {
@@ -327,7 +328,7 @@ public class AdminHandler extends Handler.Abstract {
             String name = planRequest.get("name").asText();
             int requestsPerSecond = planRequest.get("requestsPerSecond").asInt();
             int requestsPerDay = planRequest.get("requestsPerDay").asInt();
-            double price = planRequest.has("price") ? planRequest.get("price").asDouble() : 0.0;
+            BigInteger price = planRequest.has("price") ? new BigInteger(planRequest.get("price").asText()) : BigInteger.ZERO;
 
             pricingPlanRepository.create(name, requestsPerSecond, requestsPerDay, price);
 
@@ -350,7 +351,7 @@ public class AdminHandler extends Handler.Abstract {
             String name = planRequest.get("name").asText();
             int requestsPerSecond = planRequest.get("requestsPerSecond").asInt();
             int requestsPerDay = planRequest.get("requestsPerDay").asInt();
-            double price = planRequest.has("price") ? planRequest.get("price").asDouble() : 0.0;
+            BigInteger price = planRequest.has("price") ? new BigInteger(planRequest.get("price").asText()) : BigInteger.ZERO;
 
             pricingPlanRepository.update(id, name, requestsPerSecond, requestsPerDay, price);
 
@@ -366,7 +367,7 @@ public class AdminHandler extends Handler.Abstract {
 
     private void handleDeletePricingPlan(String planId, Response response, Callback callback) {
         try {
-            Long id = Long.parseLong(planId);
+            long id = Long.parseLong(planId);
             pricingPlanRepository.delete(id);
 
             ObjectNode responseJson = mapper.createObjectNode();
@@ -400,13 +401,13 @@ public class AdminHandler extends Handler.Abstract {
 
             for (var key : keys) {
                 ObjectNode keyUtilization = mapper.createObjectNode();
-                keyUtilization.put("id", key.getId());
-                keyUtilization.put("apiKey", key.getApiKey());
-                keyUtilization.put("description", key.getDescription());
-                keyUtilization.put("status", key.getStatus());
+                keyUtilization.put("id", key.id());
+                keyUtilization.put("apiKey", key.apiKey());
+                keyUtilization.put("description", key.description());
+                keyUtilization.put("status", key.status().getValue());
 
                 // Get utilization info from rate limiter
-                var utilization = rateLimiterManager.getUtilization(key.getApiKey());
+                var utilization = rateLimiterManager.getUtilization(key.apiKey());
                 if (utilization != null) {
                     keyUtilization.put("consumedPerSecond", utilization.getConsumedPerSecond());
                     keyUtilization.put("maxPerSecond", utilization.getMaxTokensPerSecond());
@@ -421,7 +422,7 @@ public class AdminHandler extends Handler.Abstract {
                         Math.round(utilization.getUtilizationPercentPerDay() * 100) / 100.0);
                 } else {
                     // No utilization data yet (key hasn't been used)
-                    var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.getApiKey());
+                    var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.apiKey());
                     if (apiKeyInfo != null) {
                         keyUtilization.put("consumedPerSecond", 0);
                         keyUtilization.put("maxPerSecond", apiKeyInfo.requestsPerSecond());

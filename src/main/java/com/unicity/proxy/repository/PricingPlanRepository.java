@@ -3,10 +3,9 @@ package com.unicity.proxy.repository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,8 +19,8 @@ public class PricingPlanRepository {
         """;
 
     private static final String CREATE_SQL = """
-        INSERT INTO pricing_plans (name, requests_per_second, requests_per_day)
-        VALUES (?, ?, ?)
+        INSERT INTO pricing_plans (name, requests_per_second, requests_per_day, price)
+        VALUES (?, ?, ?, ?)
         """;
 
     private static final String COUNT_SQL = "SELECT COUNT(*) FROM pricing_plans";
@@ -45,9 +44,9 @@ public class PricingPlanRepository {
         private final String name;
         private final int requestsPerSecond;
         private final int requestsPerDay;
-        private final double price;
+        private final BigInteger price;
 
-        public PricingPlan(Long id, String name, int requestsPerSecond, int requestsPerDay, double price) {
+        public PricingPlan(Long id, String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
             this.id = id;
             this.name = name;
             this.requestsPerSecond = requestsPerSecond;
@@ -59,7 +58,7 @@ public class PricingPlanRepository {
         public String getName() { return name; }
         public int getRequestsPerSecond() { return requestsPerSecond; }
         public int getRequestsPerDay() { return requestsPerDay; }
-        public double getPrice() { return price; }
+        public BigInteger getPrice() { return price; }
     }
 
     public List<PricingPlan> findAll() {
@@ -74,7 +73,7 @@ public class PricingPlanRepository {
                     rs.getString("name"),
                     rs.getInt("requests_per_second"),
                     rs.getInt("requests_per_day"),
-                    rs.getDouble("price")
+                    rs.getBigDecimal("price").toBigInteger()
                 ));
             }
         } catch (SQLException e) {
@@ -83,19 +82,26 @@ public class PricingPlanRepository {
         return plans;
     }
 
-    public void create(String name, int requestsPerSecond, int requestsPerDay, double price) {
+    public long create(String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
         try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(CREATE_SQL)) {
+             PreparedStatement stmt = conn.prepareStatement(CREATE_SQL, Statement.RETURN_GENERATED_KEYS)) {
 
             stmt.setString(1, name);
             stmt.setInt(2, requestsPerSecond);
             stmt.setInt(3, requestsPerDay);
+            stmt.setBigDecimal(4, new BigDecimal(price));
 
             stmt.executeUpdate();
-            logger.info("Created pricing plan: {} ({} req/s, {} req/day)",
-                name, requestsPerSecond, requestsPerDay);
+
+            try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+                if (generatedKeys.next()) {
+                    return generatedKeys.getLong(1);
+                } else {
+                    throw new SQLException("Creating pricing plan failed, no ID obtained.");
+                }
+            }
         } catch (SQLException e) {
-            logger.error("Error creating pricing plan", e);
+            throw new RuntimeException(e);
         }
     }
 
@@ -125,7 +131,7 @@ public class PricingPlanRepository {
                         rs.getString("name"),
                         rs.getInt("requests_per_second"),
                         rs.getInt("requests_per_day"),
-                        rs.getDouble("price")
+                        rs.getBigDecimal("price").toBigInteger()
                     );
                 }
             }
@@ -135,14 +141,14 @@ public class PricingPlanRepository {
         return null;
     }
 
-    public void update(Long id, String name, int requestsPerSecond, int requestsPerDay, double price) {
+    public void update(Long id, String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_SQL)) {
 
             stmt.setString(1, name);
             stmt.setInt(2, requestsPerSecond);
             stmt.setInt(3, requestsPerDay);
-            stmt.setDouble(4, price);
+            stmt.setBigDecimal(4, new BigDecimal(price));
             stmt.setLong(5, id);
 
             stmt.executeUpdate();
@@ -153,15 +159,16 @@ public class PricingPlanRepository {
         }
     }
 
-    public void delete(Long id) {
+    public boolean delete(long id) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_SQL)) {
 
             stmt.setLong(1, id);
-            stmt.executeUpdate();
-            logger.info("Deleted pricing plan with id: {}", id);
+            int affected = stmt.executeUpdate();
+
+            return affected > 0;
         } catch (SQLException e) {
-            logger.error("Error deleting pricing plan", e);
+            throw new RuntimeException(e);
         }
     }
 }

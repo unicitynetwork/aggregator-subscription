@@ -30,6 +30,7 @@ import static org.eclipse.jetty.http.HttpHeader.CONTENT_TYPE;
 import static org.eclipse.jetty.http.HttpStatus.*;
 
 public abstract class AbstractIntegrationTest {
+    protected static final byte[] SERVER_SECRET = {0, 1, 2, 3};
 
     protected static final String SUBMIT_COMMITMENT_REQUEST = """
         {
@@ -105,13 +106,11 @@ public abstract class AbstractIntegrationTest {
         
         mockServer = createMockServer();
         mockServer.start();
-        int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();
 
         ProxyConfig config = new ProxyConfig();
-        config.setPort(0); // Use random port
-        config.setTargetUrl("http://localhost:" + mockServerPort);
+        updateConfigForTests(config);
 
-        proxyServer = new ProxyServer(config);
+        proxyServer = new ProxyServer(config, SERVER_SECRET);
         proxyServer.start();
 
         proxyPort = ((ServerConnector) proxyServer.getServer().getConnectors()[0]).getLocalPort();
@@ -128,6 +127,12 @@ public abstract class AbstractIntegrationTest {
         getRateLimiterManager().setBucketFactory(apiKeyInfo ->
                 RateLimiterManager.createBucketWithTimeMeter(apiKeyInfo, testTimeMeter));
         CachedApiKeyManager.getInstance().setTimeMeter(testTimeMeter);
+    }
+
+    protected void updateConfigForTests(ProxyConfig config) {
+        int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();
+        config.setPort(0); // Use random port
+        config.setTargetUrl("http://localhost:" + mockServerPort);
     }
 
     @AfterEach
