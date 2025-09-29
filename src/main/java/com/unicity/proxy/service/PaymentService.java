@@ -15,17 +15,22 @@ import org.unicitylabs.sdk.address.DirectAddress;
 import org.unicitylabs.sdk.api.AggregatorClient;
 import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
 import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
+import org.unicitylabs.sdk.bft.RootTrustBase;
 import org.unicitylabs.sdk.hash.HashAlgorithm;
-import org.unicitylabs.sdk.predicate.MaskedPredicate;
+import org.unicitylabs.sdk.predicate.embedded.MaskedPredicate;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 import org.unicitylabs.sdk.signing.SigningService;
 import org.unicitylabs.sdk.token.Token;
+import org.unicitylabs.sdk.token.TokenId;
 import org.unicitylabs.sdk.token.TokenState;
 import org.unicitylabs.sdk.token.TokenType;
 import org.unicitylabs.sdk.token.fungible.TokenCoinData;
 import org.unicitylabs.sdk.transaction.*;
 import org.unicitylabs.sdk.util.InclusionProofUtils;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -36,7 +41,8 @@ import java.util.concurrent.TimeUnit;
 
 public class PaymentService {
     // TODO: For production, we need to verify the token types
-    public static final byte[] MOCK_TOKEN_TYPE = {3, 14, 15};
+
+    private static final int SESSION_EXPIRY_MINUTES = 15;
 
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
 
@@ -49,7 +55,7 @@ public class PaymentService {
 
     private final byte[] serverSecret;
 
-    private static final int SESSION_EXPIRY_MINUTES = 15;
+    private final RootTrustBase trustBase;
 
     public PaymentService(ProxyConfig config, byte[] serverSecret) {
         this.paymentRepository = new PaymentRepository();
@@ -64,11 +70,40 @@ public class PaymentService {
 
         this.serverSecret = serverSecret;
 
+        this.trustBase = loadRootTrustBase(config.getTrustBasePath());
+
         logger.info("PaymentService initialized with aggregator: {}", aggregatorUrl);
     }
 
+    private RootTrustBase loadRootTrustBase(String trustBasePath) {
+        try {
+            // Load trust base from config path if provided, otherwise use default
+            if (trustBasePath != null) {
+                File trustBaseFile = new File(trustBasePath);
+                if (!trustBaseFile.exists()) {
+                    throw new RuntimeException("Trust base file not found: " + trustBasePath);
+                }
+                logger.info("Loading trust base from: {}", trustBasePath);
+                return UnicityObjectMapper.JSON.readValue(
+                        new FileInputStream(trustBaseFile),
+                        RootTrustBase.class
+                );
+            } else {
+                logger.info("Using default test trust base");
+                return UnicityObjectMapper.JSON.readValue(
+                        getClass().getResourceAsStream("/test-trust-base.json"),
+                        RootTrustBase.class
+                );
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load trust base", e);
+        }
+    }
+
     public PaymentModels.InitiatePaymentResponse initiatePayment(
-            PaymentModels.InitiatePaymentRequest request) {
+            PaymentModels.InitiatePaymentRequest request,
+            byte[] tokenId,
+            byte[] tokenType) {
 
         String apiKey = request.getApiKey();
         long targetPlanId = request.getTargetPlanId();
@@ -99,19 +134,22 @@ public class PaymentService {
         );
 
         MaskedPredicate predicate = MaskedPredicate.create(
+            new TokenId(tokenId),
+            new TokenType(tokenType),
             signingService,
             HashAlgorithm.SHA256,
             receiverNonce
         );
 
-        String paymentAddress = generatePaymentAddress(predicate);
+        String paymentAddress = generatePaymentAddress(predicate, tokenType);
 
         BigInteger amountRequired = getRequiredAmount(targetPlanId);
 
         Instant expiresAt = Instant.now().plusSeconds(SESSION_EXPIRY_MINUTES * 60);
         PaymentSession session = paymentRepository.createSession(
             apiKey, paymentAddress, receiverNonce,
-            targetPlanId, amountRequired, expiresAt
+            targetPlanId, amountRequired, expiresAt,
+            tokenId, tokenType
         );
 
         if (session == null) {
@@ -163,7 +201,7 @@ public class PaymentService {
             );
 
             CompletableFuture<SubmitCommitmentResponse> futureResponse =
-                stateTransitionClient.submitCommitment(sourceToken, transferCommitment);
+                stateTransitionClient.submitCommitment(transferCommitment);
 
             SubmitCommitmentResponse submitResponse =
                 futureResponse.get(30, TimeUnit.SECONDS);
@@ -176,30 +214,33 @@ public class PaymentService {
             }
 
             CompletableFuture<InclusionProof> futureProof =
-                InclusionProofUtils.waitInclusionProof(stateTransitionClient, transferCommitment);
+                InclusionProofUtils.waitInclusionProof(stateTransitionClient, trustBase, transferCommitment);
 
             InclusionProof inclusionProof = futureProof.get(60, TimeUnit.SECONDS);
 
             Transaction<TransferTransactionData> transferTransaction =
-                transferCommitment.toTransaction(sourceToken, inclusionProof);
+                transferCommitment.toTransaction(inclusionProof);
 
             SigningService receiverSigningService = SigningService.createFromMaskedSecret(
                 serverSecret, session.getReceiverNonce()
             );
 
             MaskedPredicate receiverPredicate = MaskedPredicate.create(
+                new TokenId(session.getTokenId()),
+                new TokenType(session.getTokenType()),
                 receiverSigningService,
                 HashAlgorithm.SHA256,
                 session.getReceiverNonce()
             );
 
             var receivedToken = stateTransitionClient.finalizeTransaction(
+                trustBase,
                 sourceToken,
                 new TokenState(receiverPredicate, null),
                 transferTransaction
             );
 
-            if (!receivedToken.verify().isSuccessful()) {
+            if (!receivedToken.verify(trustBase).isSuccessful()) {
                 logger.error("Received token verification failed");
                 return new PaymentModels.CompletePaymentResponse(
                     false, "Token verification failed", null
@@ -254,9 +295,8 @@ public class PaymentService {
             ));
     }
 
-    private String generatePaymentAddress(MaskedPredicate predicate) {
-        TokenType tokenType = new TokenType(MOCK_TOKEN_TYPE);
-        DirectAddress address = predicate.getReference(tokenType).toAddress();
+    private String generatePaymentAddress(MaskedPredicate predicate, byte[] tokenTypeBytes) {
+        DirectAddress address = predicate.getReference().toAddress();
         return address.getAddress();
     }
 

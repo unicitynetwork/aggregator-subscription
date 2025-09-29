@@ -50,8 +50,6 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should proxy POST requests with body")
     void testPostRequest() throws Exception {
-        assumeTrue(authMode == UNAUTHORIZED, "POST request proxying is tested for non-JSON-RPC requests only");
-        
         HttpRequest request = getRequestBuilder("/api/data", authMode)
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
             .POST(ofString("{\"name\":\"test\",\"value\":123}"))

@@ -14,7 +14,7 @@ import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
 import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
 import org.unicitylabs.sdk.hash.HashAlgorithm;
 import org.unicitylabs.sdk.jsonrpc.UnauthorizedException;
-import org.unicitylabs.sdk.predicate.MaskedPredicate;
+import org.unicitylabs.sdk.predicate.embedded.MaskedPredicate;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 import org.unicitylabs.sdk.signing.SigningService;
 import org.unicitylabs.sdk.token.Token;
@@ -38,7 +38,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -60,6 +63,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private static final byte[] CLIENT_SECRET = randomBytes(32);
     private static final byte[] CLIENT_NONCE = randomBytes(32);
+    private static final byte[] MOCK_TOKEN_TYPE = {3, 14, 15}; // Test token type
     private ApiKeyRepository apiKeyRepository;
 
     @BeforeAll
@@ -95,23 +99,26 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(new AggregatorClient(getProxyUrl(), createResponse.getApiKey()));
         assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
 
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, createResponse.getApiKey());
+        byte[] tokenId = randomBytes(32);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, createResponse.getApiKey(), tokenId);
         assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
 
-        signAndSubmitPayment(paymentSession);
+        signAndSubmitPayment(paymentSession, tokenId);
 
         pollUntilPaymentSucceeded(paymentSession.getSessionId(), createResponse.getApiKey(), 3);
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
 
         // Make the key expire, then pay for it again
-        testTimeMeter.addTime(ApiKeyRepository.getPaymentValidityDuration().toMillis() + 10_000);
+        // Adding extra time here to account for the test running time; this means that the test can mistakenly fail if it runs very long.
+        testTimeMeter.setTime(Instant.ofEpochMilli(testTimeMeter.getTime()).atZone(ZoneId.systemDefault()).plusDays(ApiKeyRepository.getPaymentValidityDurationDays()).plusMinutes(1).toInstant().toEpochMilli());
 
         assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
 
-        paymentSession = initiatePaymentSession(3, createResponse.getApiKey());
+        tokenId = randomBytes(32); // New token for new payment
+        paymentSession = initiatePaymentSession(3, createResponse.getApiKey(), tokenId);
         assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
 
-        signAndSubmitPayment(paymentSession);
+        signAndSubmitPayment(paymentSession, tokenId);
 
         pollUntilPaymentSucceeded(paymentSession.getSessionId(), createResponse.getApiKey(), 3);
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
@@ -121,7 +128,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @Order(2)
     @DisplayName("Test payment status check: pending")
     void testCheckPaymentStatus() throws Exception {
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(4, TEST_API_KEY);
+        byte[] tokenId = randomBytes(32);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(4, TEST_API_KEY, tokenId);
 
         PaymentModels.PaymentStatusResponse status = getPaymentStatusResponse(paymentSession.getSessionId());
 
@@ -138,7 +146,11 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test invalid API key rejection")
     void testInvalidApiKeyRejection() throws Exception {
         PaymentModels.InitiatePaymentRequest request =
-            new PaymentModels.InitiatePaymentRequest("invalid-key", 3);
+            new PaymentModels.InitiatePaymentRequest(
+                    "invalid-key",
+                    3,
+                    Base64.getEncoder().encodeToString(randomBytes(32)),
+                    Base64.getEncoder().encodeToString(MOCK_TOKEN_TYPE));
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
             .uri(URI.create(getProxyUrl() + "/api/payment/initiate"))
@@ -179,8 +191,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertThat(error.getMessage()).contains("Payment session not found");
     }
 
-    private void signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession) throws Exception {
-        var token = mintInitialToken(paymentSession.getAmountRequired());
+    private void signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
+        var token = mintInitialToken(paymentSession.getAmountRequired(), tokenId);
 
         SigningService clientSigningService = SigningService.createFromMaskedSecret( CLIENT_SECRET, CLIENT_NONCE );
 
@@ -225,8 +237,11 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         return result;
     }
 
-    private PaymentModels.InitiatePaymentResponse initiatePaymentSession(int targetPlanId, String apiKey) throws IOException, InterruptedException {
-        String initPaymentResponseBody = submitRequest(new PaymentModels.InitiatePaymentRequest(apiKey, targetPlanId));
+    private PaymentModels.InitiatePaymentResponse initiatePaymentSession(int targetPlanId, String apiKey, byte[] tokenId) throws IOException, InterruptedException {
+        String tokenIdBase64 = Base64.getEncoder().encodeToString(tokenId);
+        String tokenTypeBase64 = Base64.getEncoder().encodeToString(MOCK_TOKEN_TYPE);
+        PaymentModels.InitiatePaymentRequest request = new PaymentModels.InitiatePaymentRequest(apiKey, targetPlanId, tokenIdBase64, tokenTypeBase64);
+        String initPaymentResponseBody = submitRequest(request);
         PaymentModels.InitiatePaymentResponse paymentSession =
                 objectMapper.readValue(initPaymentResponseBody, PaymentModels.InitiatePaymentResponse.class);
         return paymentSession;
@@ -284,8 +299,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         return response.body();
     }
 
-    private Token mintInitialToken(BigInteger amount) throws Exception {
-        MintResult result = attemptMinting(amount, directToAggregator);
+    private Token mintInitialToken(BigInteger amount, byte[] tokenId) throws Exception {
+        MintResult result = attemptMinting(amount, tokenId, directToAggregator);
 
         System.out.println("Mint response status: " + result.mintResponse().getStatus());
         if (result.mintResponse().getStatus() != SubmitCommitmentStatus.SUCCESS) {
@@ -297,6 +312,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         try {
             mintInclusionProof = InclusionProofUtils.waitInclusionProof(
                     directToAggregator,
+                    trustBase,
                     result.mintCommitment()
             ).get(60, TimeUnit.SECONDS);
             System.out.println("Got inclusion proof: " + mintInclusionProof);
@@ -309,13 +325,15 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         return new Token<>(
             tokenState,
-            result.mintCommitment().toTransaction(mintInclusionProof)
+            result.mintCommitment().toTransaction(mintInclusionProof),
+            List.of(),
+            List.of()
         );
     }
 
-    private @NotNull PaymentIntegrationTest.MintResult attemptMinting(BigInteger amount, StateTransitionClient aggregator) throws InterruptedException, ExecutionException {
-        TokenId tokenId = new TokenId(randomBytes(32));
-        TokenType tokenType = new TokenType(PaymentService.MOCK_TOKEN_TYPE);
+    private @NotNull PaymentIntegrationTest.MintResult attemptMinting(BigInteger amount, byte[] tokenIdBytes, StateTransitionClient aggregator) throws InterruptedException, ExecutionException {
+        TokenId tokenId = new TokenId(tokenIdBytes);
+        TokenType tokenType = new TokenType(MOCK_TOKEN_TYPE);
 
         CoinId coinId = new CoinId(randomBytes(32));
         Map<CoinId, BigInteger> coins = Map.of(coinId, amount);
@@ -325,12 +343,14 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
             CLIENT_SECRET, CLIENT_NONCE
         );
         MaskedPredicate clientPredicate = MaskedPredicate.create(
+            tokenId,
+            tokenType,
             clientSigningService,
             HashAlgorithm.SHA256,
             CLIENT_NONCE
         );
 
-        DirectAddress clientAddress = clientPredicate.getReference(tokenType).toAddress();
+        DirectAddress clientAddress = clientPredicate.getReference().toAddress();
 
         MintTransactionData<MintTransactionReason> mintData = new MintTransactionData<>(
             tokenId,
@@ -368,14 +388,14 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private void assertApiKeyUnauthorizedForMinting(StateTransitionClient proxiedAggregator) {
         ExecutionException e = assertThrows(ExecutionException.class, () -> {
-            attemptMinting(BigInteger.TEN, proxiedAggregator);
+            attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator);
         });
         assertInstanceOf(UnauthorizedException.class, e.getCause());
     }
 
     private void assertApiKeyAuthorizedForMinting(StateTransitionClient proxiedAggregator) {
         try {
-            attemptMinting(BigInteger.TEN, proxiedAggregator);
+            attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator);
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }

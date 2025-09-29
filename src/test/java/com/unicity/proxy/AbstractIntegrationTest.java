@@ -11,6 +11,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.unicitylabs.sdk.bft.RootTrustBase;
+import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
@@ -78,8 +80,9 @@ public abstract class AbstractIntegrationTest {
     protected HttpClient httpClient;
 
     protected TestTimeMeter testTimeMeter;
-    
-    // Mock server configuration
+
+    protected RootTrustBase trustBase;
+
     protected volatile int mockResponseStatus;
     protected volatile String mockResponseBody;
     protected volatile boolean mockShouldReturnError;
@@ -99,6 +102,11 @@ public abstract class AbstractIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         TestDatabaseSetup.resetDatabase();
+
+        this.trustBase = UnicityObjectMapper.JSON.readValue(
+                getClass().getResourceAsStream("/test-trust-base.json"),
+                RootTrustBase.class
+        );
 
         mockResponseStatus = OK_200;
         mockResponseBody = null;
@@ -369,6 +377,10 @@ public abstract class AbstractIntegrationTest {
         @Override
         public boolean isWallClockBased() {
             return true;
+        }
+
+        public long getTime() {
+            return currentTime.get();
         }
 
         public void addTime(long millis) {

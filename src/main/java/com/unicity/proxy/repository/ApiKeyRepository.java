@@ -18,7 +18,8 @@ import java.util.Optional;
 
 public class ApiKeyRepository {
     private static final Logger logger = LoggerFactory.getLogger(ApiKeyRepository.class);
-    private static final Duration PAYMENT_VALIDITY_DURATION = Duration.ofDays(30);
+    private static final int PAYMENT_VALIDITY_DURATION_DAYS = 30;
+
     private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
     
     private static final String FIND_BY_KEY_SQL = """
@@ -62,6 +63,17 @@ public class ApiKeyRepository {
         VALUES (?, ?, ?, 'active'::api_key_status)
         """;
 
+    public static final String UPDATE_PRICING_PLAN_AND_EXTEND_EXPIRY = """
+            UPDATE api_keys
+            SET pricing_plan_id = ?,
+                active_until = CASE
+                    WHEN active_until IS NULL OR active_until < CURRENT_TIMESTAMP
+                    THEN CURRENT_TIMESTAMP + INTERVAL '1 day' * ?
+                    ELSE active_until + INTERVAL '1 day' * ?
+                END
+            WHERE api_key = ?
+            """;
+
     public ApiKeyRepository() {
     }
 
@@ -69,8 +81,8 @@ public class ApiKeyRepository {
         this.timeMeter = timeMeter;
     }
 
-    public static Duration getPaymentValidityDuration() {
-        return PAYMENT_VALIDITY_DURATION;
+    public static int getPaymentValidityDurationDays() {
+        return PAYMENT_VALIDITY_DURATION_DAYS;
     }
 
     public Optional<ApiKeyInfo> findByKeyIfNotRevokedAndHasPaid(String apiKey) {
@@ -195,21 +207,10 @@ public class ApiKeyRepository {
     }
 
     public void updatePricingPlanAndExtendExpiry(String apiKey, long newPricingPlanId) {
-        String sql = """
-            UPDATE api_keys
-            SET pricing_plan_id = ?,
-                active_until = CASE
-                    WHEN active_until IS NULL OR active_until < CURRENT_TIMESTAMP
-                    THEN CURRENT_TIMESTAMP + INTERVAL '1 day' * ?
-                    ELSE active_until + INTERVAL '1 day' * ?
-                END
-            WHERE api_key = ?
-            """;
-
         try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(UPDATE_PRICING_PLAN_AND_EXTEND_EXPIRY)) {
 
-            long daysToAdd = PAYMENT_VALIDITY_DURATION.toDays();
+            long daysToAdd = PAYMENT_VALIDITY_DURATION_DAYS;
             stmt.setLong(1, newPricingPlanId);
             stmt.setLong(2, daysToAdd);
             stmt.setLong(3, daysToAdd);

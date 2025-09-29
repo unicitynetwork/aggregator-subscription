@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -86,9 +87,45 @@ public class PaymentHandler extends Handler.Abstract {
             return;
         }
 
+        if (initiateRequest.getTokenId() == null || initiateRequest.getTokenId().isEmpty()) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Token ID is required");
+            return;
+        }
+
+        if (initiateRequest.getTokenType() == null || initiateRequest.getTokenType().isEmpty()) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Token type is required");
+            return;
+        }
+
+        byte[] tokenId;
+        byte[] tokenType;
+        try {
+            tokenId = Base64.getDecoder().decode(initiateRequest.getTokenId());
+            if (tokenId.length > 32) {
+                sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                    "Bad Request", "Token ID must not exceed 32 bytes");
+                return;
+            }
+        } catch (IllegalArgumentException e) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Invalid Base64 encoding for token ID");
+            return;
+        }
+
+        try {
+            tokenType = Base64.getDecoder().decode(initiateRequest.getTokenType());
+            // TODO: For production, we need to verify the token types
+        } catch (IllegalArgumentException e) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Invalid Base64 encoding for token type");
+            return;
+        }
+
         try {
             PaymentModels.InitiatePaymentResponse initiateResponse =
-                paymentService.initiatePayment(initiateRequest);
+                paymentService.initiatePayment(initiateRequest, tokenId, tokenType);
 
             sendJsonResponse(response, callback, HttpStatus.OK_200, initiateResponse);
 
