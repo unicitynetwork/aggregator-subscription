@@ -348,12 +348,39 @@ public class AdminHandler extends Handler.Abstract {
     private void handleDeletePricingPlan(String planId, Response response, Callback callback) {
         try {
             long id = Long.parseLong(planId);
-            pricingPlanRepository.delete(id);
 
-            ObjectNode responseJson = mapper.createObjectNode();
-            responseJson.put("message", "Pricing plan deleted successfully");
+            int keysUsingPlan = pricingPlanRepository.countKeysUsingPlan(id);
+            int sessionsUsingPlan = pricingPlanRepository.countPaymentSessionsUsingPlan(id);
 
-            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+            if (keysUsingPlan > 0 || sessionsUsingPlan > 0) {
+                ObjectNode error = mapper.createObjectNode();
+                error.put("error", "Cannot delete pricing plan");
+                error.put("message", String.format(
+                    "This pricing plan is currently in use by %d API key(s) and/or %d payment session(s). " +
+                    "Please reassign or remove these associations before deleting the plan.",
+                    keysUsingPlan, sessionsUsingPlan
+                ));
+                sendJsonResponse(response, callback, error.toString(), HttpStatus.CONFLICT_409);
+                return;
+            }
+
+            // Note: There's a small race condition here - a key could be added after the check
+            // but before deletion. The database foreign key constraint will catch this.
+            boolean deleted = pricingPlanRepository.delete(id);
+
+            if (deleted) {
+                ObjectNode responseJson = mapper.createObjectNode();
+                responseJson.put("message", "Pricing plan deleted successfully");
+                sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+            } else {
+                ObjectNode error = mapper.createObjectNode();
+                error.put("error", "Pricing plan not found");
+                sendJsonResponse(response, callback, error.toString(), HttpStatus.NOT_FOUND_404);
+            }
+        } catch (NumberFormatException e) {
+            ObjectNode error = mapper.createObjectNode();
+            error.put("error", "Invalid plan ID");
+            sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);
         } catch (Exception e) {
             logger.error("Failed to delete pricing plan", e);
             sendServerError(response, callback);

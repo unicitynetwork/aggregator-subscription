@@ -1126,9 +1126,19 @@
                 if (response.ok) {
                     loadPricingPlans();
                     loadStats();
+                } else if (response.status === 409) {
+                    // Conflict - plan is in use
+                    const errorData = await response.json();
+                    alert(errorData.message || 'Cannot delete pricing plan: it is currently in use.');
+                } else if (response.status === 404) {
+                    alert('Pricing plan not found.');
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    alert(errorData.message || 'Failed to delete pricing plan.');
                 }
             } catch (error) {
                 console.error('Failed to delete pricing plan:', error);
+                alert('An error occurred while deleting the pricing plan.');
             }
         }
 

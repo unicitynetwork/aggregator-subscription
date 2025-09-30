@@ -39,6 +39,16 @@ public class PricingPlanRepository {
 
     private static final String DELETE_SQL = "DELETE FROM pricing_plans WHERE id = ?";
 
+    private static final String COUNT_KEYS_USING_PLAN_SQL = """
+        SELECT COUNT(*) FROM api_keys
+        WHERE pricing_plan_id = ?
+        """;
+
+    private static final String COUNT_SESSIONS_USING_PLAN_SQL = """
+        SELECT COUNT(*) FROM payment_sessions
+        WHERE target_plan_id = ?
+        """;
+
     public static class PricingPlan {
         private final Long id;
         private final String name;
@@ -157,6 +167,38 @@ public class PricingPlanRepository {
         } catch (SQLException e) {
             logger.error("Error updating pricing plan", e);
         }
+    }
+
+    public int countKeysUsingPlan(long planId) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(COUNT_KEYS_USING_PLAN_SQL)) {
+
+            stmt.setLong(1, planId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Error counting API keys using plan: " + planId, e);
+        }
+        return 0;
+    }
+
+    public int countPaymentSessionsUsingPlan(long planId) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(COUNT_SESSIONS_USING_PLAN_SQL)) {
+
+            stmt.setLong(1, planId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Error counting payment sessions using plan: " + planId, e);
+        }
+        return 0;
     }
 
     public boolean delete(long id) {
