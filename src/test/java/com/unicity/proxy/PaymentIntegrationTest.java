@@ -3,7 +3,6 @@ package com.unicity.proxy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.unicity.proxy.model.PaymentModels;
 import com.unicity.proxy.repository.ApiKeyRepository;
-import com.unicity.proxy.service.PaymentService;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
@@ -13,7 +12,7 @@ import org.unicitylabs.sdk.api.AggregatorClient;
 import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
 import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
 import org.unicitylabs.sdk.hash.HashAlgorithm;
-import org.unicitylabs.sdk.jsonrpc.UnauthorizedException;
+import org.unicitylabs.sdk.jsonrpc.JsonRpcNetworkError;
 import org.unicitylabs.sdk.predicate.embedded.MaskedPredicate;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 import org.unicitylabs.sdk.signing.SigningService;
@@ -29,7 +28,6 @@ import org.unicitylabs.sdk.transaction.MintTransactionData;
 import org.unicitylabs.sdk.transaction.MintTransactionReason;
 import org.unicitylabs.sdk.transaction.TransferCommitment;
 import org.unicitylabs.sdk.util.InclusionProofUtils;
-import io.github.bucket4j.TimeMeter;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -83,7 +81,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @BeforeEach
-    void setupTestApiKey() throws Exception {
+    void setupTestApiKey() {
         apiKeyRepository = new ApiKeyRepository();
         apiKeyRepository.save(TEST_API_KEY, 1);
 
@@ -390,7 +388,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         ExecutionException e = assertThrows(ExecutionException.class, () -> {
             attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator);
         });
-        assertInstanceOf(UnauthorizedException.class, e.getCause());
+        assertInstanceOf(JsonRpcNetworkError.class, e.getCause());
+        assertEquals("Network error [401] occurred: Unauthorized", e.getCause().getMessage());
     }
 
     private void assertApiKeyAuthorizedForMinting(StateTransitionClient proxiedAggregator) {
