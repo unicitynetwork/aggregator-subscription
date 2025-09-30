@@ -98,9 +98,6 @@ public class AdminHandler extends Handler.Abstract {
                 } else if ("POST".equals(method)) {
                     handleCreateApiKey(request, response, callback);
                 }
-            } else if (path.startsWith("/admin/api/keys/") && "DELETE".equals(method)) {
-                String keyId = path.substring("/admin/api/keys/".length());
-                handleDeleteApiKey(keyId, response, callback);
             } else if (path.startsWith("/admin/api/keys/") && "PUT".equals(method)) {
                 String keyId = path.substring("/admin/api/keys/".length());
                 handleUpdateApiKey(keyId, request, response, callback);
@@ -238,23 +235,6 @@ public class AdminHandler extends Handler.Abstract {
         }
     }
 
-    private void handleDeleteApiKey(String keyId, Response response, Callback callback) {
-        try {
-            Long id = Long.parseLong(keyId);
-            apiKeyRepository.delete(id);
-
-            // Clear cache to force reload
-            apiKeyManager.removeCacheEntry(keyId);
-
-            ObjectNode responseJson = mapper.createObjectNode();
-            responseJson.put("message", "API key deleted successfully");
-
-            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
-        } catch (Exception e) {
-            logger.error("Failed to delete API key", e);
-            sendServerError(response, callback);
-        }
-    }
 
     private void handleUpdateApiKey(String keyId, Request request, Response response, Callback callback) {
         try {

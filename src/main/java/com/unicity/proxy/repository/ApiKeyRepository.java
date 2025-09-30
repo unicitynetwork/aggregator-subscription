@@ -56,8 +56,6 @@ public class ApiKeyRepository {
 
     private static final String UPDATE_DESCRIPTION_SQL = "UPDATE api_keys SET description = ? WHERE id = ?";
 
-    private static final String DELETE_BY_ID_SQL = "DELETE FROM api_keys WHERE id = ?";
-
     private static final String CREATE_WITH_DESCRIPTION_SQL = """
         INSERT INTO api_keys (api_key, description, pricing_plan_id, status)
         VALUES (?, ?, ?, 'active'::api_key_status)
@@ -270,21 +268,6 @@ public class ApiKeyRepository {
             CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
         } catch (SQLException e) {
             logger.error("Error creating API key", e);
-        }
-    }
-
-    public void delete(Long id) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(DELETE_BY_ID_SQL)) {
-
-            stmt.setLong(1, id);
-            int affected = stmt.executeUpdate();
-
-            if (affected > 0) {
-                logger.info("Deleted API key with id: {}", id);
-            }
-        } catch (SQLException e) {
-            logger.error("Error deleting API key with id: {}", id, e);
         }
     }
 
