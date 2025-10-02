@@ -2,6 +2,7 @@ package com.unicity.proxy;
 
 import com.unicity.proxy.repository.ApiKeyRepository;
 import com.unicity.proxy.repository.DatabaseConfig;
+import com.unicity.proxy.repository.PaymentRepository;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -40,14 +41,13 @@ public class TestDatabaseSetup {
     
     public static void resetDatabase() {
         CachedApiKeyManager.getInstance().invalidateCache();
-
-        if (!keysToDeleteOnReset.isEmpty()) {
-            ApiKeyRepository repository = new ApiKeyRepository();
-            for (String apiKey : keysToDeleteOnReset) {
-                repository.delete(apiKey);
-            }
-            keysToDeleteOnReset.clear();
+        PaymentRepository paymentRepository = new PaymentRepository();
+        ApiKeyRepository repository = new ApiKeyRepository();
+        for (String apiKey : keysToDeleteOnReset) {
+            paymentRepository.deletePaymentSessionsByApiKey(apiKey);
+            repository.delete(apiKey);
         }
+        keysToDeleteOnReset.clear();
     }
     
     public static void markForDeletionDuringReset(String apiKey) {

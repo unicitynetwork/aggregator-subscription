@@ -1,6 +1,7 @@
 package com.unicity.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.unicity.proxy.model.ObjectMapperUtils;
 import com.unicity.proxy.model.PaymentModels;
 import com.unicity.proxy.repository.ApiKeyRepository;
 import org.jetbrains.annotations.NotNull;
@@ -66,8 +67,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     @BeforeAll
     static void setupObjectMapper() {
-        objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        objectMapper = ObjectMapperUtils.createObjectMapper();
     }
 
     @Override
@@ -81,9 +81,10 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @BeforeEach
-    void setupTestApiKey() {
+    void setUpTestApiKey() {
         apiKeyRepository = new ApiKeyRepository();
-        apiKeyRepository.save(TEST_API_KEY, 1);
+        apiKeyRepository.insert(TEST_API_KEY, 1);
+        TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
         String realAggregatorUrl = getRealAggregatorUrl();
         directToAggregator = new StateTransitionClient(new AggregatorClient(realAggregatorUrl));
@@ -169,6 +170,108 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     @Order(4)
+    @DisplayName("Test API key details endpoint, key with a payment plan")
+    void testApiKeyDetailsEndpoint_keyWithAPaymetPlan() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/api/payment/key/" + TEST_API_KEY))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+
+        assertEquals("""
+                {
+                  "status" : "active",
+                  "expiresAt" : "%s",
+                  "pricingPlan" : {
+                    "id" : 1,
+                    "name" : "basic",
+                    "requestsPerSecond" : 5,
+                    "requestsPerDay" : 50000,
+                    "price" : "1000000"
+                  }
+                }""".formatted(apiKeyRepository.findByKeyIfNotRevoked(TEST_API_KEY).get().activeUntil().toInstant().toString()),
+                objectMapper.writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(objectMapper.readTree(response.body())));
+    }
+
+    @Test
+    @Order(5)
+    @DisplayName("Test API key details endpoint, non-existent key")
+    void testApiKeyDetailsEndpoint_nonExistentKey() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/api/payment/key/non-existent-key"))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(404, response.statusCode());
+
+        PaymentModels.ErrorResponse error =
+                objectMapper.readValue(response.body(), PaymentModels.ErrorResponse.class);
+        assertEquals("Not Found", error.getError());
+        assertThat(error.getMessage()).contains("API key not found or revoked");
+    }
+
+    @Test
+    @Order(6)
+    @DisplayName("Test API key details endpoint, key without a pricing plan")
+    void testApiKeyDetailsEndpoint_keyWithoutPricingPlan() throws Exception {
+        String keyWithoutPlan = "test-key-no-plan";
+        apiKeyRepository.createWithoutPlan(keyWithoutPlan);
+        TestDatabaseSetup.markForDeletionDuringReset(keyWithoutPlan);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/api/payment/key/" + keyWithoutPlan))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+
+        assertEquals("""
+                {
+                  "status" : "active",
+                  "expiresAt" : null,
+                  "pricingPlan" : null,
+                  "message" : "No active pricing plan. Payment required to activate API key."
+                }""",
+                objectMapper.writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(objectMapper.readTree(response.body())));
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("Test API key details endpoint, revoked key")
+    void testApiKeyDetailsEndpoint_revokedKey() throws Exception {
+        String revokedKey = "test-revoked-key";
+        apiKeyRepository.insert(revokedKey, 1);
+        TestDatabaseSetup.markForDeletionDuringReset(revokedKey);
+        var keyDetail = apiKeyRepository.findByKey(revokedKey);
+
+        apiKeyRepository.updateStatus(keyDetail.get().id(), com.unicity.proxy.model.ApiKeyStatus.REVOKED);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/api/payment/key/" + revokedKey))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(404, response.statusCode());
+
+        PaymentModels.ErrorResponse error =
+                objectMapper.readValue(response.body(), PaymentModels.ErrorResponse.class);
+        assertEquals("Not Found", error.getError());
+        assertThat(error.getMessage()).contains("API key not found or revoked");
+    }
+
+    @Test
+    @Order(8)
     @DisplayName("Test invalid session ID handling")
     void testInvalidSessionId() throws Exception {
         UUID fakeSessionId = UUID.randomUUID();

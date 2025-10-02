@@ -1,5 +1,6 @@
 package com.unicity.proxy;
 
+import com.unicity.proxy.model.ObjectMapperUtils;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
@@ -55,7 +56,7 @@ public class RequestHandler extends Handler.Abstract {
     private final RateLimiterManager rateLimiterManager;
     private final WebUIHandler webUIHandler;
     private final Set<String> protectedMethods;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
 
     public RequestHandler(ProxyConfig config) {
         this.targetUrl = config.getTargetUrl();

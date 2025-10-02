@@ -31,9 +31,9 @@ class RateLimitingTest extends AbstractIntegrationTest {
         super.setUp();
         
         ApiKeyRepository repository = new ApiKeyRepository();
-        repository.save(TEST_API_KEY, TestPricingPlans.STANDARD_PLAN_ID);
-        repository.save(PREMIUM_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID);
-        repository.save(BASIC_API_KEY, TestPricingPlans.BASIC_PLAN_ID);
+        repository.insert(TEST_API_KEY, TestPricingPlans.STANDARD_PLAN_ID);
+        repository.insert(PREMIUM_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID);
+        repository.insert(BASIC_API_KEY, TestPricingPlans.BASIC_PLAN_ID);
         
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
         TestDatabaseSetup.markForDeletionDuringReset(PREMIUM_API_KEY);

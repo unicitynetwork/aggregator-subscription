@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.unicity.proxy.model.ApiKeyStatus;
+import com.unicity.proxy.model.ObjectMapperUtils;
 import com.unicity.proxy.repository.ApiKeyRepository;
 import com.unicity.proxy.repository.PricingPlanRepository;
 import com.unicity.proxy.service.ApiKeyService;
@@ -31,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class AdminHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(AdminHandler.class);
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper mapper = ObjectMapperUtils.createObjectMapper();
 
     private final String adminPassword;
     private final ApiKeyRepository apiKeyRepository;

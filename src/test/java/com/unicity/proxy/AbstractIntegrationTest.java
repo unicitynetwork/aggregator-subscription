@@ -145,6 +145,8 @@ public abstract class AbstractIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        TestDatabaseSetup.resetDatabase();
+
         if (proxyServer != null) {
             proxyServer.stop();
         }

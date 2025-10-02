@@ -56,6 +56,11 @@ public class PaymentRepository {
         WHERE status = 'pending' AND expires_at <= CURRENT_TIMESTAMP
         """;
 
+    private static final String DELETE_BY_API_KEY_SQL = """
+        DELETE FROM payment_sessions
+        WHERE api_key = ?
+        """;
+
     /**
      * Create a new payment session
      */
@@ -172,6 +177,26 @@ public class PaymentRepository {
             return expired;
         } catch (SQLException e) {
             logger.error("Error expiring old sessions", e);
+            return 0;
+        }
+    }
+
+    /**
+     * @return the number of deleted sessions
+     */
+    public int deletePaymentSessionsByApiKey(String apiKey) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(DELETE_BY_API_KEY_SQL)) {
+
+            stmt.setString(1, apiKey);
+
+            int deleted = stmt.executeUpdate();
+            if (deleted > 0) {
+                logger.info("Deleted {} payment sessions for API key: {}", deleted, apiKey);
+            }
+            return deleted;
+        } catch (SQLException e) {
+            logger.error("Error deleting payment sessions for API key: {}", apiKey, e);
             return 0;
         }
     }
