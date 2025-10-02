@@ -21,7 +21,7 @@
     Log levels can be configured via environment variables:
     - LOG_LEVEL: Sets the root logger level (default: INFO)
     - Individual package levels can be set via Java system properties:
-      Example in docker-compose: JAVA_OPTS="-Dlogging.level.com.unicity.proxy=DEBUG"
+      Example in docker-compose: JAVA_OPTS="-Dlogging.level.com.unicitylabs.proxy=DEBUG"
     -->
 
     <root level="${LOG_LEVEL:-INFO}">
