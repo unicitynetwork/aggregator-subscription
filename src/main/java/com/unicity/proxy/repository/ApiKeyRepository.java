@@ -133,7 +133,7 @@ public class ApiKeyRepository {
                 }
             }
         } catch (SQLException e) {
-            logger.error("Error finding API key: " + apiKey, e);
+            throw new RuntimeException(e);
         }
         return Optional.empty();
     }
@@ -170,7 +170,7 @@ public class ApiKeyRepository {
                 throw new RuntimeException("Failed to delete API key: " + apiKey);
             }
         } catch (SQLException e) {
-            logger.error("Error deleting API key: {}", apiKey, e);
+            throw new RuntimeException("Error deleting API key: " + apiKey, e);
         }
     }
     
@@ -185,7 +185,7 @@ public class ApiKeyRepository {
                 logger.debug("Deleted {} API keys for pricing plan id: {}", affected, planId);
             }
         } catch (SQLException e) {
-            logger.error("Error deleting API keys for pricing plan id: " + planId, e);
+            throw new RuntimeException("Error deleting API keys by pricing plan id: " + planId, e);
         }
     }
 
@@ -203,7 +203,7 @@ public class ApiKeyRepository {
                 CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
             }
         } catch (SQLException e) {
-            logger.error("Error updating pricing plan for API key: {}", apiKey, e);
+            throw new RuntimeException("Error updating pricing plan for API key: " + apiKey, e);
         }
     }
 
@@ -225,7 +225,7 @@ public class ApiKeyRepository {
                 CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
             }
         } catch (SQLException e) {
-            logger.error("Error updating pricing plan and expiry for API key: {}", apiKey, e);
+            throw new RuntimeException("Error updating pricing plan and expiry for API key: " + apiKey, e);
         }
     }
 
@@ -256,7 +256,7 @@ public class ApiKeyRepository {
                 ));
             }
         } catch (SQLException e) {
-            logger.error("Error finding all API keys", e);
+            throw new RuntimeException("Error finding all API keys", e);
         }
         return keys;
     }
@@ -273,7 +273,7 @@ public class ApiKeyRepository {
             logger.info("Created API key: {} with description: {}", apiKey, description);
             CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
         } catch (SQLException e) {
-            logger.error("Error creating API key", e);
+            throw new RuntimeException("Error creating API key", e);
         }
     }
 
@@ -289,7 +289,7 @@ public class ApiKeyRepository {
                 logger.info("Updated status for API key id: {} to: {}", id, status);
             }
         } catch (SQLException e) {
-            logger.error("Error updating status for API key id: {}", id, e);
+            throw new RuntimeException("Error updating status for API key id: " + id, e);
         }
     }
 
@@ -305,7 +305,7 @@ public class ApiKeyRepository {
                 logger.info("Updated pricing plan for API key id: {} to plan_id: {}", id, pricingPlanId);
             }
         } catch (SQLException e) {
-            logger.error("Error updating pricing plan for API key id: {}", id, e);
+            throw new RuntimeException("Error updating pricing plan for API key id: " + id, e);
         }
     }
 
@@ -318,7 +318,7 @@ public class ApiKeyRepository {
                 return rs.getLong(1);
             }
         } catch (SQLException e) {
-            logger.error("Error counting API keys", e);
+            throw new RuntimeException("Error counting API keys", e);
         }
         return 0;
     }
@@ -332,7 +332,7 @@ public class ApiKeyRepository {
                 return rs.getLong(1);
             }
         } catch (SQLException e) {
-            logger.error("Error counting active API keys", e);
+            throw new RuntimeException("Error counting active API keys", e);
         }
         return 0;
     }
@@ -347,7 +347,7 @@ public class ApiKeyRepository {
                 logger.info("Updated description for API key id: {}", id);
             }
         } catch (SQLException e) {
-            logger.error("Error updating description for API key id: {}", id, e);
+            throw new RuntimeException("Error updating description for API key id: " + id, e);
         }
     }
 
@@ -388,8 +388,7 @@ public class ApiKeyRepository {
                 return rs.next();
             }
         } catch (SQLException e) {
-            logger.error("Error checking API key existence: " + apiKey, e);
-            return false;
+            throw new RuntimeException("Error checking API key existence: " + apiKey, e);
         }
     }
 
@@ -422,8 +421,7 @@ public class ApiKeyRepository {
             }
             return Optional.empty();
         } catch (SQLException e) {
-            logger.error("Error finding API key by key: {}", apiKey, e);
-            return Optional.empty();
+            throw new RuntimeException("Error finding API key by key: " + apiKey, e);
         }
     }
 }

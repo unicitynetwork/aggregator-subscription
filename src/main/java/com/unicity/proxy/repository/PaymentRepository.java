@@ -115,7 +115,7 @@ public class PaymentRepository {
                 }
             }
         } catch (SQLException e) {
-            logger.error("Error finding payment session: " + sessionId, e);
+            throw new RuntimeException("Error finding payment session: " + sessionId, e);
         }
         return Optional.empty();
     }
@@ -135,7 +135,7 @@ public class PaymentRepository {
                 }
             }
         } catch (SQLException e) {
-            logger.error("Error finding pending payment for API key: " + apiKey, e);
+            throw new RuntimeException("Error finding pending payment for API key: " + apiKey, e);
         }
         return Optional.empty();
     }
@@ -158,7 +158,7 @@ public class PaymentRepository {
                 return true;
             }
         } catch (SQLException e) {
-            logger.error("Error updating payment session status", e);
+            throw new RuntimeException("Error updating payment session status", e);
         }
         return false;
     }
@@ -176,8 +176,7 @@ public class PaymentRepository {
             }
             return expired;
         } catch (SQLException e) {
-            logger.error("Error expiring old sessions", e);
-            return 0;
+            throw new RuntimeException("Error expiring old sessions", e);
         }
     }
 
@@ -196,8 +195,7 @@ public class PaymentRepository {
             }
             return deleted;
         } catch (SQLException e) {
-            logger.error("Error deleting payment sessions for API key: {}", apiKey, e);
-            return 0;
+            throw new RuntimeException("Error deleting payment sessions for API key: " + apiKey, e);
         }
     }
 

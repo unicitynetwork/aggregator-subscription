@@ -242,6 +242,7 @@ public class PaymentHandler extends Handler.Abstract {
             }
 
         } catch (IllegalArgumentException e) {
+            logger.debug("Exception", e);
             sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
                 "Bad Request", "Invalid session ID format");
         }

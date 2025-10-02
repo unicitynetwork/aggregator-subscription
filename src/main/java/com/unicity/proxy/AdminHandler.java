@@ -249,6 +249,7 @@ public class AdminHandler extends Handler.Abstract {
                     ApiKeyStatus status = ApiKeyStatus.fromValue(statusStr);
                     apiKeyRepository.updateStatus(id, status);
                 } catch (IllegalArgumentException e) {
+                    logger.debug("Failed to update API key status", e);
                     ObjectNode error = mapper.createObjectNode();
                     error.put("error", "Invalid status value. Must be 'active' or 'revoked'");
                     sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);

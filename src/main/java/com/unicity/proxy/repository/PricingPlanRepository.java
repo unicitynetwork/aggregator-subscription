@@ -87,7 +87,7 @@ public class PricingPlanRepository {
                 ));
             }
         } catch (SQLException e) {
-            logger.error("Error finding all pricing plans", e);
+            throw new RuntimeException("Error finding all pricing plans", e);
         }
         return plans;
     }
@@ -124,7 +124,7 @@ public class PricingPlanRepository {
                 return rs.getLong(1);
             }
         } catch (SQLException e) {
-            logger.error("Error counting pricing plans", e);
+            throw new RuntimeException("Error counting pricing plans", e);
         }
         return 0;
     }
@@ -146,7 +146,7 @@ public class PricingPlanRepository {
                 }
             }
         } catch (SQLException e) {
-            logger.error("Error finding pricing plan by id: " + id, e);
+            throw new RuntimeException("Error finding pricing plan by id: " + id, e);
         }
         return null;
     }
@@ -165,7 +165,7 @@ public class PricingPlanRepository {
             logger.info("Updated pricing plan {}: {} ({} req/s, {} req/day, ${:.2f})",
                 id, name, requestsPerSecond, requestsPerDay, price);
         } catch (SQLException e) {
-            logger.error("Error updating pricing plan", e);
+            throw new RuntimeException("Error updating pricing plan", e);
         }
     }
 
@@ -180,7 +180,7 @@ public class PricingPlanRepository {
                 }
             }
         } catch (SQLException e) {
-            logger.error("Error counting API keys using plan: " + planId, e);
+            throw new RuntimeException("Error counting API keys using plan: " + planId, e);
         }
         return 0;
     }
@@ -196,7 +196,7 @@ public class PricingPlanRepository {
                 }
             }
         } catch (SQLException e) {
-            logger.error("Error counting payment sessions using plan: " + planId, e);
+            throw new RuntimeException("Error counting payment sessions using plan: " + planId, e);
         }
         return 0;
     }
