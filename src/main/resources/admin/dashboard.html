@@ -725,8 +725,10 @@
                     <input type="number" id="planRpd" min="1" value="10000" required>
                 </div>
                 <div class="form-group">
-                    <label for="planPrice">Price (optional)</label>
-                    <input type="number" id="planPrice" min="0" step="0.01" placeholder="0.00">
+                    <label for="planPrice">Price (optional, in smallest units)</label>
+                    <input type="text" id="planPrice" pattern="[0-9]*" placeholder="0"
+                           title="Enter price as integer in smallest units (e.g., wei)">
+                    <small style="color: var(--text-muted);">Enter as integer (supports up to 256-bit values)</small>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('createPlanModal')">Cancel</button>
@@ -792,8 +794,10 @@
                     <input type="number" id="editPlanRpd" min="1" required>
                 </div>
                 <div class="form-group">
-                    <label for="editPlanPrice">Price</label>
-                    <input type="number" id="editPlanPrice" min="0" step="0.01" placeholder="0.00">
+                    <label for="editPlanPrice">Price (optional, in smallest units)</label>
+                    <input type="text" id="editPlanPrice" pattern="[0-9]*" placeholder="0"
+                           title="Enter price as integer in smallest units (e.g., wei)">
+                    <small style="color: var(--text-muted);">Enter as integer (supports up to 256-bit values)</small>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('editPlanModal')">Cancel</button>
@@ -962,7 +966,6 @@
                             <button class="btn btn-secondary" onclick="toggleKeyStatus(${key.id}, '${key.status}')">
                                 ${key.status === 'active' ? 'Disable' : 'Enable'}
                             </button>
-                            <button class="btn btn-danger" onclick="deleteKey(${key.id})">Delete</button>
                         </div>
                     </td>
                 `;
@@ -997,7 +1000,7 @@
                     <td><strong>${plan.name}</strong></td>
                     <td>${plan.requestsPerSecond}</td>
                     <td>${plan.requestsPerDay.toLocaleString()}</td>
-                    <td>$${plan.price || 0}</td>
+                    <td>${plan.price || 0}</td>
                     <td>
                         <div class="actions">
                             <button class="btn btn-secondary" onclick="showEditPlanModal(${plan.id})">Edit</button>
@@ -1025,7 +1028,7 @@
         }
 
         async function toggleKeyStatus(keyId, currentStatus) {
-            const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+            const newStatus = currentStatus === 'active' ? 'revoked' : 'active';
 
             try {
                 const response = await apiCall(`/admin/api/keys/${keyId}`, {
@@ -1042,22 +1045,6 @@
             }
         }
 
-        async function deleteKey(keyId) {
-            if (!confirm('Are you sure you want to delete this API key?')) return;
-
-            try {
-                const response = await apiCall(`/admin/api/keys/${keyId}`, {
-                    method: 'DELETE'
-                });
-
-                if (response.ok) {
-                    loadApiKeys();
-                    loadStats();
-                }
-            } catch (error) {
-                console.error('Failed to delete key:', error);
-            }
-        }
 
         function copyToClipboard(text) {
             // Create temporary textarea
@@ -1125,7 +1112,7 @@
             document.getElementById('editPlanName').value = plan.name;
             document.getElementById('editPlanRps').value = plan.requestsPerSecond;
             document.getElementById('editPlanRpd').value = plan.requestsPerDay;
-            document.getElementById('editPlanPrice').value = plan.price || 0;
+            document.getElementById('editPlanPrice').value = (plan.price || 0).toString();
 
             document.getElementById('editPlanModal').classList.add('show');
         }
@@ -1139,9 +1126,19 @@
                 if (response.ok) {
                     loadPricingPlans();
                     loadStats();
+                } else if (response.status === 409) {
+                    // Conflict - plan is in use
+                    const errorData = await response.json();
+                    alert(errorData.message || 'Cannot delete pricing plan: it is currently in use.');
+                } else if (response.status === 404) {
+                    alert('Pricing plan not found.');
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    alert(errorData.message || 'Failed to delete pricing plan.');
                 }
             } catch (error) {
                 console.error('Failed to delete pricing plan:', error);
+                alert('An error occurred while deleting the pricing plan.');
             }
         }
 
@@ -1192,7 +1189,7 @@
             const name = document.getElementById('planName').value;
             const requestsPerSecond = parseInt(document.getElementById('planRps').value);
             const requestsPerDay = parseInt(document.getElementById('planRpd').value);
-            const price = parseFloat(document.getElementById('planPrice').value) || 0;
+            const price = document.getElementById('planPrice').value || '0';
 
             try {
                 const response = await apiCall('/admin/api/plans', {
@@ -1241,7 +1238,7 @@
             const name = document.getElementById('editPlanName').value;
             const requestsPerSecond = parseInt(document.getElementById('editPlanRps').value);
             const requestsPerDay = parseInt(document.getElementById('editPlanRpd').value);
-            const price = parseFloat(document.getElementById('editPlanPrice').value) || 0;
+            const price = document.getElementById('editPlanPrice').value || '0';
 
             try {
                 const response = await apiCall(`/admin/api/plans/${id}`, {
