@@ -57,5 +57,5 @@ curl 'http://localhost:8080/' -H "Authorization: Bearer supersecret" \
 ./gradlew test
 
 ```
-To run within an IDE, use the main class ```com.unicitylabs.proxy.Main```.
+To run within an IDE, use the main class ```org.unicitylabs.proxy.Main```.
 

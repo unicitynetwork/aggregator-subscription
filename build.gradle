@@ -3,7 +3,7 @@ plugins {
     id 'application'
 }
 
-group = 'com.unicity'
+group = 'org.unicitylabs'
 version = '1.0.0'
 
 java {
@@ -12,7 +12,7 @@ java {
 }
 
 application {
-    mainClass = 'com.unicitylabs.proxy.Main'
+    mainClass = 'org.unicitylabs.proxy.Main'
 }
 
 repositories {
@@ -93,7 +93,7 @@ tasks.register('fatJar', Jar) {
     exclude 'META-INF/*.RSA'
 
     manifest {
-        attributes 'Main-Class': 'com.unicitylabs.proxy.Main'
+        attributes 'Main-Class': 'org.unicitylabs.proxy.Main'
     }
 }
 
@@ -117,7 +117,7 @@ tasks.register('createStartScripts') {
         def scriptFile = file("$buildDir/scripts/start.sh")
         scriptFile.parentFile.mkdirs()
         scriptFile.text = """#!/bin/bash
-java --enable-preview -cp "lib/*" com.unicitylabs.proxy.Main "\$@"
+java --enable-preview -cp "lib/*" org.unicitylabs.proxy.Main "\$@"
 """
         scriptFile.setExecutable(true)
     }
