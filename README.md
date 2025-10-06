@@ -225,4 +225,4 @@ DB_URL=jdbc:postgresql://localhost:5432/aggregator \
 ./gradlew test
 
 ```
-To run within an IDE, use the main class ```org.unicitylabs.proxy.Main```.~~
+To run within an IDE, use the main class ```org.unicitylabs.proxy.Main```.
