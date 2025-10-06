@@ -1,4 +1,4 @@
-~~# Aggregator Subscription Proxy
+# Aggregator Subscription Proxy
 
 A lightweight reverse proxy for the Unicity aggregator service. It guards access to protected endpoints by requiring API key authentication and enforces rate limits based on subscription plans.
 
