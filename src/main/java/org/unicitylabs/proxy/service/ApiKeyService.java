@@ -28,7 +28,17 @@ public class ApiKeyService {
         apiKeyRepository.createWithoutPlan(apiKey);
         logger.info("Created new API key without plan: {}", apiKey);
 
-        List<PricingPlanInfo> availablePlans = pricingPlanRepository.findAll().stream()
+        List<PricingPlanInfo> availablePlans = getAvailablePlans();
+
+        return new PaymentModels.CreateApiKeyResponse(
+            apiKey,
+            "API key created successfully. Please purchase a plan to activate it.",
+            availablePlans
+        );
+    }
+
+    public List<PricingPlanInfo> getAvailablePlans() {
+        return pricingPlanRepository.findAll().stream()
             .map(plan -> new PricingPlanInfo(
                 plan.getId(),
                 plan.getName(),
@@ -37,12 +47,6 @@ public class ApiKeyService {
                 plan.getPrice()
             ))
             .collect(Collectors.toList());
-
-        return new PaymentModels.CreateApiKeyResponse(
-            apiKey,
-            "API key created successfully. Please purchase a plan to activate it.",
-            availablePlans
-        );
     }
 
     public static String generateApiKey() {

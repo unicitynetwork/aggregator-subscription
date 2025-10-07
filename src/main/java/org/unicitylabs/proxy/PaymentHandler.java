@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -56,6 +57,9 @@ public class PaymentHandler extends Handler.Abstract {
         try {
             if ("POST".equals(method) && "/api/payment/create-key".equals(path)) {
                 handleCreateApiKey(request, response, callback);
+                return true;
+            } else if ("GET".equals(method) && "/api/payment/plans".equals(path)) {
+                handleGetPaymentPlans(request, response, callback);
                 return true;
             } else if ("POST".equals(method) && "/api/payment/initiate".equals(path)) {
                 handleInitiatePayment(request, response, callback);
@@ -221,6 +225,18 @@ public class PaymentHandler extends Handler.Abstract {
             logger.error("Error creating API key", e);
             sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
                 "Internal Server Error", "Failed to create API key: " + e.getMessage());
+        }
+    }
+
+    private void handleGetPaymentPlans(Request request, Response response, Callback callback) {
+        try {
+            var availablePlans = apiKeyService.getAvailablePlans();
+            Map<String, Object> responseBody = Map.of("availablePlans", availablePlans);
+            sendJsonResponse(response, callback, HttpStatus.OK_200, responseBody);
+        } catch (Exception e) {
+            logger.error("Error retrieving payment plans", e);
+            sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
+                "Internal Server Error", "Failed to retrieve payment plans: " + e.getMessage());
         }
     }
 

@@ -293,6 +293,72 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertThat(error.getMessage()).contains("Payment session not found");
     }
 
+    @Test
+    @Order(9)
+    @DisplayName("Test GET payment plans endpoint")
+    void testGetPaymentPlans() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl() + "/api/payment/plans"))
+            .GET()
+            .timeout(Duration.ofSeconds(5))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+
+        String prettyJson = objectMapper.writerWithDefaultPrettyPrinter()
+            .writeValueAsString(objectMapper.readTree(response.body()));
+
+        assertEquals("""
+                {
+                  "availablePlans" : [ {
+                    "planId" : 1,
+                    "name" : "basic",
+                    "requestsPerSecond" : 5,
+                    "requestsPerDay" : 50000,
+                    "price" : "1000000"
+                  }, {
+                    "planId" : 2,
+                    "name" : "standard",
+                    "requestsPerSecond" : 10,
+                    "requestsPerDay" : 100000,
+                    "price" : "5000000"
+                  }, {
+                    "planId" : 3,
+                    "name" : "premium",
+                    "requestsPerSecond" : 20,
+                    "requestsPerDay" : 500000,
+                    "price" : "10000000"
+                  }, {
+                    "planId" : 4,
+                    "name" : "enterprise",
+                    "requestsPerSecond" : 50,
+                    "requestsPerDay" : 1000000,
+                    "price" : "50000000"
+                  }, {
+                    "planId" : 5,
+                    "name" : "test-basic",
+                    "requestsPerSecond" : 5,
+                    "requestsPerDay" : 50000,
+                    "price" : "1"
+                  }, {
+                    "planId" : 6,
+                    "name" : "test-standard",
+                    "requestsPerSecond" : 10,
+                    "requestsPerDay" : 100000,
+                    "price" : "2"
+                  }, {
+                    "planId" : 7,
+                    "name" : "test-premium",
+                    "requestsPerSecond" : 20,
+                    "requestsPerDay" : 500000,
+                    "price" : "3"
+                  } ]
+                }""",
+                objectMapper.writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(objectMapper.readTree(response.body())));
+    }
+
     private void signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
         var token = mintInitialToken(paymentSession.getAmountRequired(), tokenId);
 
