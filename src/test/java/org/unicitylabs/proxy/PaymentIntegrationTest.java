@@ -93,52 +93,51 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     @Order(1)
-    @DisplayName("Test creating an API key and the complete payment flow")
-    void testCompletePaymentWithPolling() throws Exception {
-        PaymentModels.CreateApiKeyResponse createResponse = createApiKeyWithoutPlan();
-        final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(new AggregatorClient(getProxyUrl(), createResponse.getApiKey()));
-        assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
-
+    @DisplayName("Test complete payment flow with new API key creation")
+    void testCompletePaymentWithNewKeyCreation() throws Exception {
+        // Initiate payment without providing an API key - one will be created on successful payment
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, createResponse.getApiKey(), tokenId);
-        assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(3, tokenId);
 
-        signAndSubmitPayment(paymentSession, tokenId);
+        // Complete the payment
+        var paymentResponse = signAndSubmitPayment(paymentSession, tokenId);
+        String createdApiKey = paymentResponse.getApiKey();
+        assertTrue(createdApiKey.startsWith("sk_"), "API key should have correct format");
 
-        pollUntilPaymentSucceeded(paymentSession.getSessionId(), createResponse.getApiKey(), 3);
-        assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
-
-        // Make the key expire, then pay for it again
-        // Adding extra time here to account for the test running time; this means that the test can mistakenly fail if it runs very long.
-        testTimeMeter.setTime(Instant.ofEpochMilli(testTimeMeter.getTime()).atZone(ZoneId.systemDefault()).plusDays(ApiKeyRepository.getPaymentValidityDurationDays()).plusMinutes(1).toInstant().toEpochMilli());
-
-        assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
-
-        tokenId = randomBytes(32); // New token for new payment
-        paymentSession = initiatePaymentSession(3, createResponse.getApiKey(), tokenId);
-        assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
-
-        signAndSubmitPayment(paymentSession, tokenId);
-
-        pollUntilPaymentSucceeded(paymentSession.getSessionId(), createResponse.getApiKey(), 3);
+        // Test that the new API key works
+        final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
+            new AggregatorClient(getProxyUrl(), createdApiKey));
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }
 
     @Test
     @Order(2)
-    @DisplayName("Test payment status check: pending")
-    void testCheckPaymentStatus() throws Exception {
+    @DisplayName("Test payment flow with existing API key")
+    void testPaymentWithExistingKey() throws Exception {
+        // Use the pre-created TEST_API_KEY
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(4, TEST_API_KEY, tokenId);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, TEST_API_KEY, tokenId);
 
-        PaymentModels.PaymentStatusResponse status = getPaymentStatusResponse(paymentSession.getSessionId());
+        // Test that the API key is now authorized
+        final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
+            new AggregatorClient(getProxyUrl(), TEST_API_KEY));
+        assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
 
-        assertEquals(paymentSession.getSessionId(), status.getSessionId());
-        assertEquals(PENDING.getValue(), status.getStatus());
-        assertEquals(50_000_000L, status.getAmountRequired().longValueExact());
-        assertNotNull(status.getCreatedAt());
-        assertNull(status.getCompletedAt());
-        assertNotNull(status.getExpiresAt());
+        // Make the key expire, then pay for it again
+        testTimeMeter.setTime(Instant.ofEpochMilli(testTimeMeter.getTime())
+            .atZone(ZoneId.systemDefault())
+            .plusDays(ApiKeyRepository.getPaymentValidityDurationDays())
+            .plusMinutes(1)
+            .toInstant()
+            .toEpochMilli());
+
+        assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
+
+        // Renew with another payment
+        tokenId = randomBytes(32);
+        paymentSession = initiatePaymentSession(3, TEST_API_KEY, tokenId);
+        signAndSubmitPayment(paymentSession, tokenId);
+        assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }
 
     @Test
@@ -221,6 +220,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @Order(6)
     @DisplayName("Test API key details endpoint, key without a pricing plan")
     void testApiKeyDetailsEndpoint_keyWithoutPricingPlan() throws Exception {
+        // Create a key without payment plan using the repository directly
         String keyWithoutPlan = "test-key-no-plan";
         apiKeyRepository.createWithoutPlan(keyWithoutPlan);
         TestDatabaseSetup.markForDeletionDuringReset(keyWithoutPlan);
@@ -273,28 +273,6 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     @Order(8)
-    @DisplayName("Test invalid session ID handling")
-    void testInvalidSessionId() throws Exception {
-        UUID fakeSessionId = UUID.randomUUID();
-
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(getProxyUrl() + "/api/payment/status/" + fakeSessionId))
-            .GET()
-            .timeout(Duration.ofSeconds(5))
-            .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        assertEquals(404, response.statusCode());
-
-        PaymentModels.ErrorResponse error =
-            objectMapper.readValue(response.body(), PaymentModels.ErrorResponse.class);
-
-        assertEquals("Not Found", error.getError());
-        assertThat(error.getMessage()).contains("Payment session not found");
-    }
-
-    @Test
-    @Order(9)
     @DisplayName("Test GET payment plans endpoint")
     void testGetPaymentPlans() throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
@@ -359,7 +337,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
                         .writeValueAsString(objectMapper.readTree(response.body())));
     }
 
-    private void signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
+    private PaymentModels.CompletePaymentResponse signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
         var token = mintInitialToken(paymentSession.getAmountRequired(), tokenId);
 
         SigningService clientSigningService = SigningService.createFromMaskedSecret( CLIENT_SECRET, CLIENT_NONCE );
@@ -378,31 +356,34 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         String transferCommitmentJson = UnicityObjectMapper.JSON.writeValueAsString(transferCommitment);
         String sourceTokenJson = UnicityObjectMapper.JSON.writeValueAsString(token);
 
-        submitRequest(new PaymentModels.CompletePaymentRequest(
+        String responseBody = submitRequest(new PaymentModels.CompletePaymentRequest(
                 paymentSession.getSessionId(),
                 Base64.getEncoder().encodeToString(salt),
                 transferCommitmentJson,
                 sourceTokenJson
         ));
+        return objectMapper.readValue(responseBody, PaymentModels.CompletePaymentResponse.class);
     }
 
-    private PaymentModels.CreateApiKeyResponse createApiKeyWithoutPlan() throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(getProxyUrl() + "/api/payment/create-key"))
+    private PaymentModels.InitiatePaymentResponse initiatePaymentSessionWithoutKey(int targetPlanId, byte[] tokenId)
+            throws IOException, InterruptedException {
+        String tokenIdBase64 = Base64.getEncoder().encodeToString(tokenId);
+        String tokenTypeBase64 = Base64.getEncoder().encodeToString(MOCK_TOKEN_TYPE);
+        // Create request without API key - it will be created on successful payment
+        PaymentModels.InitiatePaymentRequest request = new PaymentModels.InitiatePaymentRequest(
+                null, targetPlanId, tokenIdBase64, tokenTypeBase64);
+
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/api/payment/initiate"))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request)))
                 .timeout(Duration.ofSeconds(10))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
         assertEquals(200, response.statusCode());
 
-        PaymentModels.CreateApiKeyResponse result = objectMapper.readValue(response.body(), PaymentModels.CreateApiKeyResponse.class);
-
-        assertNotNull(result.getApiKey());
-        assertFalse(result.getAvailablePlans().isEmpty());
-
-        return result;
+        return objectMapper.readValue(response.body(), PaymentModels.InitiatePaymentResponse.class);
     }
 
     private PaymentModels.InitiatePaymentResponse initiatePaymentSession(int targetPlanId, String apiKey, byte[] tokenId) throws IOException, InterruptedException {
@@ -413,32 +394,6 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         PaymentModels.InitiatePaymentResponse paymentSession =
                 objectMapper.readValue(initPaymentResponseBody, PaymentModels.InitiatePaymentResponse.class);
         return paymentSession;
-    }
-
-    private void pollUntilPaymentSucceeded(UUID sessionId, String apiKey, int targetPlanId) {
-        await().atMost(5, TimeUnit.SECONDS)
-                .pollInterval(100, TimeUnit.MILLISECONDS)
-                .untilAsserted(() -> {
-                    PaymentModels.PaymentStatusResponse status = getPaymentStatusResponse(sessionId);
-
-                    assertThat(status.getStatus()).isEqualTo("completed");
-
-                    ApiKeyRepository.ApiKeyInfo apiKeyInfo = apiKeyRepository.findByKeyIfNotRevokedAndHasPaid(apiKey).get();
-                    assertThat(apiKeyInfo.pricingPlanId()).isEqualTo(targetPlanId);
-                });
-    }
-
-    private PaymentModels.PaymentStatusResponse getPaymentStatusResponse(UUID sessionId) throws IOException, InterruptedException {
-        HttpRequest statusRequest = HttpRequest.newBuilder()
-                .uri(URI.create(getProxyUrl() + "/api/payment/status/" + sessionId))
-                .GET()
-                .timeout(Duration.ofSeconds(5))
-                .build();
-
-        HttpResponse<String> statusResponse = httpClient.send(statusRequest, HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, statusResponse.statusCode());
-
-        return objectMapper.readValue(statusResponse.body(), PaymentModels.PaymentStatusResponse.class);
     }
 
     private String submitRequest(PaymentModels.InitiatePaymentRequest request) throws IOException, InterruptedException {

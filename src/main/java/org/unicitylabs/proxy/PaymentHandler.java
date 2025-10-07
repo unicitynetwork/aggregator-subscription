@@ -55,10 +55,7 @@ public class PaymentHandler extends Handler.Abstract {
         }
 
         try {
-            if ("POST".equals(method) && "/api/payment/create-key".equals(path)) {
-                handleCreateApiKey(request, response, callback);
-                return true;
-            } else if ("GET".equals(method) && "/api/payment/plans".equals(path)) {
+            if ("GET".equals(method) && "/api/payment/plans".equals(path)) {
                 handleGetPaymentPlans(request, response, callback);
                 return true;
             } else if ("POST".equals(method) && "/api/payment/initiate".equals(path)) {
@@ -66,9 +63,6 @@ public class PaymentHandler extends Handler.Abstract {
                 return true;
             } else if ("POST".equals(method) && "/api/payment/complete".equals(path)) {
                 handleCompletePayment(request, response, callback);
-                return true;
-            } else if ("GET".equals(method) && path.startsWith("/api/payment/status/")) {
-                handlePaymentStatus(request, response, callback);
                 return true;
             } else if ("GET".equals(method) && path.startsWith("/api/payment/key/")) {
                 handleGetApiKeyDetails(request, response, callback);
@@ -97,12 +91,6 @@ public class PaymentHandler extends Handler.Abstract {
 
         PaymentModels.InitiatePaymentRequest initiateRequest =
             objectMapper.readValue(requestBody, PaymentModels.InitiatePaymentRequest.class);
-
-        if (initiateRequest.getApiKey() == null || initiateRequest.getApiKey().isEmpty()) {
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", "API key is required");
-            return;
-        }
 
         if (initiateRequest.getTargetPlanId() < 0) {
             sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
@@ -213,21 +201,6 @@ public class PaymentHandler extends Handler.Abstract {
         }
     }
 
-    private void handleCreateApiKey(Request request, Response response, Callback callback) {
-        try {
-            String requestBody = Content.Source.asString(request, StandardCharsets.UTF_8);
-            if (logger.isDebugEnabled()) {
-                logger.debug("Create API key request body: {}", requestBody);
-            }
-            PaymentModels.CreateApiKeyResponse createResponse = apiKeyService.createApiKeyWithoutPricingPlan();
-            sendJsonResponse(response, callback, HttpStatus.OK_200, createResponse);
-        } catch (Exception e) {
-            logger.error("Error creating API key", e);
-            sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
-                "Internal Server Error", "Failed to create API key: " + e.getMessage());
-        }
-    }
-
     private void handleGetPaymentPlans(Request request, Response response, Callback callback) {
         try {
             var availablePlans = apiKeyService.getAvailablePlans();
@@ -237,30 +210,6 @@ public class PaymentHandler extends Handler.Abstract {
             logger.error("Error retrieving payment plans", e);
             sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
                 "Internal Server Error", "Failed to retrieve payment plans: " + e.getMessage());
-        }
-    }
-
-    private void handlePaymentStatus(Request request, Response response, Callback callback) {
-        String path = request.getHttpURI().getPath();
-        String sessionIdStr = path.substring("/api/payment/status/".length());
-
-        try {
-            UUID sessionId = UUID.fromString(sessionIdStr);
-
-            Optional<PaymentModels.PaymentStatusResponse> status =
-                paymentService.getPaymentStatus(sessionId);
-
-            if (status.isPresent()) {
-                sendJsonResponse(response, callback, HttpStatus.OK_200, status.get());
-            } else {
-                sendErrorResponse(response, callback, HttpStatus.NOT_FOUND_404,
-                    "Not Found", "Payment session not found");
-            }
-
-        } catch (IllegalArgumentException e) {
-            logger.debug("Exception", e);
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", "Invalid session ID format");
         }
     }
 

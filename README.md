@@ -42,23 +42,17 @@ The pricing plans as well as API key properties can be changed in the administra
 
 API keys can be paid for using the Unicity token. Different payment plans can have different costs, which can be set using the Admin Interface.
 
-The following shows the RESTful API for both requesting new API keys and for paying for them. This interface is meant to be used by user-facing software such as cryptocurrency wallets.
+The following shows the RESTful API for requesting for new API keys and paying for them, as well as paying for existing API keys. This interface is meant to be used by user-facing software such as cryptocurrency wallets.
 
-First, the user starts by creating a new API key. This step is skipped if the user already has an API key they wish to pay for.
+The user can take a look at the available pricing plans using following request.
 
 **Request:**
 
-`POST /api/payment/create-key`
+`GET /api/payment/plans`
 
-```JSON
-{}
-```
- 
 **Response:**
 ```JSON
 {
-  "apiKey": "sk_a70c32027c2246aa8dcdac178e79df41",
-  "message": "API key created successfully. Please purchase a plan to activate it.",
   "availablePlans": [
     {
       "planId": 1,
@@ -87,13 +81,6 @@ First, the user starts by creating a new API key. This step is skipped if the us
       "requestsPerSecond": 50,
       "requestsPerDay": 1000000,
       "price": "50000000"
-    },
-    {
-      "planId": 6,
-      "name": "trompet",
-      "requestsPerSecond": 100,
-      "requestsPerDay": 10000,
-      "price": "0"
     }
   ]
 }
@@ -101,7 +88,7 @@ First, the user starts by creating a new API key. This step is skipped if the us
 
 The returned list above includes the current list of available pricing plans.
 
-Next, the user initiates payment by specifying which API key they would like to pay for and which pricing plan they have chosen.
+Next, the user initiates payment for their API key. The user can either supply an existing API key in the `apiKey` field, or the user can leave the field empty, in which case a new API key will be created for the user. Additionally, the user specifies the chosen payment plan ID.
 
 **Request:**
 
@@ -142,15 +129,19 @@ After that, the user sends the transfer commitment data as a JSON object, as wel
 ```
 
 **Response:**
+
 ```JSON
 {
   "success": true,
-  "message": "Payment verified. API key upgraded successfully.",
-  "newPlanId": 3
+  "message": "Payment verified. New API key created successfully.",
+  "newPlanId": 3,
+  "apiKey": "sk_a70c32027c2246aa8dcdac178e79df41"
 }
 ```
 
-After the above success message, the key is ready to be used.
+After the above success message, the key is ready to be used. The key is returned in the `apiKey` field.
+
+Note that if the payment fails, it may need to be manually completed (or refunded) by the server operator(s). For example, it may happen that network goes down in the middle of the payment, or the user could send the wrong amount of tokens.
 
 Information about they key can be accessed any time using the following endpoint:
 
@@ -176,7 +167,7 @@ Information about they key can be accessed any time using the following endpoint
 
 The endpoint also shows the time of expiry for the key.
 
-Note that currently, the payment actives the key for 1 month. If the user pays again during the time the key is active, the key expiration date is further advanced by 1 month. There is currently a limit that disallows purchases to extend the key validity period for longer than a year from the date at hand.
+Note that currently, the payment actives the key for 1 month. If the user pays again during the time the key is active, the key expiration date is further advanced by 1 month.
 
 ## Administrative interface
 

@@ -22,21 +22,6 @@ public class ApiKeyService {
         this.pricingPlanRepository = new PricingPlanRepository();
     }
 
-    public PaymentModels.CreateApiKeyResponse createApiKeyWithoutPricingPlan() {
-        String apiKey = generateApiKey();
-
-        apiKeyRepository.createWithoutPlan(apiKey);
-        logger.info("Created new API key without plan: {}", apiKey);
-
-        List<PricingPlanInfo> availablePlans = getAvailablePlans();
-
-        return new PaymentModels.CreateApiKeyResponse(
-            apiKey,
-            "API key created successfully. Please purchase a plan to activate it.",
-            availablePlans
-        );
-    }
-
     public List<PricingPlanInfo> getAvailablePlans() {
         return pricingPlanRepository.findAll().stream()
             .map(plan -> new PricingPlanInfo(

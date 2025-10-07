@@ -107,8 +107,9 @@ public class PaymentService {
 
         String apiKey = request.getApiKey();
         long targetPlanId = request.getTargetPlanId();
+        boolean shouldCreateKey = (apiKey == null || apiKey.isEmpty());
 
-        if (apiKeyRepository.findByKeyIfNotRevoked(apiKey).isEmpty()) {
+        if (!shouldCreateKey && apiKeyRepository.findByKeyIfNotRevoked(apiKey).isEmpty()) {
             throw new IllegalArgumentException("Unknown API key");
         }
 
@@ -116,15 +117,17 @@ public class PaymentService {
             throw new IllegalArgumentException("Invalid target plan ID");
         }
 
-        Optional<PaymentSession> existingSession = paymentRepository.findPendingByApiKey(apiKey);
-        if (existingSession.isPresent()) {
-            PaymentSession session = existingSession.get();
-            return new PaymentModels.InitiatePaymentResponse(
-                session.getId(),
-                session.getPaymentAddress(),
-                session.getAmountRequired(),
-                session.getExpiresAt()
-            );
+        if (!shouldCreateKey) {
+            Optional<PaymentSession> existingSession = paymentRepository.findPendingByApiKey(apiKey);
+            if (existingSession.isPresent()) {
+                PaymentSession session = existingSession.get();
+                return new PaymentModels.InitiatePaymentResponse(
+                    session.getId(),
+                    session.getPaymentAddress(),
+                    session.getAmountRequired(),
+                    session.getExpiresAt()
+                );
+            }
         }
 
         byte[] receiverNonce = random32Bytes();
@@ -146,10 +149,10 @@ public class PaymentService {
         BigInteger amountRequired = getRequiredAmount(targetPlanId);
 
         Instant expiresAt = Instant.now().plusSeconds(SESSION_EXPIRY_MINUTES * 60);
-        PaymentSession session = paymentRepository.createSession(
+        PaymentSession session = paymentRepository.createSessionWithOptionalKey(
             apiKey, paymentAddress, receiverNonce,
             targetPlanId, amountRequired, expiresAt,
-            tokenId, tokenType
+            tokenId, tokenType, shouldCreateKey
         );
 
         if (session == null) {
@@ -172,7 +175,7 @@ public class PaymentService {
         Optional<PaymentSession> sessionOpt = paymentRepository.findById(sessionId);
         if (sessionOpt.isEmpty()) {
             return new PaymentModels.CompletePaymentResponse(
-                false, "Invalid session ID", null
+                false, "Invalid session ID", null, null
             );
         }
 
@@ -180,14 +183,14 @@ public class PaymentService {
 
         if (session.getStatus() != PaymentSessionStatus.PENDING) {
             return new PaymentModels.CompletePaymentResponse(
-                false, "Session is not pending", null
+                false, "Session is not pending", null, null
             );
         }
 
         if (Instant.now().isAfter(session.getExpiresAt())) {
             paymentRepository.updateSessionStatus(sessionId, PaymentSessionStatus.EXPIRED, null);
             return new PaymentModels.CompletePaymentResponse(
-                false, "Session has expired", null
+                false, "Session has expired", null, null
             );
         }
 
@@ -209,7 +212,7 @@ public class PaymentService {
             if (submitResponse.getStatus() != SubmitCommitmentStatus.SUCCESS) {
                 logger.error("Failed to submit transfer commitment: {}", submitResponse.getStatus());
                 return new PaymentModels.CompletePaymentResponse(
-                    false, "Failed to submit transfer: " + submitResponse.getStatus(), null
+                    false, "Failed to submit transfer: " + submitResponse.getStatus(), null, null
                 );
             }
 
@@ -243,7 +246,7 @@ public class PaymentService {
             if (!receivedToken.verify(trustBase).isSuccessful()) {
                 logger.error("Received token verification failed");
                 return new PaymentModels.CompletePaymentResponse(
-                    false, "Token verification failed", null
+                    false, "Token verification failed", null, null
                 );
             }
 
@@ -254,45 +257,46 @@ public class PaymentService {
                 paymentRepository.updateSessionStatus(sessionId, PaymentSessionStatus.FAILED,
                     jsonMapper.writeValueAsString(receivedToken));
                 return new PaymentModels.CompletePaymentResponse(
-                    false, "Insufficient payment amount", null
+                    false, "Insufficient payment amount", null, null
                 );
             }
 
-            apiKeyRepository.updatePricingPlanAndExtendExpiry(
-                session.getApiKey(), session.getTargetPlanId()
-            );
+            String finalApiKey = session.getApiKey();
+            if (session.isShouldCreateKey()) {
+                finalApiKey = ApiKeyService.generateApiKey();
+                apiKeyRepository.insert(finalApiKey, session.getTargetPlanId());
+                // Update the session with the generated API key
+                paymentRepository.updateSessionApiKey(sessionId, finalApiKey);
+                logger.info("Created new API key {} for session {}", finalApiKey, sessionId);
+            } else {
+                // Update existing API key's pricing plan and extend expiry
+                apiKeyRepository.updatePricingPlanAndExtendExpiry(finalApiKey, session.getTargetPlanId());
+            }
 
             paymentRepository.updateSessionStatus(sessionId, PaymentSessionStatus.COMPLETED,
                 jsonMapper.writeValueAsString(receivedToken));
 
-            logger.info("Payment completed successfully for session {} - API key {} upgraded to plan {}",
-                sessionId, session.getApiKey(), session.getTargetPlanId());
+            logger.info("Payment completed successfully for session {} - API key {} with plan {}",
+                sessionId, finalApiKey, session.getTargetPlanId());
 
-            return new PaymentModels.CompletePaymentResponse(
+            PaymentModels.CompletePaymentResponse response = new PaymentModels.CompletePaymentResponse(
                 true,
-                "Payment verified. API key upgraded successfully.",
-                session.getTargetPlanId()
+                session.isShouldCreateKey() ?
+                        "Payment verified. New API key created successfully.":
+                        "Payment verified. API key upgraded successfully.",
+                session.getTargetPlanId(),
+                finalApiKey
             );
+
+            return response;
 
         } catch (Exception e) {
             logger.error("Error processing payment for session {}", sessionId, e);
             paymentRepository.updateSessionStatus(sessionId, PaymentSessionStatus.FAILED, null);
             return new PaymentModels.CompletePaymentResponse(
-                false, "Payment processing failed: " + e.getMessage(), null
+                false, "Payment processing failed: " + e.getMessage(), null, null
             );
         }
-    }
-
-    public Optional<PaymentModels.PaymentStatusResponse> getPaymentStatus(UUID sessionId) {
-        return paymentRepository.findById(sessionId)
-            .map(session -> new PaymentModels.PaymentStatusResponse(
-                session.getId(),
-                session.getStatus().getValue(),
-                session.getAmountRequired(),
-                session.getCreatedAt(),
-                session.getCompletedAt(),
-                session.getExpiresAt()
-            ));
     }
 
     private String generatePaymentAddress(MaskedPredicate predicate, byte[] tokenTypeBytes) {

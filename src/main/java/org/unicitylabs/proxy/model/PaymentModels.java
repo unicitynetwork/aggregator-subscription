@@ -130,12 +130,16 @@ public class PaymentModels {
         @JsonProperty("newPlanId")
         private Long newPlanId; // null if payment failed
 
+        @JsonProperty("apiKey")
+        private String apiKey;
+
         public CompletePaymentResponse() {}
 
-        public CompletePaymentResponse(boolean success, String message, Long newPlanId) {
+        public CompletePaymentResponse(boolean success, String message, Long newPlanId, String apiKey) {
             this.success = success;
             this.message = message;
             this.newPlanId = newPlanId;
+            this.apiKey = apiKey;
         }
 
         public boolean isSuccess() { return success; }
@@ -146,60 +150,9 @@ public class PaymentModels {
 
         public Long getNewPlanId() { return newPlanId; }
         public void setNewPlanId(Long newPlanId) { this.newPlanId = newPlanId; }
-    }
 
-    public static class PaymentStatusResponse {
-        @JsonProperty("sessionId")
-        private UUID sessionId;
-
-        /**
-         * Payment session status.
-         * Allowed values: "pending", "completed", "failed", "expired"
-         */
-        @JsonProperty("status")
-        private String status;
-
-        @JsonProperty("amountRequired")
-        private BigInteger amountRequired;
-
-        @JsonProperty("createdAt")
-        private Instant createdAt;
-
-        @JsonProperty("completedAt")
-        private Instant completedAt;
-
-        @JsonProperty("expiresAt")
-        private Instant expiresAt;
-
-        public PaymentStatusResponse() {}
-
-        public PaymentStatusResponse(UUID sessionId, String status, BigInteger amountRequired,
-                                    Instant createdAt, Instant completedAt, Instant expiresAt) {
-            this.sessionId = sessionId;
-            this.status = status;
-            this.amountRequired = amountRequired;
-            this.createdAt = createdAt;
-            this.completedAt = completedAt;
-            this.expiresAt = expiresAt;
-        }
-
-        public UUID getSessionId() { return sessionId; }
-        public void setSessionId(UUID sessionId) { this.sessionId = sessionId; }
-
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
-
-        public BigInteger getAmountRequired() { return amountRequired; }
-        public void setAmountRequired(BigInteger amountRequired) { this.amountRequired = amountRequired; }
-
-        public Instant getCreatedAt() { return createdAt; }
-        public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
-
-        public Instant getCompletedAt() { return completedAt; }
-        public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
-
-        public Instant getExpiresAt() { return expiresAt; }
-        public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+        public String getApiKey() { return apiKey; }
+        public void setApiKey(String apiKey) { this.apiKey = apiKey; }
     }
 
     public static class CreateApiKeyRequest {

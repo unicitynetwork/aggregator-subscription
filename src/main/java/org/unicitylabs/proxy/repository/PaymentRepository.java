@@ -24,14 +24,14 @@ public class PaymentRepository {
     private static final String CREATE_SESSION_SQL = """
         INSERT INTO payment_sessions (
             id, api_key, payment_address, receiver_nonce,
-            target_plan_id, amount_required, expires_at, token_id, token_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            target_plan_id, amount_required, expires_at, token_id, token_type, should_create_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
 
     private static final String FIND_BY_ID_SQL = """
         SELECT id, api_key, payment_address, receiver_nonce,
                status, target_plan_id, amount_required,
-               token_received, created_at, completed_at, expires_at, token_id, token_type
+               token_received, created_at, completed_at, expires_at, token_id, token_type, should_create_key
         FROM payment_sessions
         WHERE id = ?
         """;
@@ -45,7 +45,7 @@ public class PaymentRepository {
     private static final String FIND_PENDING_BY_API_KEY_SQL = """
         SELECT id, api_key, payment_address, receiver_nonce,
                status, target_plan_id, amount_required,
-               token_received, created_at, completed_at, expires_at, token_id, token_type
+               token_received, created_at, completed_at, expires_at, token_id, token_type, should_create_key
         FROM payment_sessions
         WHERE api_key = ? AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP
         """;
@@ -61,20 +61,26 @@ public class PaymentRepository {
         WHERE api_key = ?
         """;
 
+    private static final String UPDATE_SESSION_API_KEY_SQL = """
+        UPDATE payment_sessions
+        SET api_key = ?
+        WHERE id = ?
+        """;
+
     /**
-     * Create a new payment session
+     * Create a new payment session with optional API key creation
      */
-    public PaymentSession createSession(String apiKey, String paymentAddress,
+    public PaymentSession createSessionWithOptionalKey(String apiKey, String paymentAddress,
                                        byte[] receiverNonce, long targetPlanId,
                                        BigInteger amountRequired, Instant expiresAt,
-                                       byte[] tokenId, byte[] tokenType) {
+                                       byte[] tokenId, byte[] tokenType, boolean shouldCreateKey) {
         UUID sessionId = UUID.randomUUID();
 
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(CREATE_SESSION_SQL)) {
 
             stmt.setObject(1, sessionId);
-            stmt.setString(2, apiKey);
+            stmt.setString(2, apiKey); // Can be null if shouldCreateKey is true
             stmt.setString(3, paymentAddress);
             stmt.setBytes(4, receiverNonce);
             stmt.setLong(5, targetPlanId);
@@ -82,13 +88,15 @@ public class PaymentRepository {
             stmt.setTimestamp(7, Timestamp.from(expiresAt));
             stmt.setBytes(8, tokenId);
             stmt.setBytes(9, tokenType);
+            stmt.setBoolean(10, shouldCreateKey);
 
             int rows = stmt.executeUpdate();
             if (rows > 0) {
-                logger.info("Created payment session {} for API key {}", sessionId, apiKey);
+                logger.info("Created payment session {} for {} API key", sessionId,
+                    shouldCreateKey ? "new" : "existing");
                 return new PaymentSession(sessionId, apiKey, paymentAddress,
                     receiverNonce, PaymentSessionStatus.PENDING, targetPlanId, amountRequired,
-                    null, Instant.now(), null, expiresAt, tokenId, tokenType);
+                    null, Instant.now(), null, expiresAt, tokenId, tokenType, shouldCreateKey);
             }
         } catch (SQLException e) {
             if (e.getMessage() != null && e.getMessage().contains("idx_one_pending_payment_per_key")) {
@@ -199,6 +207,27 @@ public class PaymentRepository {
         }
     }
 
+    /**
+     * Update the API key for a session (used when creating a new key on payment completion)
+     */
+    public boolean updateSessionApiKey(UUID sessionId, String apiKey) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(UPDATE_SESSION_API_KEY_SQL)) {
+
+            stmt.setString(1, apiKey);
+            stmt.setObject(2, sessionId);
+
+            int rows = stmt.executeUpdate();
+            if (rows > 0) {
+                logger.info("Updated session {} with new API key: {}", sessionId, apiKey);
+                return true;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error updating session API key", e);
+        }
+        return false;
+    }
+
     private PaymentSession mapResultSetToPaymentSession(ResultSet rs) throws SQLException {
         return new PaymentSession(
             (UUID) rs.getObject("id"),
@@ -214,7 +243,8 @@ public class PaymentRepository {
                 rs.getTimestamp("completed_at").toInstant() : null,
             rs.getTimestamp("expires_at").toInstant(),
             rs.getBytes("token_id"),
-            rs.getBytes("token_type")
+            rs.getBytes("token_type"),
+            rs.getBoolean("should_create_key")
         );
     }
 
@@ -235,12 +265,13 @@ public class PaymentRepository {
         private final Instant expiresAt;
         private final byte[] tokenId;
         private final byte[] tokenType;
+        private final boolean shouldCreateKey;
 
         public PaymentSession(UUID id, String apiKey, String paymentAddress,
                              byte[] receiverNonce, PaymentSessionStatus status, long targetPlanId,
                              BigInteger amountRequired, String tokenReceived,
                              Instant createdAt, Instant completedAt, Instant expiresAt,
-                             byte[] tokenId, byte[] tokenType) {
+                             byte[] tokenId, byte[] tokenType, boolean shouldCreateKey) {
             this.id = id;
             this.apiKey = apiKey;
             this.paymentAddress = paymentAddress;
@@ -254,6 +285,7 @@ public class PaymentRepository {
             this.expiresAt = expiresAt;
             this.tokenId = tokenId;
             this.tokenType = tokenType;
+            this.shouldCreateKey = shouldCreateKey;
         }
 
         // Getters
@@ -270,5 +302,6 @@ public class PaymentRepository {
         public Instant getExpiresAt() { return expiresAt; }
         public byte[] getTokenId() { return tokenId; }
         public byte[] getTokenType() { return tokenType; }
+        public boolean isShouldCreateKey() { return shouldCreateKey; }
     }
 }
