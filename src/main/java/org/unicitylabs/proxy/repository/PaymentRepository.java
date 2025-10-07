@@ -67,6 +67,12 @@ public class PaymentRepository {
         WHERE id = ?
         """;
 
+    private static final String CANCEL_PENDING_SESSION_SQL = """
+        UPDATE payment_sessions
+        SET status = 'cancelled'::varchar, cancelled_at = CURRENT_TIMESTAMP
+        WHERE api_key = ? AND status = 'pending'
+        """;
+
     /**
      * Create a new payment session with optional API key creation
      */
@@ -226,6 +232,25 @@ public class PaymentRepository {
             throw new RuntimeException("Error updating session API key", e);
         }
         return false;
+    }
+
+    /**
+     * Cancel any pending payment sessions for an API key
+     */
+    public int cancelPendingSessions(String apiKey) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(CANCEL_PENDING_SESSION_SQL)) {
+
+            stmt.setString(1, apiKey);
+
+            int cancelled = stmt.executeUpdate();
+            if (cancelled > 0) {
+                logger.info("Cancelled {} pending payment sessions for API key: {}", cancelled, apiKey);
+            }
+            return cancelled;
+        } catch (SQLException e) {
+            throw new RuntimeException("Error cancelling pending sessions for API key: " + apiKey, e);
+        }
     }
 
     private PaymentSession mapResultSetToPaymentSession(ResultSet rs) throws SQLException {

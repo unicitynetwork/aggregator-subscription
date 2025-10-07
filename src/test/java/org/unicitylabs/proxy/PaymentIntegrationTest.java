@@ -273,6 +273,65 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     @Order(8)
+    @DisplayName("Test session cancellation when initiating new payment")
+    void testSessionCancellationOnNewPayment() throws Exception {
+        // Create an API key with a plan
+        String testKey = "test-cancellation-key";
+        apiKeyRepository.insert(testKey, 1);
+        TestDatabaseSetup.markForDeletionDuringReset(testKey);
+
+        // Initiate first payment session for plan 2
+        byte[] tokenId1 = randomBytes(32);
+        PaymentModels.InitiatePaymentResponse session1 = initiatePaymentSession(2, testKey, tokenId1);
+        assertNotNull(session1.getSessionId());
+        UUID firstSessionId = session1.getSessionId();
+
+        // Initiate second payment session for plan 3 (should cancel the first)
+        byte[] tokenId2 = randomBytes(32);
+        PaymentModels.InitiatePaymentResponse session2 = initiatePaymentSession(3, testKey, tokenId2);
+        assertNotNull(session2.getSessionId());
+        assertNotEquals(firstSessionId, session2.getSessionId(), "Should create a new session");
+
+        // Verify first session is cancelled by trying to complete it
+        var token = mintInitialToken(session1.getAmountRequired(), tokenId1);
+        var transferData = createTransferCommitment(token, session1.getPaymentAddress());
+
+        // Submit the transfer and wait for inclusion proof (this proves the payment was real)
+        var submitResponse = directToAggregator.submitCommitment(transferData.commitment()).get(30, TimeUnit.SECONDS);
+        assertEquals(SubmitCommitmentStatus.SUCCESS, submitResponse.getStatus());
+        var inclusionProof = InclusionProofUtils.waitInclusionProof(directToAggregator, trustBase, transferData.commitment())
+            .get(60, TimeUnit.SECONDS);
+
+        // Try to complete the cancelled session
+        PaymentModels.CompletePaymentRequest completeRequest = new PaymentModels.CompletePaymentRequest(
+            firstSessionId,
+            Base64.getEncoder().encodeToString(transferData.salt()),
+            UnicityObjectMapper.JSON.writeValueAsString(transferData.commitment()),
+            UnicityObjectMapper.JSON.writeValueAsString(token)
+        );
+
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl() + "/api/payment/complete"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(completeRequest)))
+            .timeout(Duration.ofSeconds(10))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+        assertEquals(402, response.statusCode(), "Should reject payment for cancelled session");
+
+        PaymentModels.CompletePaymentResponse completeResponse =
+            objectMapper.readValue(response.body(), PaymentModels.CompletePaymentResponse.class);
+        assertFalse(completeResponse.isSuccess());
+        assertThat(completeResponse.getMessage()).contains("Session is not pending");
+
+        // Verify second session is still valid and can be completed
+        var paymentResponse = signAndSubmitPayment(session2, tokenId2);
+        assertTrue(paymentResponse.isSuccess(), "Second session should complete successfully");
+    }
+
+    @Test
+    @Order(9)
     @DisplayName("Test GET payment plans endpoint")
     void testGetPaymentPlans() throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
@@ -340,29 +399,36 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private PaymentModels.CompletePaymentResponse signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
         var token = mintInitialToken(paymentSession.getAmountRequired(), tokenId);
 
-        SigningService clientSigningService = SigningService.createFromMaskedSecret( CLIENT_SECRET, CLIENT_NONCE );
+        // Create the transfer commitment
+        var transferData = createTransferCommitment(token, paymentSession.getPaymentAddress());
 
-        DirectAddress paymentAddress = (DirectAddress) AddressFactory.createAddress(paymentSession.getPaymentAddress());
+        // Complete the payment
+        String responseBody = submitRequest(new PaymentModels.CompletePaymentRequest(
+                paymentSession.getSessionId(),
+                Base64.getEncoder().encodeToString(transferData.salt()),
+                UnicityObjectMapper.JSON.writeValueAsString(transferData.commitment()),
+                UnicityObjectMapper.JSON.writeValueAsString(token)
+        ));
+        return objectMapper.readValue(responseBody, PaymentModels.CompletePaymentResponse.class);
+    }
+
+    private record TransferData(TransferCommitment commitment, byte[] salt) {}
+
+    private TransferData createTransferCommitment(Token<?> token, String paymentAddress) throws Exception {
+        SigningService clientSigningService = SigningService.createFromMaskedSecret(CLIENT_SECRET, CLIENT_NONCE);
+        DirectAddress address = (DirectAddress) AddressFactory.createAddress(paymentAddress);
         byte[] salt = randomBytes(32);
+
         TransferCommitment transferCommitment = TransferCommitment.create(
                 token,
-                paymentAddress,
+                address,
                 salt,
                 null, // no data hash
                 null, // no message
                 clientSigningService
         );
 
-        String transferCommitmentJson = UnicityObjectMapper.JSON.writeValueAsString(transferCommitment);
-        String sourceTokenJson = UnicityObjectMapper.JSON.writeValueAsString(token);
-
-        String responseBody = submitRequest(new PaymentModels.CompletePaymentRequest(
-                paymentSession.getSessionId(),
-                Base64.getEncoder().encodeToString(salt),
-                transferCommitmentJson,
-                sourceTokenJson
-        ));
-        return objectMapper.readValue(responseBody, PaymentModels.CompletePaymentResponse.class);
+        return new TransferData(transferCommitment, salt);
     }
 
     private PaymentModels.InitiatePaymentResponse initiatePaymentSessionWithoutKey(int targetPlanId, byte[] tokenId)

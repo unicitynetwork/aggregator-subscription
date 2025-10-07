@@ -118,15 +118,10 @@ public class PaymentService {
         }
 
         if (!shouldCreateKey) {
-            Optional<PaymentSession> existingSession = paymentRepository.findPendingByApiKey(apiKey);
-            if (existingSession.isPresent()) {
-                PaymentSession session = existingSession.get();
-                return new PaymentModels.InitiatePaymentResponse(
-                    session.getId(),
-                    session.getPaymentAddress(),
-                    session.getAmountRequired(),
-                    session.getExpiresAt()
-                );
+            int cancelledCount = paymentRepository.cancelPendingSessions(apiKey);
+            if (cancelledCount > 0) {
+                logger.info("Cancelled {} pending payment session(s) for API key {} before creating new one",
+                    cancelledCount, apiKey);
             }
         }
 

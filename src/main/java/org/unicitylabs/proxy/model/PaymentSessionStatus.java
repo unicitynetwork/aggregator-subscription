@@ -6,7 +6,8 @@ public enum PaymentSessionStatus {
     PENDING("pending"),
     COMPLETED("completed"),
     FAILED("failed"),
-    EXPIRED("expired");
+    EXPIRED("expired"),
+    CANCELLED("cancelled");
 
     private final String value;
 
