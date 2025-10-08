@@ -304,15 +304,9 @@ public class AdminHandler extends Handler.Abstract {
 
     private void handleCreatePricingPlan(Request request, Response response, Callback callback) {
         try {
-            String body = Content.Source.asString(request);
-            ObjectNode planRequest = (ObjectNode) mapper.readTree(body);
+            PaymentPlan paymentPlan = getPaymentPlan(Content.Source.asString(request));
 
-            String name = planRequest.get("name").asText();
-            int requestsPerSecond = planRequest.get("requestsPerSecond").asInt();
-            int requestsPerDay = planRequest.get("requestsPerDay").asInt();
-            BigInteger price = planRequest.has("price") ? new BigInteger(planRequest.get("price").asText()) : BigInteger.ZERO;
-
-            pricingPlanRepository.create(name, requestsPerSecond, requestsPerDay, price);
+            pricingPlanRepository.create(paymentPlan.name(), paymentPlan.requestsPerSecond(), paymentPlan.requestsPerDay(), paymentPlan.price());
 
             ObjectNode responseJson = mapper.createObjectNode();
             responseJson.put("message", "Pricing plan created successfully");
@@ -327,15 +321,9 @@ public class AdminHandler extends Handler.Abstract {
     private void handleUpdatePricingPlan(String planId, Request request, Response response, Callback callback) {
         try {
             Long id = Long.parseLong(planId);
-            String body = Content.Source.asString(request);
-            ObjectNode planRequest = (ObjectNode) mapper.readTree(body);
+            PaymentPlan paymentPlan = getPaymentPlan(Content.Source.asString(request));
 
-            String name = planRequest.get("name").asText();
-            int requestsPerSecond = planRequest.get("requestsPerSecond").asInt();
-            int requestsPerDay = planRequest.get("requestsPerDay").asInt();
-            BigInteger price = planRequest.has("price") ? new BigInteger(planRequest.get("price").asText()) : BigInteger.ZERO;
-
-            pricingPlanRepository.update(id, name, requestsPerSecond, requestsPerDay, price);
+            pricingPlanRepository.update(id, paymentPlan.name(), paymentPlan.requestsPerSecond(), paymentPlan.requestsPerDay(), paymentPlan.price());
 
             ObjectNode responseJson = mapper.createObjectNode();
             responseJson.put("message", "Pricing plan updated successfully");
@@ -345,6 +333,19 @@ public class AdminHandler extends Handler.Abstract {
             logger.error("Failed to update pricing plan", e);
             sendServerError(response, callback);
         }
+    }
+
+    private PaymentPlan getPaymentPlan(String body) throws IOException {
+        ObjectNode planRequest = (ObjectNode) mapper.readTree(body);
+
+        String name = planRequest.get("name").asText();
+        int requestsPerSecond = planRequest.get("requestsPerSecond").asInt();
+        int requestsPerDay = planRequest.get("requestsPerDay").asInt();
+        BigInteger price = planRequest.has("price") ? new BigInteger(planRequest.get("price").asText()) : BigInteger.ZERO;
+        return new PaymentPlan(name, requestsPerSecond, requestsPerDay, price);
+    }
+
+    private record PaymentPlan(String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
     }
 
     private void handleDeletePricingPlan(String planId, Response response, Callback callback) {

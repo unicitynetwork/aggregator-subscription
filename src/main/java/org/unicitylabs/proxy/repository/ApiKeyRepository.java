@@ -374,24 +374,6 @@ public class ApiKeyRepository {
         }
     }
 
-    /**
-     * Check if an API key exists (regardless of status or plan)
-     */
-    public boolean exists(String apiKey) {
-        String sql = "SELECT 1 FROM api_keys WHERE api_key = ?";
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setString(1, apiKey);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error checking API key existence: " + apiKey, e);
-        }
-    }
-
     public Optional<ApiKeyDetail> findByKey(String apiKey) {
         String sql = """
             SELECT id, api_key, description, status, pricing_plan_id, created_at

@@ -34,7 +34,7 @@ public class Main {
         logger.info("Starting Aggregator Subscription Proxy");
         logger.info("Configuration: {}", config);
         
-        initializeDatabase(config);
+        initializeDatabase();
         
         try {
             String serverSecret = System.getenv(SERVER_SECRET);
@@ -53,7 +53,7 @@ public class Main {
         }
     }
 
-    private static void initializeDatabase(ProxyConfig config) {
+    private static void initializeDatabase() {
         String jdbcUrl = System.getenv("DB_URL");
         String dbUser = System.getenv("DB_USER");
         String dbPassword = System.getenv("DB_PASSWORD");

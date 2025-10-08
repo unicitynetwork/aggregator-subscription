@@ -16,7 +16,7 @@ public class WebUIHandler extends Handler.Abstract {
     private final ApiKeyRepository repository = new ApiKeyRepository();
     
     @Override
-    public boolean handle(Request request, Response response, Callback callback) throws Exception {
+    public boolean handle(Request request, Response response, Callback callback) {
         String path = request.getHttpURI().getPath();
         
         if ("/".equals(path) || "/index.html".equals(path)) {
@@ -98,7 +98,7 @@ public class WebUIHandler extends Handler.Abstract {
             """ + (generatedKey != null ? """
                     <div class="api-key">
                         <div class="success">Success! Your new API key:</div>
-                        """ + generatedKey + """
+                       \s""" + generatedKey + """
                         <div style="margin-top: 15px; font-size: 14px; color: #ffaa00;">
                             Note: This key requires payment activation before use.
                         </div>
@@ -115,7 +115,7 @@ public class WebUIHandler extends Handler.Abstract {
     }
     
     private void handleGenerateKey(Response response, Callback callback) {
-        String newApiKey = "key_" + UUID.randomUUID().toString();
+        String newApiKey = "key_" + UUID.randomUUID();
         
         try {
             repository.createWithoutPlan(newApiKey);

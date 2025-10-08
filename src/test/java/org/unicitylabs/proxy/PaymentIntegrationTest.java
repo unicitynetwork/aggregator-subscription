@@ -5,8 +5,6 @@ import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
-import org.unicitylabs.proxy.service.PaymentService;
-import org.unicitylabs.sdk.util.HexConverter;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
@@ -49,9 +47,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
-import static org.unicitylabs.proxy.model.PaymentSessionStatus.PENDING;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.unicitylabs.proxy.service.PaymentService.TESTNET_TOKEN_TYPE;
 
@@ -300,7 +296,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         // Submit the transfer and wait for inclusion proof (this proves the payment was real)
         var submitResponse = directToAggregator.submitCommitment(transferData.commitment()).get(30, TimeUnit.SECONDS);
         assertEquals(SubmitCommitmentStatus.SUCCESS, submitResponse.getStatus());
-        var inclusionProof = InclusionProofUtils.waitInclusionProof(directToAggregator, trustBase, transferData.commitment())
+        InclusionProofUtils.waitInclusionProof(directToAggregator, trustBase, transferData.commitment())
             .get(60, TimeUnit.SECONDS);
 
         // Try to complete the cancelled session
@@ -343,9 +339,6 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         assertEquals(200, response.statusCode());
-
-        String prettyJson = objectMapper.writerWithDefaultPrettyPrinter()
-            .writeValueAsString(objectMapper.readTree(response.body()));
 
         assertEquals("""
                 {
@@ -415,7 +408,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private record TransferData(TransferCommitment commitment, byte[] salt) {}
 
-    private TransferData createTransferCommitment(Token<?> token, String paymentAddress) throws Exception {
+    private TransferData createTransferCommitment(Token<?> token, String paymentAddress) {
         SigningService clientSigningService = SigningService.createFromMaskedSecret(CLIENT_SECRET, CLIENT_NONCE);
         DirectAddress address = (DirectAddress) AddressFactory.createAddress(paymentAddress);
         byte[] salt = randomBytes(32);
@@ -454,9 +447,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private PaymentModels.InitiatePaymentResponse initiatePaymentSession(int targetPlanId, String apiKey) throws IOException, InterruptedException {
         PaymentModels.InitiatePaymentRequest request = new PaymentModels.InitiatePaymentRequest(apiKey, targetPlanId);
         String initPaymentResponseBody = submitRequest(request);
-        PaymentModels.InitiatePaymentResponse paymentSession =
-                objectMapper.readValue(initPaymentResponseBody, PaymentModels.InitiatePaymentResponse.class);
-        return paymentSession;
+        return objectMapper.readValue(initPaymentResponseBody, PaymentModels.InitiatePaymentResponse.class);
     }
 
     private String submitRequest(PaymentModels.InitiatePaymentRequest request) throws IOException, InterruptedException {
@@ -485,7 +476,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         return response.body();
     }
 
-    private Token mintInitialToken(BigInteger amount, byte[] tokenId) throws Exception {
+    private Token<?> mintInitialToken(BigInteger amount, byte[] tokenId) throws Exception {
         MintResult result = attemptMinting(amount, tokenId, directToAggregator);
 
         System.out.println("Mint response status: " + result.mintResponse().getStatus());
@@ -573,9 +564,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void assertApiKeyUnauthorizedForMinting(StateTransitionClient proxiedAggregator) {
-        ExecutionException e = assertThrows(ExecutionException.class, () -> {
-            attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator);
-        });
+        ExecutionException e = assertThrows(ExecutionException.class, () ->
+                attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator));
         assertInstanceOf(JsonRpcNetworkError.class, e.getCause());
         assertEquals("Network error [401] occurred: Unauthorized", e.getCause().getMessage());
     }

@@ -42,20 +42,6 @@ public class PaymentRepository {
         WHERE id = ? AND status = 'pending'
         """;
 
-    private static final String FIND_PENDING_BY_API_KEY_SQL = """
-        SELECT id, api_key, payment_address, receiver_nonce,
-               status, target_plan_id, amount_required,
-               token_received, created_at, completed_at, expires_at, should_create_key
-        FROM payment_sessions
-        WHERE api_key = ? AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP
-        """;
-
-    private static final String EXPIRE_OLD_SESSIONS_SQL = """
-        UPDATE payment_sessions
-        SET status = 'expired'
-        WHERE status = 'pending' AND expires_at <= CURRENT_TIMESTAMP
-        """;
-
     private static final String DELETE_BY_API_KEY_SQL = """
         DELETE FROM payment_sessions
         WHERE api_key = ?
@@ -133,26 +119,6 @@ public class PaymentRepository {
     }
 
     /**
-     * Find a pending payment session for an API key
-     */
-    public Optional<PaymentSession> findPendingByApiKey(String apiKey) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(FIND_PENDING_BY_API_KEY_SQL)) {
-
-            stmt.setString(1, apiKey);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(mapResultSetToPaymentSession(rs));
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error finding pending payment for API key: " + apiKey, e);
-        }
-        return Optional.empty();
-    }
-
-    /**
      * Update a payment session's status
      */
     public boolean updateSessionStatus(UUID sessionId, PaymentSessionStatus newStatus, String tokenReceived) {
@@ -173,23 +139,6 @@ public class PaymentRepository {
             throw new RuntimeException("Error updating payment session status", e);
         }
         return false;
-    }
-
-    /**
-     * Expire old pending sessions
-     */
-    public int expireOldSessions() {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(EXPIRE_OLD_SESSIONS_SQL)) {
-
-            int expired = stmt.executeUpdate();
-            if (expired > 0) {
-                logger.info("Expired {} old payment sessions", expired);
-            }
-            return expired;
-        } catch (SQLException e) {
-            throw new RuntimeException("Error expiring old sessions", e);
-        }
     }
 
     /**

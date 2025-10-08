@@ -131,7 +131,6 @@ public abstract class AbstractIntegrationTest {
                 .until(() -> isServerReady(proxyPort));
 
         testTimeMeter = new TestTimeMeter();
-        getRateLimiterManager().setTimeMeter(testTimeMeter);
         getRateLimiterManager().setBucketFactory(apiKeyInfo ->
                 RateLimiterManager.createBucketWithTimeMeter(apiKeyInfo, testTimeMeter));
         CachedApiKeyManager.getInstance().setTimeMeter(testTimeMeter);

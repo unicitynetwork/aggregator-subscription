@@ -279,7 +279,7 @@ public class PaymentService {
             logger.info("Payment completed successfully for session {} - API key {} with plan {}",
                 sessionId, finalApiKey, session.getTargetPlanId());
 
-            PaymentModels.CompletePaymentResponse response = new PaymentModels.CompletePaymentResponse(
+            return new PaymentModels.CompletePaymentResponse(
                 true,
                 session.isShouldCreateKey() ?
                         "Payment verified. New API key created successfully.":
@@ -287,8 +287,6 @@ public class PaymentService {
                 session.getTargetPlanId(),
                 finalApiKey
             );
-
-            return response;
 
         } catch (Exception e) {
             logger.error("Error processing payment for session {}", sessionId, e);

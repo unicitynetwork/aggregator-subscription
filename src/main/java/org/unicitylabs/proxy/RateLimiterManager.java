@@ -7,8 +7,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,7 +18,6 @@ public class RateLimiterManager {
     private final ConcurrentMap<String, RateLimitEntry> buckets = new ConcurrentHashMap<>();
     private final CachedApiKeyManager apiKeyManager;
     private Function<CachedApiKeyManager.ApiKeyInfo, Bucket> bucketFactory;
-    private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
 
     public RateLimiterManager(CachedApiKeyManager apiKeyManager) {
         this.apiKeyManager = apiKeyManager;
@@ -30,11 +27,6 @@ public class RateLimiterManager {
     
     public void setBucketFactory(Function<CachedApiKeyManager.ApiKeyInfo, Bucket> bucketFactory) {
         this.bucketFactory = bucketFactory;
-        buckets.clear();
-    }
-
-    public void setTimeMeter(TimeMeter timeMeter) {
-        this.timeMeter = timeMeter;
         buckets.clear();
     }
 
@@ -234,16 +226,5 @@ public class RateLimiterManager {
             availablePerDay,
             apiKeyInfo.requestsPerDay()
         );
-    }
-
-    public Map<String, UtilizationInfo> getAllUtilizations() {
-        Map<String, UtilizationInfo> utilizations = new HashMap<>();
-        for (Map.Entry<String, RateLimitEntry> entry : buckets.entrySet()) {
-            UtilizationInfo info = getUtilization(entry.getKey());
-            if (info != null) {
-                utilizations.put(entry.getKey(), info);
-            }
-        }
-        return utilizations;
     }
 }

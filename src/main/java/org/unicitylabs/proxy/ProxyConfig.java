@@ -13,9 +13,6 @@ public class ProxyConfig {
     @Parameter(names = {"--target", "-t"}, description = "Target server URL")
     private String targetUrl = "http://localhost:3000";
     
-    @Parameter(names = {"--threads"}, description = "Number of IO threads (0 for virtual threads)")
-    private int ioThreads = 0;
-    
     @Parameter(names = {"--worker-threads"}, description = "Number of worker threads")
     private int workerThreads = 0;
     
@@ -54,10 +51,6 @@ public class ProxyConfig {
     
     public void setTargetUrl(String targetUrl) {
         this.targetUrl = targetUrl;
-    }
-
-    public int getIoThreads() {
-        return ioThreads;
     }
 
     public int getWorkerThreads() {
@@ -108,9 +101,9 @@ public class ProxyConfig {
     @Override
     public String toString() {
         return String.format(
-            "ProxyConfig{port=%d, targetUrl='%s', ioThreads=%d, workerThreads=%d, " +
+            "ProxyConfig{port=%d, targetUrl='%s', workerThreads=%d, " +
             "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, protectedMethods='%s'}",
-            port, targetUrl, ioThreads, workerThreads, 
+            port, targetUrl, workerThreads,
             connectTimeout, readTimeout, idleTimeout, protectedMethods
         );
     }

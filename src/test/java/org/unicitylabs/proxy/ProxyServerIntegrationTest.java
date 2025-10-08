@@ -207,7 +207,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         // Test X-API-Key authentication for both modes
         HttpRequest request;
         if (authMode == AUTHORIZED) {
-            // For authorized mode, the auth is already included via Bearer token
+            // For authorized mode, the auth is already included via Bearer token,
             // but we can also test X-API-Key as an alternative
             request = HttpRequest.newBuilder()
                 .uri(URI.create(getProxyUrl() + "/"))
