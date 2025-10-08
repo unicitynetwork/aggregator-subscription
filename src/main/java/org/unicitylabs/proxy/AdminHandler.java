@@ -195,7 +195,7 @@ public class AdminHandler extends Handler.Abstract {
                 // Add plan name
                 var plan = pricingPlanRepository.findById(key.pricingPlanId());
                 if (plan != null) {
-                    keyNode.put("planName", plan.getName());
+                    keyNode.put("planName", plan.name());
                 }
 
                 keysArray.add(keyNode);
@@ -287,11 +287,11 @@ public class AdminHandler extends Handler.Abstract {
 
             for (var plan : plans) {
                 ObjectNode planNode = mapper.createObjectNode();
-                planNode.put("id", plan.getId());
-                planNode.put("name", plan.getName());
-                planNode.put("requestsPerSecond", plan.getRequestsPerSecond());
-                planNode.put("requestsPerDay", plan.getRequestsPerDay());
-                planNode.put("price", plan.getPrice());
+                planNode.put("id", plan.id());
+                planNode.put("name", plan.name());
+                planNode.put("requestsPerSecond", plan.requestsPerSecond());
+                planNode.put("requestsPerDay", plan.requestsPerDay());
+                planNode.put("price", plan.price());
                 plansArray.add(planNode);
             }
 

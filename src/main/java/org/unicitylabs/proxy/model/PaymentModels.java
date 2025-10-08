@@ -40,16 +40,25 @@ public class PaymentModels {
         @JsonProperty("amountRequired")
         private BigInteger amountRequired;
 
+        @JsonProperty("originalPrice")
+        private BigInteger originalPrice;
+
+        @JsonProperty("refundAmount")
+        private BigInteger refundAmount;
+
         @JsonProperty("expiresAt")
         private Instant expiresAt;
 
         public InitiatePaymentResponse() {}
 
         public InitiatePaymentResponse(UUID sessionId, String paymentAddress,
-                                       BigInteger amountRequired, Instant expiresAt) {
+                                       BigInteger amountRequired, BigInteger originalPrice,
+                                       BigInteger refundAmount, Instant expiresAt) {
             this.sessionId = sessionId;
             this.paymentAddress = paymentAddress;
             this.amountRequired = amountRequired;
+            this.originalPrice = originalPrice;
+            this.refundAmount = refundAmount;
             this.expiresAt = expiresAt;
         }
 
@@ -61,6 +70,12 @@ public class PaymentModels {
 
         public BigInteger getAmountRequired() { return amountRequired; }
         public void setAmountRequired(BigInteger amountRequired) { this.amountRequired = amountRequired; }
+
+        public BigInteger getOriginalPrice() { return originalPrice; }
+        public void setOriginalPrice(BigInteger originalPrice) { this.originalPrice = originalPrice; }
+
+        public BigInteger getRefundAmount() { return refundAmount; }
+        public void setRefundAmount(BigInteger refundAmount) { this.refundAmount = refundAmount; }
 
         public Instant getExpiresAt() { return expiresAt; }
         public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }

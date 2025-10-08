@@ -5,6 +5,8 @@ import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.service.ApiKeyService;
+import org.unicitylabs.proxy.service.PaymentService;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
@@ -50,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.unicitylabs.proxy.service.PaymentService.TESTNET_TOKEN_TYPE;
+import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PaymentIntegrationTest extends AbstractIntegrationTest {
@@ -81,9 +84,15 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @BeforeEach
-    void setUpTestApiKey() {
+    void setUpTestData() {
         apiKeyRepository = new ApiKeyRepository();
-        apiKeyRepository.insert(TEST_API_KEY, 1);
+        apiKeyRepository.setTimeMeter(testTimeMeter);
+
+        recreatePricingPlans();
+
+        Instant expiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
+            .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+        apiKeyRepository.insert(TEST_API_KEY, PLAN_BASIC.id(), expiry);
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
         String realAggregatorUrl = getRealAggregatorUrl();
@@ -96,7 +105,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void testCompletePaymentWithNewKeyCreation() throws Exception {
         // Initiate payment without providing an API key - one will be created on successful payment
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(3);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(PLAN_PREMIUM.id().intValue());
 
         // Complete the payment
         var paymentResponse = signAndSubmitPayment(paymentSession, tokenId);
@@ -115,7 +124,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void testPaymentWithExistingKey() throws Exception {
         // Use the pre-created TEST_API_KEY
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, TEST_API_KEY);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
 
         // Test that the API key is now authorized
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -125,7 +134,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         // Make the key expire, then pay for it again
         testTimeMeter.setTime(Instant.ofEpochMilli(testTimeMeter.getTime())
             .atZone(ZoneId.systemDefault())
-            .plusDays(ApiKeyRepository.getPaymentValidityDurationDays())
+            .plusDays(PaymentService.PAYMENT_VALIDITY_DAYS)
             .plusMinutes(1)
             .toInstant()
             .toEpochMilli());
@@ -134,7 +143,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         // Renew with another payment
         tokenId = randomBytes(32);
-        paymentSession = initiatePaymentSession(3, TEST_API_KEY);
+        paymentSession = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
         signAndSubmitPayment(paymentSession, tokenId);
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }
@@ -146,7 +155,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         PaymentModels.InitiatePaymentRequest request =
             new PaymentModels.InitiatePaymentRequest(
                     "invalid-key",
-                    3);
+                    PLAN_PREMIUM.id().intValue());
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
             .uri(URI.create(getProxyUrl() + "/api/payment/initiate"))
@@ -246,9 +255,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @Order(7)
     @DisplayName("Test API key details endpoint, revoked key")
     void testApiKeyDetailsEndpoint_revokedKey() throws Exception {
-        String revokedKey = "test-revoked-key";
-        apiKeyRepository.insert(revokedKey, 1);
-        TestDatabaseSetup.markForDeletionDuringReset(revokedKey);
+        String revokedKey = insertNewPaymentKey("test-revoked-key", PLAN_BASIC.id());
         var keyDetail = apiKeyRepository.findByKey(revokedKey);
 
         apiKeyRepository.updateStatus(keyDetail.get().id(), ApiKeyStatus.REVOKED);
@@ -273,19 +280,17 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test session cancellation when initiating new payment")
     void testSessionCancellationOnNewPayment() throws Exception {
         // Create an API key with a plan
-        String testKey = "test-cancellation-key";
-        apiKeyRepository.insert(testKey, 1);
-        TestDatabaseSetup.markForDeletionDuringReset(testKey);
+        String testKey = insertNewPaymentKey("test-cancellation-key", PLAN_BASIC.id());
 
         // Initiate first payment session for plan 2
         byte[] tokenId1 = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse session1 = initiatePaymentSession(2, testKey);
+        PaymentModels.InitiatePaymentResponse session1 = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
         assertNotNull(session1.getSessionId());
         UUID firstSessionId = session1.getSessionId();
 
         // Initiate second payment session for plan 3 (should cancel the first)
         byte[] tokenId2 = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse session2 = initiatePaymentSession(3, testKey);
+        PaymentModels.InitiatePaymentResponse session2 = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), testKey);
         assertNotNull(session2.getSessionId());
         assertNotEquals(firstSessionId, session2.getSessionId(), "Should create a new session");
 
@@ -576,5 +581,107 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("Test pro-rated refund calculation for plan downgrade")
+    void testProRatedRefundCalculationForPlanDowngrade() throws Exception {
+        String testKey = insertNewPaymentKey(ApiKeyService.generateApiKey(), PLAN_PREMIUM.id());
+
+        PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
+        assertEquals(new BigInteger("9996527"), response.getRefundAmount(),
+            "Refund should be calculated from session end time");
+        assertEquals(PaymentService.MINIMUM_PAYMENT_AMOUNT, response.getAmountRequired(),
+            "Payment should be minimum amount when refund exceeds new price");
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("Test fixed duration payment for key without an API plan sets expiry to exactly 30 days")
+    void testFixedDurationPaymentExpiry() throws Exception {
+        String testKey = ApiKeyService.generateApiKey();
+        apiKeyRepository.createWithoutPlan(testKey);
+        TestDatabaseSetup.markForDeletionDuringReset(testKey);
+
+        long timeBeforePayment = currentTimeMillis(testTimeMeter);
+
+        PaymentModels.InitiatePaymentResponse session = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
+        signAndSubmitPayment(session, randomBytes(32));
+
+        var keyInfo = apiKeyRepository.findByKeyIfNotRevoked(testKey);
+        assertTrue(keyInfo.isPresent());
+        assertNotNull(keyInfo.get().activeUntil());
+
+        long expiryTime = keyInfo.get().activeUntil().getTime();
+        long expectedExpiry = timeBeforePayment + TimeUnit.DAYS.toMillis(PaymentService.PAYMENT_VALIDITY_DAYS);
+
+        // Allow small tolerance for processing time (within 1 second)
+        assertTrue(Math.abs(expiryTime - expectedExpiry) < 1000,
+            "Expiry should be exactly " + PaymentService.PAYMENT_VALIDITY_DAYS + " days from payment time");
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("Test plan upgrade with refund")
+    void testPlanUpgradeWithRefund() throws Exception {
+        String testKey = insertNewPaymentKey(ApiKeyService.generateApiKey(), PLAN_STANDARD.id());
+
+        PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), testKey);
+
+        assertEquals(new BigInteger("4998263"), response.getRefundAmount(),
+            "Refund should account for session expiry time");
+        assertEquals(PLAN_PREMIUM.price(), response.getOriginalPrice(),
+            "Original price should be premium price");
+        assertEquals(new BigInteger("5001737"), response.getAmountRequired());
+    }
+
+    @Test
+    @Order(14)
+    @DisplayName("Test partial refund calculation with time elapsed")
+    void testPartialRefundCalculation() throws Exception {
+        String testKey = insertNewPaymentKey(ApiKeyService.generateApiKey(), PLAN_PREMIUM.id());
+
+        // Advance time by 15 days (half the period)
+        testTimeMeter.setTime(Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
+            .plus(15, java.time.temporal.ChronoUnit.DAYS)
+            .toEpochMilli());
+
+        // Downgrade to standard plan
+        PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
+
+        assertEquals(new BigInteger("5000000"), response.getOriginalPrice(),
+                "Original price should be premium price");
+        assertEquals(new BigInteger("4996527"), response.getRefundAmount(),
+            "Refund should be proportional to remaining time");
+        assertEquals(new BigInteger("3473"), response.getAmountRequired(),
+            "Payment should be standard price minus refund");
+    }
+
+    @Test
+    @Order(15)
+    @DisplayName("Test no refund for expired plan")
+    void testNoRefundForExpiredPlan() throws Exception {
+        String testKey = insertNewPaymentKey(ApiKeyService.generateApiKey(), PLAN_PREMIUM.id());
+
+        // Advance time past expiry (31 days)
+        testTimeMeter.setTime(Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
+            .plus(31, java.time.temporal.ChronoUnit.DAYS)
+            .toEpochMilli());
+
+        PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
+
+        assertEquals(BigInteger.ZERO, response.getRefundAmount(),
+            "No refund for expired plan");
+        assertEquals(PLAN_STANDARD.price(), response.getAmountRequired(),
+            "Should pay full price when previous plan expired");
+    }
+
+    private String insertNewPaymentKey(String testKey, Long paymentPlanId) {
+        Instant keyExpiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
+                .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+        apiKeyRepository.insert(testKey, paymentPlanId, keyExpiry);
+        TestDatabaseSetup.markForDeletionDuringReset(testKey);
+        return testKey;
     }
 }

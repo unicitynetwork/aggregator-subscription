@@ -8,12 +8,14 @@ import org.junit.jupiter.api.Test;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.unicitylabs.proxy.RequestHandler.HEADER_X_RATE_LIMIT_REMAINING;
+import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.jetty.http.HttpHeader.WWW_AUTHENTICATE;
@@ -29,12 +31,18 @@ class RateLimitingTest extends AbstractIntegrationTest {
     @Override
     void setUp() throws Exception {
         super.setUp();
-        
+
         ApiKeyRepository repository = new ApiKeyRepository();
-        repository.insert(TEST_API_KEY, TestPricingPlans.STANDARD_PLAN_ID);
-        repository.insert(PREMIUM_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID);
-        repository.insert(BASIC_API_KEY, TestPricingPlans.BASIC_PLAN_ID);
-        
+        repository.setTimeMeter(testTimeMeter);
+
+        // Set expiry to 30 days from the test time
+        Instant expiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
+            .plus(30, java.time.temporal.ChronoUnit.DAYS);
+
+        repository.insert(TEST_API_KEY, TestPricingPlans.STANDARD_PLAN_ID, expiry);
+        repository.insert(PREMIUM_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID, expiry);
+        repository.insert(BASIC_API_KEY, TestPricingPlans.BASIC_PLAN_ID, expiry);
+
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
         TestDatabaseSetup.markForDeletionDuringReset(PREMIUM_API_KEY);
         TestDatabaseSetup.markForDeletionDuringReset(BASIC_API_KEY);

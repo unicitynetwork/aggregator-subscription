@@ -38,6 +38,10 @@ public class PaymentHandler extends Handler.Abstract {
         this.objectMapper = ObjectMapperUtils.createObjectMapper();
     }
 
+    public PaymentService getPaymentService() {
+        return paymentService;
+    }
+
     @Override
     public boolean handle(Request request, Response response, Callback callback) {
         String path = request.getHttpURI().getPath();
@@ -209,11 +213,11 @@ public class PaymentHandler extends Handler.Abstract {
                 var pricingPlan = pricingPlanRepository.findById(keyInfo.pricingPlanId());
 
                 ObjectNode planNode = objectMapper.createObjectNode();
-                planNode.put("id", pricingPlan.getId());
-                planNode.put("name", pricingPlan.getName());
-                planNode.put("requestsPerSecond", pricingPlan.getRequestsPerSecond());
-                planNode.put("requestsPerDay", pricingPlan.getRequestsPerDay());
-                planNode.put("price", pricingPlan.getPrice().toString());
+                planNode.put("id", pricingPlan.id());
+                planNode.put("name", pricingPlan.name());
+                planNode.put("requestsPerSecond", pricingPlan.requestsPerSecond());
+                planNode.put("requestsPerDay", pricingPlan.requestsPerDay());
+                planNode.put("price", pricingPlan.price().toString());
                 responseJson.set("pricingPlan", planNode);
             } else {
                 responseJson.putNull("pricingPlan");

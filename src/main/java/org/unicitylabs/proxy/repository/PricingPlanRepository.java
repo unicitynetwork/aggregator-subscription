@@ -49,26 +49,14 @@ public class PricingPlanRepository {
         WHERE target_plan_id = ?
         """;
 
-    public static class PricingPlan {
-        private final Long id;
-        private final String name;
-        private final int requestsPerSecond;
-        private final int requestsPerDay;
-        private final BigInteger price;
+    private static final String INSERT_WITH_ID_SQL = """
+        INSERT INTO pricing_plans (id, name, requests_per_second, requests_per_day, price)
+        VALUES (?, ?, ?, ?, ?)
+        """;
 
-        public PricingPlan(Long id, String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
-            this.id = id;
-            this.name = name;
-            this.requestsPerSecond = requestsPerSecond;
-            this.requestsPerDay = requestsPerDay;
-            this.price = price;
-        }
+    private static final String UPDATE_SEQUENCE_SQL = "SELECT setval('pricing_plans_id_seq', (SELECT MAX(id) FROM pricing_plans))";
 
-        public Long getId() { return id; }
-        public String getName() { return name; }
-        public int getRequestsPerSecond() { return requestsPerSecond; }
-        public int getRequestsPerDay() { return requestsPerDay; }
-        public BigInteger getPrice() { return price; }
+    public record PricingPlan(Long id, String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
     }
 
     public List<PricingPlan> findAll() {
@@ -211,6 +199,34 @@ public class PricingPlanRepository {
             return affected > 0;
         } catch (SQLException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    public void insertWithId(PricingPlan plan) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(INSERT_WITH_ID_SQL)) {
+
+            stmt.setLong(1, plan.id());
+            stmt.setString(2, plan.name());
+            stmt.setInt(3, plan.requestsPerSecond());
+            stmt.setInt(4, plan.requestsPerDay());
+            stmt.setBigDecimal(5, new BigDecimal(plan.price()));
+
+            stmt.executeUpdate();
+            logger.debug("Inserted pricing plan with ID {}: {}", plan.id(), plan.name());
+        } catch (SQLException e) {
+            throw new RuntimeException("Error inserting pricing plan with ID: " + plan.id(), e);
+        }
+    }
+
+    public void updateSequenceToMax() {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(UPDATE_SEQUENCE_SQL)) {
+
+            stmt.executeQuery();
+            logger.debug("Updated pricing_plans_id_seq to max ID");
+        } catch (SQLException e) {
+            throw new RuntimeException("Error updating pricing plans sequence", e);
         }
     }
 }

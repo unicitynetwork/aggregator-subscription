@@ -13,7 +13,8 @@ public class ProxyServer {
     
     private final ProxyConfig config;
     private final Server server;
-    private final RateLimiterManager rateLimiterManager; 
+    private final RateLimiterManager rateLimiterManager;
+    private final PaymentHandler paymentHandler; 
     
     public ProxyServer(ProxyConfig config, byte[] serverSecret) {
         this.config = config;
@@ -34,7 +35,7 @@ public class ProxyServer {
         );
 
         // Create payment handler
-        PaymentHandler paymentHandler = new PaymentHandler(config, serverSecret);
+        this.paymentHandler = new PaymentHandler(config, serverSecret);
 
         // Create a combined handler that tries handlers in order: payment, admin, then proxy
         Handler.Abstract combinedHandler = new Handler.Abstract() {
@@ -125,5 +126,9 @@ public class ProxyServer {
 
     public RateLimiterManager getRateLimiterManager() {
         return rateLimiterManager;
+    }
+
+    public PaymentHandler getPaymentHandler() {
+        return paymentHandler;
     }
 }

@@ -17,11 +17,11 @@ public class ApiKeyService {
     public List<PricingPlanInfo> getAvailablePlans() {
         return pricingPlanRepository.findAll().stream()
             .map(plan -> new PricingPlanInfo(
-                plan.getId(),
-                plan.getName(),
-                plan.getRequestsPerSecond(),
-                plan.getRequestsPerDay(),
-                plan.getPrice()
+                plan.id(),
+                plan.name(),
+                plan.requestsPerSecond(),
+                plan.requestsPerDay(),
+                plan.price()
             ))
             .collect(Collectors.toList());
     }

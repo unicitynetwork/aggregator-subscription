@@ -1,5 +1,6 @@
 package org.unicitylabs.proxy;
 
+import org.unicitylabs.proxy.repository.PricingPlanRepository;
 import org.unicitylabs.proxy.testparameterization.AuthMode;
 import io.github.bucket4j.TimeMeter;
 import org.eclipse.jetty.http.HttpHeader;
@@ -15,12 +16,14 @@ import org.unicitylabs.sdk.bft.RootTrustBase;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -33,6 +36,32 @@ import static org.eclipse.jetty.http.HttpStatus.*;
 
 public abstract class AbstractIntegrationTest {
     protected static final byte[] SERVER_SECRET = {0, 1, 2, 3};
+
+    protected static final PricingPlanRepository.PricingPlan PLAN_BASIC =
+            new PricingPlanRepository.PricingPlan(1L, "basic", 5, 50000, new BigInteger("1000000"));
+
+    protected static final PricingPlanRepository.PricingPlan PLAN_STANDARD =
+            new PricingPlanRepository.PricingPlan(2L, "standard", 10, 100000, new BigInteger("5000000"));
+
+    protected static final PricingPlanRepository.PricingPlan PLAN_PREMIUM =
+            new PricingPlanRepository.PricingPlan(3L, "premium", 20, 500000, new BigInteger("10000000"));
+
+    protected static final PricingPlanRepository.PricingPlan PLAN_ENTERPRISE =
+            new PricingPlanRepository.PricingPlan(4L, "enterprise", 50, 1000000, new BigInteger("50000000"));
+
+    protected static final PricingPlanRepository.PricingPlan PLAN_TEST_BASIC =
+            new PricingPlanRepository.PricingPlan(5L, "test-basic", 5, 50000, BigInteger.ONE);
+
+    protected static final PricingPlanRepository.PricingPlan PLAN_TEST_STANDARD =
+            new PricingPlanRepository.PricingPlan(6L, "test-standard", 10, 100000, BigInteger.valueOf(2));
+
+    protected static final PricingPlanRepository.PricingPlan PLAN_TEST_PREMIUM =
+            new PricingPlanRepository.PricingPlan(7L, "test-premium", 20, 500000, BigInteger.valueOf(3));
+
+    protected static final List<PricingPlanRepository.PricingPlan> ALL_PLANS = List.of(
+            PLAN_BASIC, PLAN_STANDARD, PLAN_PREMIUM, PLAN_ENTERPRISE,
+            PLAN_TEST_BASIC, PLAN_TEST_STANDARD, PLAN_TEST_PREMIUM
+    );
 
     protected static final String SUBMIT_COMMITMENT_REQUEST = """
         {
@@ -134,6 +163,27 @@ public abstract class AbstractIntegrationTest {
         getRateLimiterManager().setBucketFactory(apiKeyInfo ->
                 RateLimiterManager.createBucketWithTimeMeter(apiKeyInfo, testTimeMeter));
         CachedApiKeyManager.getInstance().setTimeMeter(testTimeMeter);
+
+        // Set TestTimeMeter on PaymentService
+        if (proxyServer != null && proxyServer.getPaymentHandler() != null) {
+            proxyServer.getPaymentHandler().getPaymentService().setTimeMeter(testTimeMeter);
+        }
+    }
+
+    protected void recreatePricingPlans() {
+        PricingPlanRepository pricingPlanRepository = new PricingPlanRepository();
+
+        for (var plan : ALL_PLANS) {
+            var existing = pricingPlanRepository.findById(plan.id());
+            if (existing != null) {
+                pricingPlanRepository.update(plan.id(), plan.name(),
+                        plan.requestsPerSecond(), plan.requestsPerDay(), plan.price());
+            } else {
+                pricingPlanRepository.insertWithId(plan);
+            }
+        }
+
+        pricingPlanRepository.updateSequenceToMax();
     }
 
     protected void updateConfigForTests(ProxyConfig config) {

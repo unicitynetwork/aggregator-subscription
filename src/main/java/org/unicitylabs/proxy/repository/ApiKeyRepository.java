@@ -11,13 +11,17 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
+
 public class ApiKeyRepository {
     private static final Logger logger = LoggerFactory.getLogger(ApiKeyRepository.class);
-    private static final int PAYMENT_VALIDITY_DURATION_DAYS = 30;
+
+    private static final int PAYMENT_VALIDITY_DURATION_DAYS = getPaymentValidityDurationDays();
 
     private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
     
@@ -30,7 +34,7 @@ public class ApiKeyRepository {
     
     private static final String INSERT_SQL = """
         INSERT INTO api_keys (api_key, pricing_plan_id, status, active_until)
-        VALUES (?, ?, ?::api_key_status, CURRENT_TIMESTAMP + INTERVAL '1 day' * ?)
+        VALUES (?, ?, ?::api_key_status, ?)
         """;
     
     private static final String DELETE_SQL = "DELETE FROM api_keys WHERE api_key = ?";
@@ -71,6 +75,13 @@ public class ApiKeyRepository {
             WHERE api_key = ?
             """;
 
+    public static final String UPDATE_PRICING_PLAN_AND_SET_EXPIRY = """
+            UPDATE api_keys
+            SET pricing_plan_id = ?,
+                active_until = ?
+            WHERE api_key = ?
+            """;
+
     public ApiKeyRepository() {
     }
 
@@ -95,7 +106,7 @@ public class ApiKeyRepository {
         }
 
         if (info.activeUntil() != null) {
-            long currentTime = timeMeter.currentTimeNanos() / 1_000_000;
+            long currentTime = currentTimeMillis(timeMeter);
             if (currentTime > info.activeUntil().getTime()) {
                 logger.debug("API key {} has expired", apiKey);
                 return Optional.empty();
@@ -138,22 +149,28 @@ public class ApiKeyRepository {
         return Optional.empty();
     }
 
-    public void insert(String apiKey, long pricingPlanId) {
+    public void insert(String apiKey, long pricingPlanId, Instant activeUntil) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(INSERT_SQL)) {
 
             stmt.setString(1, apiKey);
             stmt.setLong(2, pricingPlanId);
             stmt.setString(3, ApiKeyStatus.ACTIVE.getValue());
-            stmt.setLong(4, PAYMENT_VALIDITY_DURATION_DAYS);
+            stmt.setTimestamp(4, Timestamp.from(activeUntil));
 
             stmt.executeUpdate();
-            logger.info("Saved API key: {} with pricing plan id: {}", apiKey, pricingPlanId);
+            logger.info("Saved API key: {} with pricing plan id: {} expiring at {}",
+                apiKey, pricingPlanId, activeUntil);
             CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
         } catch (SQLException e) {
             logger.error("Error saving API key: " + apiKey, e);
             throw new RuntimeException("Failed to insert API key: " + apiKey, e);
         }
+    }
+
+    public void insert(String apiKey, long pricingPlanId) {
+        Instant defaultExpiry = Instant.now().plus(PAYMENT_VALIDITY_DURATION_DAYS, java.time.temporal.ChronoUnit.DAYS);
+        insert(apiKey, pricingPlanId, defaultExpiry);
     }
     
     public void delete(String apiKey) {
@@ -207,25 +224,23 @@ public class ApiKeyRepository {
         }
     }
 
-    public void updatePricingPlanAndExtendExpiry(String apiKey, long newPricingPlanId) {
+    public void updatePricingPlanAndSetExpiry(String apiKey, long newPricingPlanId, Instant newExpiry) {
         try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(UPDATE_PRICING_PLAN_AND_EXTEND_EXPIRY)) {
+             PreparedStatement stmt = conn.prepareStatement(UPDATE_PRICING_PLAN_AND_SET_EXPIRY)) {
 
-            long daysToAdd = PAYMENT_VALIDITY_DURATION_DAYS;
             stmt.setLong(1, newPricingPlanId);
-            stmt.setLong(2, daysToAdd);
-            stmt.setLong(3, daysToAdd);
-            stmt.setString(4, apiKey);
+            stmt.setTimestamp(2, Timestamp.from(newExpiry));
+            stmt.setString(3, apiKey);
 
             int affected = stmt.executeUpdate();
 
             if (affected > 0) {
-                logger.info("Updated pricing plan and extended expiry for API key: {} to plan_id: {} for {} days",
-                           apiKey, newPricingPlanId, daysToAdd);
+                logger.info("Updated pricing plan and set expiry for API key: {} to plan_id: {} with expiry: {}",
+                           apiKey, newPricingPlanId, newExpiry);
                 CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Error updating pricing plan and expiry for API key: " + apiKey, e);
+            throw new RuntimeException("Error updating pricing plan and setting expiry for API key: " + apiKey, e);
         }
     }
 

@@ -42,6 +42,10 @@ The pricing plans as well as API key properties can be changed in the administra
 
 API keys can be paid for using the Unicity token. Different payment plans can have different costs, which can be set using the Admin Interface.
 
+When a user purchases a payment plan, it always lasts for 30 days from the time of payment completion, regardless of any previously active plan. The most recently paid plan becomes the active plan. If the previous plan was still active at the time of the new purchase, the user receives a prorated refund for the unused portion of the previous plan. This refund is calculated based on the fraction of the 30-day period that remains unused (measured from 15 minutes after payment initiation). The prorated refund uses the current expiry time and current price of the previous pricing plan. If pricing has increased over time, this approach benefits the customer by providing a larger refund. If the calculated refund would reduce the payment below a minimum threshold (1000 units at the time of this writing) or make it negative, the user still pays the minimum amount.
+
+Note: The license duration is calculated as a fixed number of milliseconds (30 × 24 × 60 × 60 × 1000), which may not correspond to exactly 30 calendar days in all time zones due to daylight saving time transitions, leap seconds and so forth.
+
 The following shows the RESTful API for requesting for new API keys and paying for them, as well as paying for existing API keys. This interface is meant to be used by user-facing software such as cryptocurrency wallets.
 
 The user can take a look at the available pricing plans using following request.
@@ -107,11 +111,13 @@ Next, the user initiates payment for their API key. The user can either supply a
   "sessionId": "2c17b7a1-5e8c-4dd3-9679-4eb076033355",
   "paymentAddress": "DIRECT://0000399bd25b5a4315e8689b943c07ca1c67ad264eb3086f282a3a888534669c24f11fddd789",
   "amountRequired": "10000000",
+  "originalPrice": "10000000",
+  "refundAmount": "0",
   "expiresAt": "2025-10-01T11:15:22.095882Z"
 }
 ```
 
-In the response, the server has responded with the address where the payment should be sent, and the amount that is required for the payment. The "expiresAt" field specifies the current payment session end time, not the subscription end time.
+In the response, the server has responded with the address where the payment should be sent, and the amount that is required for the payment. The "originalPrice" field shows the full price of the new plan, "refundAmount" shows any prorated refund from the previous plan, and "amountRequired" is the actual amount to be paid (originalPrice minus refundAmount, but at least the minimum payment amount). The "expiresAt" field specifies the current payment session end time, not the subscription end time.
 
 After that, the user sends the transfer commitment data as a JSON object, as well as the token contents.
 
