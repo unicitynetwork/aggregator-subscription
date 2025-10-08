@@ -8,6 +8,7 @@ import org.unicitylabs.proxy.repository.ApiKeyRepository;
 import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.repository.PaymentRepository.PaymentSession;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
+import org.unicitylabs.sdk.util.HexConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.sdk.StateTransitionClient;
@@ -40,9 +41,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 public class PaymentService {
-    // TODO: For production, we need to verify the token types
-
     private static final int SESSION_EXPIRY_MINUTES = 15;
+
+    // TODO: Testnet token type - fixed for all tokens on testnet
+    public static final TokenType TESTNET_TOKEN_TYPE = new TokenType(HexConverter.decode(
+        "f8aa13834268d29355ff12183066f0cb902003629bbc5eb9ef0efbe397867509"));
 
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
 
@@ -101,9 +104,7 @@ public class PaymentService {
     }
 
     public PaymentModels.InitiatePaymentResponse initiatePayment(
-            PaymentModels.InitiatePaymentRequest request,
-            byte[] tokenId,
-            byte[] tokenType) {
+            PaymentModels.InitiatePaymentRequest request) {
 
         String apiKey = request.getApiKey();
         long targetPlanId = request.getTargetPlanId();
@@ -131,15 +132,17 @@ public class PaymentService {
             serverSecret, receiverNonce
         );
 
+        // Use a dummy tokenId for address generation (address doesn't depend on tokenId)
+        TokenId dummyTokenId = new TokenId(new byte[32]);
         MaskedPredicate predicate = MaskedPredicate.create(
-            new TokenId(tokenId),
-            new TokenType(tokenType),
+            dummyTokenId,
+            TESTNET_TOKEN_TYPE,
             signingService,
             HashAlgorithm.SHA256,
             receiverNonce
         );
 
-        String paymentAddress = generatePaymentAddress(predicate, tokenType);
+        String paymentAddress = generatePaymentAddress(predicate);
 
         BigInteger amountRequired = getRequiredAmount(targetPlanId);
 
@@ -147,7 +150,7 @@ public class PaymentService {
         PaymentSession session = paymentRepository.createSessionWithOptionalKey(
             apiKey, paymentAddress, receiverNonce,
             targetPlanId, amountRequired, expiresAt,
-            tokenId, tokenType, shouldCreateKey
+            shouldCreateKey
         );
 
         if (session == null) {
@@ -198,6 +201,8 @@ public class PaymentService {
                 request.getSourceTokenJson(), Token.class
             );
 
+            TokenId tokenId = sourceToken.getId();
+
             CompletableFuture<SubmitCommitmentResponse> futureResponse =
                 stateTransitionClient.submitCommitment(transferCommitment);
 
@@ -224,8 +229,8 @@ public class PaymentService {
             );
 
             MaskedPredicate receiverPredicate = MaskedPredicate.create(
-                new TokenId(session.getTokenId()),
-                new TokenType(session.getTokenType()),
+                tokenId,
+                TESTNET_TOKEN_TYPE,
                 receiverSigningService,
                 HashAlgorithm.SHA256,
                 session.getReceiverNonce()
@@ -294,7 +299,7 @@ public class PaymentService {
         }
     }
 
-    private String generatePaymentAddress(MaskedPredicate predicate, byte[] tokenTypeBytes) {
+    private String generatePaymentAddress(MaskedPredicate predicate) {
         DirectAddress address = predicate.getReference().toAddress();
         return address.getAddress();
     }

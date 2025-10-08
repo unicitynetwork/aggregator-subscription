@@ -24,14 +24,14 @@ public class PaymentRepository {
     private static final String CREATE_SESSION_SQL = """
         INSERT INTO payment_sessions (
             id, api_key, payment_address, receiver_nonce,
-            target_plan_id, amount_required, expires_at, token_id, token_type, should_create_key
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            target_plan_id, amount_required, expires_at, should_create_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """;
 
     private static final String FIND_BY_ID_SQL = """
         SELECT id, api_key, payment_address, receiver_nonce,
                status, target_plan_id, amount_required,
-               token_received, created_at, completed_at, expires_at, token_id, token_type, should_create_key
+               token_received, created_at, completed_at, expires_at, should_create_key
         FROM payment_sessions
         WHERE id = ?
         """;
@@ -45,7 +45,7 @@ public class PaymentRepository {
     private static final String FIND_PENDING_BY_API_KEY_SQL = """
         SELECT id, api_key, payment_address, receiver_nonce,
                status, target_plan_id, amount_required,
-               token_received, created_at, completed_at, expires_at, token_id, token_type, should_create_key
+               token_received, created_at, completed_at, expires_at, should_create_key
         FROM payment_sessions
         WHERE api_key = ? AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP
         """;
@@ -79,7 +79,7 @@ public class PaymentRepository {
     public PaymentSession createSessionWithOptionalKey(String apiKey, String paymentAddress,
                                        byte[] receiverNonce, long targetPlanId,
                                        BigInteger amountRequired, Instant expiresAt,
-                                       byte[] tokenId, byte[] tokenType, boolean shouldCreateKey) {
+                                       boolean shouldCreateKey) {
         UUID sessionId = UUID.randomUUID();
 
         try (Connection conn = DatabaseConfig.getConnection();
@@ -92,9 +92,7 @@ public class PaymentRepository {
             stmt.setLong(5, targetPlanId);
             stmt.setBigDecimal(6, new BigDecimal(amountRequired));
             stmt.setTimestamp(7, Timestamp.from(expiresAt));
-            stmt.setBytes(8, tokenId);
-            stmt.setBytes(9, tokenType);
-            stmt.setBoolean(10, shouldCreateKey);
+            stmt.setBoolean(8, shouldCreateKey);
 
             int rows = stmt.executeUpdate();
             if (rows > 0) {
@@ -102,7 +100,7 @@ public class PaymentRepository {
                     shouldCreateKey ? "new" : "existing");
                 return new PaymentSession(sessionId, apiKey, paymentAddress,
                     receiverNonce, PaymentSessionStatus.PENDING, targetPlanId, amountRequired,
-                    null, Instant.now(), null, expiresAt, tokenId, tokenType, shouldCreateKey);
+                    null, Instant.now(), null, expiresAt, shouldCreateKey);
             }
         } catch (SQLException e) {
             if (e.getMessage() != null && e.getMessage().contains("idx_one_pending_payment_per_key")) {
@@ -267,8 +265,6 @@ public class PaymentRepository {
             rs.getTimestamp("completed_at") != null ?
                 rs.getTimestamp("completed_at").toInstant() : null,
             rs.getTimestamp("expires_at").toInstant(),
-            rs.getBytes("token_id"),
-            rs.getBytes("token_type"),
             rs.getBoolean("should_create_key")
         );
     }
@@ -288,15 +284,13 @@ public class PaymentRepository {
         private final Instant createdAt;
         private final Instant completedAt;
         private final Instant expiresAt;
-        private final byte[] tokenId;
-        private final byte[] tokenType;
         private final boolean shouldCreateKey;
 
         public PaymentSession(UUID id, String apiKey, String paymentAddress,
                              byte[] receiverNonce, PaymentSessionStatus status, long targetPlanId,
                              BigInteger amountRequired, String tokenReceived,
                              Instant createdAt, Instant completedAt, Instant expiresAt,
-                             byte[] tokenId, byte[] tokenType, boolean shouldCreateKey) {
+                             boolean shouldCreateKey) {
             this.id = id;
             this.apiKey = apiKey;
             this.paymentAddress = paymentAddress;
@@ -308,8 +302,6 @@ public class PaymentRepository {
             this.createdAt = createdAt;
             this.completedAt = completedAt;
             this.expiresAt = expiresAt;
-            this.tokenId = tokenId;
-            this.tokenType = tokenType;
             this.shouldCreateKey = shouldCreateKey;
         }
 
@@ -325,8 +317,6 @@ public class PaymentRepository {
         public Instant getCreatedAt() { return createdAt; }
         public Instant getCompletedAt() { return completedAt; }
         public Instant getExpiresAt() { return expiresAt; }
-        public byte[] getTokenId() { return tokenId; }
-        public byte[] getTokenType() { return tokenType; }
         public boolean isShouldCreateKey() { return shouldCreateKey; }
     }
 }

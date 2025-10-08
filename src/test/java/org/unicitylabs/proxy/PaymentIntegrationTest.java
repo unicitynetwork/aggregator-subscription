@@ -5,6 +5,8 @@ import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.service.PaymentService;
+import org.unicitylabs.sdk.util.HexConverter;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
@@ -51,6 +53,7 @@ import static org.unicitylabs.proxy.model.PaymentSessionStatus.PENDING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.unicitylabs.proxy.service.PaymentService.TESTNET_TOKEN_TYPE;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PaymentIntegrationTest extends AbstractIntegrationTest {
@@ -63,7 +66,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private static final byte[] CLIENT_SECRET = randomBytes(32);
     private static final byte[] CLIENT_NONCE = randomBytes(32);
-    private static final byte[] MOCK_TOKEN_TYPE = {3, 14, 15}; // Test token type
+
     private ApiKeyRepository apiKeyRepository;
 
     @BeforeAll
@@ -97,7 +100,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void testCompletePaymentWithNewKeyCreation() throws Exception {
         // Initiate payment without providing an API key - one will be created on successful payment
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(3, tokenId);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(3);
 
         // Complete the payment
         var paymentResponse = signAndSubmitPayment(paymentSession, tokenId);
@@ -116,7 +119,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void testPaymentWithExistingKey() throws Exception {
         // Use the pre-created TEST_API_KEY
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, TEST_API_KEY, tokenId);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(3, TEST_API_KEY);
 
         // Test that the API key is now authorized
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -135,7 +138,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         // Renew with another payment
         tokenId = randomBytes(32);
-        paymentSession = initiatePaymentSession(3, TEST_API_KEY, tokenId);
+        paymentSession = initiatePaymentSession(3, TEST_API_KEY);
         signAndSubmitPayment(paymentSession, tokenId);
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }
@@ -147,9 +150,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         PaymentModels.InitiatePaymentRequest request =
             new PaymentModels.InitiatePaymentRequest(
                     "invalid-key",
-                    3,
-                    Base64.getEncoder().encodeToString(randomBytes(32)),
-                    Base64.getEncoder().encodeToString(MOCK_TOKEN_TYPE));
+                    3);
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
             .uri(URI.create(getProxyUrl() + "/api/payment/initiate"))
@@ -282,13 +283,13 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         // Initiate first payment session for plan 2
         byte[] tokenId1 = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse session1 = initiatePaymentSession(2, testKey, tokenId1);
+        PaymentModels.InitiatePaymentResponse session1 = initiatePaymentSession(2, testKey);
         assertNotNull(session1.getSessionId());
         UUID firstSessionId = session1.getSessionId();
 
         // Initiate second payment session for plan 3 (should cancel the first)
         byte[] tokenId2 = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse session2 = initiatePaymentSession(3, testKey, tokenId2);
+        PaymentModels.InitiatePaymentResponse session2 = initiatePaymentSession(3, testKey);
         assertNotNull(session2.getSessionId());
         assertNotEquals(firstSessionId, session2.getSessionId(), "Should create a new session");
 
@@ -431,13 +432,11 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         return new TransferData(transferCommitment, salt);
     }
 
-    private PaymentModels.InitiatePaymentResponse initiatePaymentSessionWithoutKey(int targetPlanId, byte[] tokenId)
+    private PaymentModels.InitiatePaymentResponse initiatePaymentSessionWithoutKey(int targetPlanId)
             throws IOException, InterruptedException {
-        String tokenIdBase64 = Base64.getEncoder().encodeToString(tokenId);
-        String tokenTypeBase64 = Base64.getEncoder().encodeToString(MOCK_TOKEN_TYPE);
         // Create request without API key - it will be created on successful payment
         PaymentModels.InitiatePaymentRequest request = new PaymentModels.InitiatePaymentRequest(
-                null, targetPlanId, tokenIdBase64, tokenTypeBase64);
+                null, targetPlanId);
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(getProxyUrl() + "/api/payment/initiate"))
@@ -452,10 +451,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         return objectMapper.readValue(response.body(), PaymentModels.InitiatePaymentResponse.class);
     }
 
-    private PaymentModels.InitiatePaymentResponse initiatePaymentSession(int targetPlanId, String apiKey, byte[] tokenId) throws IOException, InterruptedException {
-        String tokenIdBase64 = Base64.getEncoder().encodeToString(tokenId);
-        String tokenTypeBase64 = Base64.getEncoder().encodeToString(MOCK_TOKEN_TYPE);
-        PaymentModels.InitiatePaymentRequest request = new PaymentModels.InitiatePaymentRequest(apiKey, targetPlanId, tokenIdBase64, tokenTypeBase64);
+    private PaymentModels.InitiatePaymentResponse initiatePaymentSession(int targetPlanId, String apiKey) throws IOException, InterruptedException {
+        PaymentModels.InitiatePaymentRequest request = new PaymentModels.InitiatePaymentRequest(apiKey, targetPlanId);
         String initPaymentResponseBody = submitRequest(request);
         PaymentModels.InitiatePaymentResponse paymentSession =
                 objectMapper.readValue(initPaymentResponseBody, PaymentModels.InitiatePaymentResponse.class);
@@ -522,7 +519,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private @NotNull PaymentIntegrationTest.MintResult attemptMinting(BigInteger amount, byte[] tokenIdBytes, StateTransitionClient aggregator) throws InterruptedException, ExecutionException {
         TokenId tokenId = new TokenId(tokenIdBytes);
-        TokenType tokenType = new TokenType(MOCK_TOKEN_TYPE);
+        TokenType tokenType = TESTNET_TOKEN_TYPE;
 
         CoinId coinId = new CoinId(randomBytes(32));
         Map<CoinId, BigInteger> coins = Map.of(coinId, amount);

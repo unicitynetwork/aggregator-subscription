@@ -16,19 +16,11 @@ public class PaymentModels {
         @JsonProperty("targetPlanId")
         private int targetPlanId;
 
-        @JsonProperty("tokenId")
-        private String tokenId; // Base64 encoded
-
-        @JsonProperty("tokenType")
-        private String tokenType; // Base64 encoded
-
         public InitiatePaymentRequest() {}
 
-        public InitiatePaymentRequest(String apiKey, int targetPlanId, String tokenId, String tokenType) {
+        public InitiatePaymentRequest(String apiKey, int targetPlanId) {
             this.apiKey = apiKey;
             this.targetPlanId = targetPlanId;
-            this.tokenId = tokenId;
-            this.tokenType = tokenType;
         }
 
         public String getApiKey() { return apiKey; }
@@ -36,12 +28,6 @@ public class PaymentModels {
 
         public long getTargetPlanId() { return targetPlanId; }
         public void setTargetPlanId(int targetPlanId) { this.targetPlanId = targetPlanId; }
-
-        public String getTokenId() { return tokenId; }
-        public void setTokenId(String tokenId) { this.tokenId = tokenId; }
-
-        public String getTokenType() { return tokenType; }
-        public void setTokenType(String tokenType) { this.tokenType = tokenType; }
     }
 
     public static class InitiatePaymentResponse {
