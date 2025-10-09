@@ -123,8 +123,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test payment flow with existing API key")
     void testPaymentWithExistingKey() throws Exception {
         // Use the pre-created TEST_API_KEY
-        byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
+        initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
 
         // Test that the API key is now authorized
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -142,8 +141,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertApiKeyUnauthorizedForMinting(proxyConnectionWithApiKey);
 
         // Renew with another payment
-        tokenId = randomBytes(32);
-        paymentSession = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
+        byte[] tokenId = randomBytes(32);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
         signAndSubmitPayment(paymentSession, tokenId);
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }
@@ -295,7 +294,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertNotEquals(firstSessionId, session2.getSessionId(), "Should create a new session");
 
         // Verify first session is cancelled by trying to complete it
-        var token = mintInitialToken(session1.getAmountRequired(), tokenId1);
+        var token = mintInitialToken(session1.getPrice(), tokenId1);
         var transferData = createTransferCommitment(token, session1.getPaymentAddress());
 
         // Submit the transfer and wait for inclusion proof (this proves the payment was real)
@@ -396,7 +395,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     private PaymentModels.CompletePaymentResponse signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
-        var token = mintInitialToken(paymentSession.getAmountRequired(), tokenId);
+        var token = mintInitialToken(paymentSession.getPrice(), tokenId);
 
         // Create the transfer commitment
         var transferData = createTransferCommitment(token, paymentSession.getPaymentAddress());
@@ -590,9 +589,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         String testKey = insertNewPaymentKey(ApiKeyService.generateApiKey(), PLAN_PREMIUM.id());
 
         PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
-        assertEquals(new BigInteger("9996527"), response.getRefundAmount(),
-            "Refund should be calculated from session end time");
-        assertEquals(PaymentService.MINIMUM_PAYMENT_AMOUNT, response.getAmountRequired(),
+        assertEquals(PaymentService.MINIMUM_PAYMENT_AMOUNT, response.getPrice(),
             "Payment should be minimum amount when refund exceeds new price");
     }
 
@@ -629,11 +626,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), testKey);
 
-        assertEquals(new BigInteger("4998263"), response.getRefundAmount(),
-            "Refund should account for session expiry time");
-        assertEquals(PLAN_PREMIUM.price(), response.getOriginalPrice(),
-            "Original price should be premium price");
-        assertEquals(new BigInteger("5001737"), response.getAmountRequired());
+        assertEquals(new BigInteger("5001737"), response.getPrice());
     }
 
     @Test
@@ -650,11 +643,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         // Downgrade to standard plan
         PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
 
-        assertEquals(new BigInteger("5000000"), response.getOriginalPrice(),
-                "Original price should be premium price");
-        assertEquals(new BigInteger("4996527"), response.getRefundAmount(),
-            "Refund should be proportional to remaining time");
-        assertEquals(new BigInteger("3473"), response.getAmountRequired(),
+        assertEquals(new BigInteger("3473"), response.getPrice(),
             "Payment should be standard price minus refund");
     }
 
@@ -671,9 +660,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
 
-        assertEquals(BigInteger.ZERO, response.getRefundAmount(),
-            "No refund for expired plan");
-        assertEquals(PLAN_STANDARD.price(), response.getAmountRequired(),
+        assertEquals(PLAN_STANDARD.price(), response.getPrice(),
             "Should pay full price when previous plan expired");
     }
 

@@ -110,14 +110,12 @@ Next, the user initiates payment for their API key. The user can either supply a
 {
   "sessionId": "2c17b7a1-5e8c-4dd3-9679-4eb076033355",
   "paymentAddress": "DIRECT://0000399bd25b5a4315e8689b943c07ca1c67ad264eb3086f282a3a888534669c24f11fddd789",
-  "amountRequired": "10000000",
-  "originalPrice": "10000000",
-  "refundAmount": "0",
+  "price": "10000000",
   "expiresAt": "2025-10-01T11:15:22.095882Z"
 }
 ```
 
-In the response, the server has responded with the address where the payment should be sent, and the amount that is required for the payment. The "originalPrice" field shows the full price of the new plan, "refundAmount" shows any prorated refund from the previous plan, and "amountRequired" is the actual amount to be paid (originalPrice minus refundAmount, but at least the minimum payment amount). The "expiresAt" field specifies the current payment session end time, not the subscription end time.
+In the response, the server has responded with the address where the payment should be sent, and the price for the purchase. The "expiresAt" field specifies the current payment session end time, not the subscription end time.
 
 After that, the user sends the transfer commitment data as a JSON object, as well as the token contents.
 

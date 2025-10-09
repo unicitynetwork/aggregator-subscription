@@ -194,8 +194,6 @@ public class PaymentService {
             session.id(),
             session.paymentAddress(),
             session.amountRequired(),
-            newPlanPrice,  // originalPrice
-            refundAmount,
             session.expiresAt()
         );
     }

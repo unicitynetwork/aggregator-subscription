@@ -38,13 +38,7 @@ public class PaymentModels {
         private String paymentAddress;
 
         @JsonProperty("amountRequired")
-        private BigInteger amountRequired;
-
-        @JsonProperty("originalPrice")
-        private BigInteger originalPrice;
-
-        @JsonProperty("refundAmount")
-        private BigInteger refundAmount;
+        private BigInteger price;
 
         @JsonProperty("expiresAt")
         private Instant expiresAt;
@@ -52,13 +46,10 @@ public class PaymentModels {
         public InitiatePaymentResponse() {}
 
         public InitiatePaymentResponse(UUID sessionId, String paymentAddress,
-                                       BigInteger amountRequired, BigInteger originalPrice,
-                                       BigInteger refundAmount, Instant expiresAt) {
+                                       BigInteger price, Instant expiresAt) {
             this.sessionId = sessionId;
             this.paymentAddress = paymentAddress;
-            this.amountRequired = amountRequired;
-            this.originalPrice = originalPrice;
-            this.refundAmount = refundAmount;
+            this.price = price;
             this.expiresAt = expiresAt;
         }
 
@@ -68,14 +59,8 @@ public class PaymentModels {
         public String getPaymentAddress() { return paymentAddress; }
         public void setPaymentAddress(String paymentAddress) { this.paymentAddress = paymentAddress; }
 
-        public BigInteger getAmountRequired() { return amountRequired; }
-        public void setAmountRequired(BigInteger amountRequired) { this.amountRequired = amountRequired; }
-
-        public BigInteger getOriginalPrice() { return originalPrice; }
-        public void setOriginalPrice(BigInteger originalPrice) { this.originalPrice = originalPrice; }
-
-        public BigInteger getRefundAmount() { return refundAmount; }
-        public void setRefundAmount(BigInteger refundAmount) { this.refundAmount = refundAmount; }
+        public BigInteger getPrice() { return price; }
+        public void setPrice(BigInteger price) { this.price = price; }
 
         public Instant getExpiresAt() { return expiresAt; }
         public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
