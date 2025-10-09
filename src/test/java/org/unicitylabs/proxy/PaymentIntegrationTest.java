@@ -177,7 +177,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @Test
     @Order(4)
     @DisplayName("Test API key details endpoint, key with a payment plan")
-    void testApiKeyDetailsEndpoint_keyWithAPaymetPlan() throws Exception {
+    void testApiKeyDetailsEndpoint_keyWithAPaymentPlan() throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(getProxyUrl() + "/api/payment/key/" + TEST_API_KEY))
                 .GET()
