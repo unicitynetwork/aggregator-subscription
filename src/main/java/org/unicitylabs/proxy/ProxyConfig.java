@@ -34,6 +34,9 @@ public class ProxyConfig {
     @Parameter(names = {"--trust-base"}, description = "Path to trust base JSON file (defaults to built-in test-trust-base.json from the test network)")
     private String trustBasePath = null;
 
+    @Parameter(names = {"--accepted-coin-id"}, description = "Coin ID accepted for payments (defaults to testnet coin ID)")
+    private String acceptedCoinId = "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89";
+
     @Parameter(names = {"--help", "-h"}, help = true, description = "Show help")
     private boolean help = false;
 
@@ -96,6 +99,10 @@ public class ProxyConfig {
 
     public String getTrustBasePath() {
         return trustBasePath;
+    }
+
+    public String getAcceptedCoinId() {
+        return acceptedCoinId;
     }
 
     @Override

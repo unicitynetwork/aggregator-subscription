@@ -66,6 +66,9 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private static final byte[] CLIENT_SECRET = randomBytes(32);
     private static final byte[] CLIENT_NONCE = randomBytes(32);
 
+    private static final CoinId TESTNET_COIN_ID = new CoinId(org.unicitylabs.sdk.util.HexConverter.decode(
+        "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89"));
+
     private ApiKeyRepository apiKeyRepository;
 
     @BeforeAll
@@ -481,7 +484,11 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     private Token<?> mintInitialToken(BigInteger amount, byte[] tokenId) throws Exception {
-        MintResult result = attemptMinting(amount, tokenId, directToAggregator);
+        return mintInitialToken(amount, tokenId, TESTNET_COIN_ID);
+    }
+
+    private Token<?> mintInitialToken(BigInteger amount, byte[] tokenId, CoinId coinId) throws Exception {
+        MintResult result = attemptMinting(amount, tokenId, directToAggregator, coinId);
 
         System.out.println("Mint response status: " + result.mintResponse().getStatus());
         if (result.mintResponse().getStatus() != SubmitCommitmentStatus.SUCCESS) {
@@ -512,11 +519,10 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         );
     }
 
-    private @NotNull PaymentIntegrationTest.MintResult attemptMinting(BigInteger amount, byte[] tokenIdBytes, StateTransitionClient aggregator) throws InterruptedException, ExecutionException {
+    private @NotNull PaymentIntegrationTest.MintResult attemptMinting(BigInteger amount, byte[] tokenIdBytes, StateTransitionClient aggregator, CoinId coinId) throws InterruptedException, ExecutionException {
         TokenId tokenId = new TokenId(tokenIdBytes);
         TokenType tokenType = TESTNET_TOKEN_TYPE;
 
-        CoinId coinId = new CoinId(randomBytes(32));
         Map<CoinId, BigInteger> coins = Map.of(coinId, amount);
         TokenCoinData coinData = new TokenCoinData(coins);
 
@@ -569,14 +575,14 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private void assertApiKeyUnauthorizedForMinting(StateTransitionClient proxiedAggregator) {
         ExecutionException e = assertThrows(ExecutionException.class, () ->
-                attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator));
+                attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator, TESTNET_COIN_ID));
         assertInstanceOf(JsonRpcNetworkError.class, e.getCause());
         assertEquals("Network error [401] occurred: Unauthorized", e.getCause().getMessage());
     }
 
     private void assertApiKeyAuthorizedForMinting(StateTransitionClient proxiedAggregator) {
         try {
-            attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator);
+            attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator, TESTNET_COIN_ID);
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }
@@ -670,5 +676,117 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         apiKeyRepository.insert(testKey, paymentPlanId, keyExpiry);
         TestDatabaseSetup.markForDeletionDuringReset(testKey);
         return testKey;
+    }
+
+    @Test
+    @Order(16)
+    @DisplayName("Test payment rejection with wrong coin ID")
+    void testPaymentRejectionWithWrongCoinId() throws Exception {
+        PaymentModels.InitiatePaymentResponse session = initiatePaymentSessionWithoutKey(PLAN_PREMIUM.id().intValue());
+
+        CoinId wrongCoinId = new CoinId(randomBytes(32));
+        Token<?> token = mintTokenWithSpecificCoinId(session.getPrice(), randomBytes(32), wrongCoinId);
+
+        PaymentModels.CompletePaymentResponse response = attemptPaymentCompletion(session, token);
+
+        assertFalse(response.isSuccess());
+        assertThat(response.getMessage()).contains("unaccepted coin types");
+        assertThat(response.getMessage()).contains(session.getAcceptedCoinId());
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("Test payment rejection with mixed coin IDs")
+    void testPaymentRejectionWithMixedCoinIds() throws Exception {
+        PaymentModels.InitiatePaymentResponse session = initiatePaymentSessionWithoutKey(PLAN_PREMIUM.id().intValue());
+
+        CoinId wrongCoinId = new CoinId(randomBytes(32));
+
+        Map<CoinId, BigInteger> mixedCoins = Map.of(
+            TESTNET_COIN_ID, session.getPrice(),
+            wrongCoinId, session.getPrice()
+        );
+
+        Token<?> token = mintTokenWithMultipleCoins(randomBytes(32), mixedCoins);
+
+        PaymentModels.CompletePaymentResponse response = attemptPaymentCompletion(session, token);
+
+        assertFalse(response.isSuccess());
+        assertThat(response.getMessage()).contains("unaccepted coin types");
+    }
+
+    @Test
+    @Order(18)
+    @DisplayName("Test payment rejection with overpayment")
+    void testPaymentRejectionWithOverpayment() throws Exception {
+        PaymentModels.InitiatePaymentResponse session = initiatePaymentSessionWithoutKey(PLAN_PREMIUM.id().intValue());
+
+        BigInteger overpaymentAmount = session.getPrice().add(BigInteger.valueOf(1000));
+        Token<?> token = mintInitialToken(overpaymentAmount, randomBytes(32));
+
+        PaymentModels.CompletePaymentResponse response = attemptPaymentCompletion(session, token);
+
+        assertFalse(response.isSuccess());
+        assertThat(response.getMessage()).contains("Overpayment not accepted");
+        assertThat(response.getMessage()).contains("exact amount");
+    }
+
+    private PaymentModels.CompletePaymentResponse attemptPaymentCompletion(
+            PaymentModels.InitiatePaymentResponse session, Token<?> token) throws Exception {
+        var transferData = createTransferCommitment(token, session.getPaymentAddress());
+
+        PaymentModels.CompletePaymentRequest completeRequest = new PaymentModels.CompletePaymentRequest(
+            session.getSessionId(),
+            Base64.getEncoder().encodeToString(transferData.salt()),
+            UnicityObjectMapper.JSON.writeValueAsString(transferData.commitment()),
+            UnicityObjectMapper.JSON.writeValueAsString(token)
+        );
+
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl() + "/api/payment/complete"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(completeRequest)))
+            .timeout(Duration.ofSeconds(30))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+        return objectMapper.readValue(response.body(), PaymentModels.CompletePaymentResponse.class);
+    }
+
+    private Token<?> mintTokenWithSpecificCoinId(BigInteger amount, byte[] tokenIdBytes, CoinId coinId) throws Exception {
+        Map<CoinId, BigInteger> coins = Map.of(coinId, amount);
+        return mintTokenWithMultipleCoins(tokenIdBytes, coins);
+    }
+
+    private Token<?> mintTokenWithMultipleCoins(byte[] tokenIdBytes, Map<CoinId, BigInteger> coins) throws Exception {
+        TokenId tokenId = new TokenId(tokenIdBytes);
+        TokenType tokenType = TESTNET_TOKEN_TYPE;
+        TokenCoinData coinData = new TokenCoinData(coins);
+
+        SigningService clientSigningService = SigningService.createFromMaskedSecret(CLIENT_SECRET, CLIENT_NONCE);
+        MaskedPredicate clientPredicate = MaskedPredicate.create(
+            tokenId, tokenType, clientSigningService, HashAlgorithm.SHA256, CLIENT_NONCE
+        );
+
+        DirectAddress clientAddress = clientPredicate.getReference().toAddress();
+
+        MintTransactionData<MintTransactionReason> mintData = new MintTransactionData<>(
+            tokenId, tokenType, new byte[0], coinData, clientAddress,
+            randomBytes(32), null, null
+        );
+
+        MintCommitment<MintTransactionData<MintTransactionReason>> mintCommitment = MintCommitment.create(mintData);
+
+        SubmitCommitmentResponse mintResponse = directToAggregator.submitCommitment(mintCommitment).get(30, TimeUnit.SECONDS);
+        if (mintResponse.getStatus() != SubmitCommitmentStatus.SUCCESS) {
+            throw new Exception("Failed to mint token: " + mintResponse.getStatus());
+        }
+
+        InclusionProof mintInclusionProof = InclusionProofUtils.waitInclusionProof(
+            directToAggregator, trustBase, mintCommitment
+        ).get(60, TimeUnit.SECONDS);
+
+        TokenState tokenState = new TokenState(clientPredicate, null);
+        return new Token<>(tokenState, mintCommitment.toTransaction(mintInclusionProof), List.of(), List.of());
     }
 }

@@ -26,6 +26,7 @@ import org.unicitylabs.sdk.token.Token;
 import org.unicitylabs.sdk.token.TokenId;
 import org.unicitylabs.sdk.token.TokenState;
 import org.unicitylabs.sdk.token.TokenType;
+import org.unicitylabs.sdk.token.fungible.CoinId;
 import org.unicitylabs.sdk.token.fungible.TokenCoinData;
 import org.unicitylabs.sdk.transaction.*;
 import org.unicitylabs.sdk.util.InclusionProofUtils;
@@ -68,6 +69,8 @@ public class PaymentService {
 
     private final RootTrustBase trustBase;
 
+    private final CoinId acceptedCoinId;
+
     public PaymentService(ProxyConfig config, byte[] serverSecret) {
         this.paymentRepository = new PaymentRepository();
         this.apiKeyRepository = new ApiKeyRepository();
@@ -84,7 +87,10 @@ public class PaymentService {
 
         this.trustBase = loadRootTrustBase(config.getTrustBasePath());
 
-        logger.info("PaymentService initialized with aggregator: {}", aggregatorUrl);
+        this.acceptedCoinId = new CoinId(HexConverter.decode(config.getAcceptedCoinId()));
+
+        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}",
+            aggregatorUrl, config.getAcceptedCoinId());
     }
 
     public void setTimeMeter(TimeMeter timeMeter) {
@@ -194,6 +200,7 @@ public class PaymentService {
             session.id(),
             session.paymentAddress(),
             session.amountRequired(),
+            HexConverter.encode(acceptedCoinId.getBytes()),
             session.expiresAt()
         );
     }
@@ -283,14 +290,42 @@ public class PaymentService {
                 );
             }
 
-            BigInteger receivedAmount = calculateTokenAmount(receivedToken);
-            if (receivedAmount.compareTo(session.amountRequired()) < 0) {
-                logger.warn("Insufficient payment amount: {} < {}",
-                    receivedAmount, session.amountRequired());
+            // Validate that all coins have the accepted coin ID
+            if (!hasOnlyAcceptedCoins(receivedToken, acceptedCoinId)) {
+                logger.warn("Payment contains coins with unaccepted coin IDs. Only coin ID {} is accepted.",
+                    HexConverter.encode(acceptedCoinId.getBytes()));
                 paymentRepository.updateSessionStatus(sessionId, PaymentSessionStatus.FAILED,
                     jsonMapper.writeValueAsString(receivedToken));
                 return new PaymentModels.CompletePaymentResponse(
-                    false, "Insufficient payment amount", null, null
+                    false, "Payment contains unaccepted coin types. Only coin ID " +
+                        HexConverter.encode(acceptedCoinId.getBytes()) + " is accepted.", null, null
+                );
+            }
+
+            BigInteger receivedAmount = calculateTokenAmount(receivedToken, acceptedCoinId);
+            BigInteger requiredAmount = session.amountRequired();
+
+            // Validate exact payment amount
+            if (receivedAmount.compareTo(requiredAmount) < 0) {
+                logger.warn("Insufficient payment amount: {} < {}",
+                    receivedAmount, requiredAmount);
+                paymentRepository.updateSessionStatus(sessionId, PaymentSessionStatus.FAILED,
+                    jsonMapper.writeValueAsString(receivedToken));
+                return new PaymentModels.CompletePaymentResponse(
+                    false, "Insufficient payment amount. Required: " + requiredAmount +
+                        ", received: " + receivedAmount, null, null
+                );
+            }
+
+            if (receivedAmount.compareTo(requiredAmount) > 0) {
+                logger.warn("Overpayment rejected: {} > {}",
+                    receivedAmount, requiredAmount);
+                paymentRepository.updateSessionStatus(sessionId, PaymentSessionStatus.FAILED,
+                    jsonMapper.writeValueAsString(receivedToken));
+                return new PaymentModels.CompletePaymentResponse(
+                    false, "Overpayment not accepted. Required: " + requiredAmount +
+                        ", received: " + receivedAmount +
+                        ". Please send the exact amount to protect against accidental overpayment.", null, null
                 );
             }
 
@@ -344,8 +379,31 @@ public class PaymentService {
         return result;
     }
 
-    private BigInteger calculateTokenAmount(Token<?> token) {
-        // TODO: Update the way to calculate token amounts for production.
+    private BigInteger calculateTokenAmount(Token<?> token, CoinId acceptedCoinId) {
+        Optional<TokenCoinData> coinData = token.getGenesis().getData().getCoinData();
+        if (coinData.isEmpty()) {
+            throw new IllegalArgumentException("Missing coin data");
+        }
+
+        return coinData.get().getCoins().entrySet()
+                .stream()
+                .filter(entry -> entry.getKey().equals(acceptedCoinId))
+                .map(entry -> entry.getValue())
+                .reduce(BigInteger.ZERO, BigInteger::add);
+    }
+
+    private boolean hasOnlyAcceptedCoins(Token<?> token, CoinId acceptedCoinId) {
+        Optional<TokenCoinData> coinData = token.getGenesis().getData().getCoinData();
+        if (coinData.isEmpty()) {
+            return false;
+        }
+
+        return coinData.get().getCoins().keySet()
+                .stream()
+                .allMatch(coinId -> coinId.equals(acceptedCoinId));
+    }
+
+    private BigInteger getTotalTokenAmount(Token<?> token) {
         Optional<TokenCoinData> coinData = token.getGenesis().getData().getCoinData();
         if (coinData.isEmpty()) {
             throw new IllegalArgumentException("Missing coin data");

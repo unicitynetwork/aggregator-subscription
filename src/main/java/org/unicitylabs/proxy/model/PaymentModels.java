@@ -40,16 +40,20 @@ public class PaymentModels {
         @JsonProperty("amountRequired")
         private BigInteger price;
 
+        @JsonProperty("acceptedCoinId")
+        private String acceptedCoinId;
+
         @JsonProperty("expiresAt")
         private Instant expiresAt;
 
         public InitiatePaymentResponse() {}
 
         public InitiatePaymentResponse(UUID sessionId, String paymentAddress,
-                                       BigInteger price, Instant expiresAt) {
+                                       BigInteger price, String acceptedCoinId, Instant expiresAt) {
             this.sessionId = sessionId;
             this.paymentAddress = paymentAddress;
             this.price = price;
+            this.acceptedCoinId = acceptedCoinId;
             this.expiresAt = expiresAt;
         }
 
@@ -61,6 +65,9 @@ public class PaymentModels {
 
         public BigInteger getPrice() { return price; }
         public void setPrice(BigInteger price) { this.price = price; }
+
+        public String getAcceptedCoinId() { return acceptedCoinId; }
+        public void setAcceptedCoinId(String acceptedCoinId) { this.acceptedCoinId = acceptedCoinId; }
 
         public Instant getExpiresAt() { return expiresAt; }
         public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
