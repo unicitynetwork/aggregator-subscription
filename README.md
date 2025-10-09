@@ -111,11 +111,12 @@ Next, the user initiates payment for their API key. The user can either supply a
   "sessionId": "2c17b7a1-5e8c-4dd3-9679-4eb076033355",
   "paymentAddress": "DIRECT://0000399bd25b5a4315e8689b943c07ca1c67ad264eb3086f282a3a888534669c24f11fddd789",
   "price": "10000000",
+  "acceptedCoinId": "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89",
   "expiresAt": "2025-10-01T11:15:22.095882Z"
 }
 ```
 
-In the response, the server has responded with the address where the payment should be sent, and the price for the purchase. The "expiresAt" field specifies the current payment session end time, not the subscription end time.
+In the response, the server has responded with the address where the payment should be sent, the price for the purchase and the accepted coin ID. The "expiresAt" field specifies the current payment session end time, not the subscription end time.
 
 After that, the user sends the transfer commitment data as a JSON object, as well as the token contents.
 
