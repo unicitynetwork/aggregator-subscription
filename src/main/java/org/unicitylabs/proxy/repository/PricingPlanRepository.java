@@ -150,7 +150,7 @@ public class PricingPlanRepository {
             stmt.setLong(5, id);
 
             stmt.executeUpdate();
-            logger.info("Updated pricing plan {}: {} ({} req/s, {} req/day, ${:.2f})",
+            logger.info("Updated pricing plan {}: {} ({} req/s, {} req/day, {})",
                 id, name, requestsPerSecond, requestsPerDay, price);
         } catch (SQLException e) {
             throw new RuntimeException("Error updating pricing plan", e);
