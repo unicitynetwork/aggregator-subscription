@@ -37,6 +37,9 @@ public class ProxyConfig {
     @Parameter(names = {"--accepted-coin-id"}, description = "Coin ID accepted for payments (defaults to testnet coin ID)")
     private String acceptedCoinId = "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89";
 
+    @Parameter(names = {"--minimum-payment-amount"}, description = "Minimum payment amount in smallest currency units (default: 1000)")
+    private String minimumPaymentAmount = "1000";
+
     @Parameter(names = {"--help", "-h"}, help = true, description = "Show help")
     private boolean help = false;
 
@@ -103,6 +106,10 @@ public class ProxyConfig {
 
     public String getAcceptedCoinId() {
         return acceptedCoinId;
+    }
+
+    public java.math.BigInteger getMinimumPaymentAmount() {
+        return new java.math.BigInteger(minimumPaymentAmount);
     }
 
     @Override

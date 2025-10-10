@@ -21,8 +21,6 @@ import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 public class ApiKeyRepository {
     private static final Logger logger = LoggerFactory.getLogger(ApiKeyRepository.class);
 
-    private static final int PAYMENT_VALIDITY_DURATION_DAYS = 30; // Set to intended value
-
     private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
     
     private static final String FIND_BY_KEY_SQL = """
@@ -76,10 +74,6 @@ public class ApiKeyRepository {
 
     public void setTimeMeter(TimeMeter timeMeter) {
         this.timeMeter = timeMeter;
-    }
-
-    public static int getPaymentValidityDurationDays() {
-        return PAYMENT_VALIDITY_DURATION_DAYS;
     }
 
     public Optional<ApiKeyInfo> findByKeyIfNotRevokedAndHasPaid(String apiKey) {

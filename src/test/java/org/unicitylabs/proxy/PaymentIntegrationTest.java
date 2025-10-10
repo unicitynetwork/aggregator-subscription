@@ -595,7 +595,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         String testKey = insertNewPaymentKey(ApiKeyService.generateApiKey(), PLAN_PREMIUM.id());
 
         PaymentModels.InitiatePaymentResponse response = initiatePaymentSession(PLAN_STANDARD.id().intValue(), testKey);
-        assertEquals(PaymentService.MINIMUM_PAYMENT_AMOUNT, response.getPrice(),
+        assertEquals(BigInteger.valueOf(1000), response.getPrice(),
             "Payment should be minimum amount when refund exceeds new price");
     }
 

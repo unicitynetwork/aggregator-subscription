@@ -51,8 +51,6 @@ public class PaymentService {
 
     public static final int PAYMENT_VALIDITY_DAYS = 30;
 
-    public static final BigInteger MINIMUM_PAYMENT_AMOUNT = BigInteger.valueOf(1000);
-
     // TODO: Testnet token type - fixed for all tokens on testnet
     public static final TokenType TESTNET_TOKEN_TYPE = new TokenType(HexConverter.decode(
         "f8aa13834268d29355ff12183066f0cb902003629bbc5eb9ef0efbe397867509"));
@@ -72,6 +70,8 @@ public class PaymentService {
     private final RootTrustBase trustBase;
 
     private final CoinId acceptedCoinId;
+
+    private final BigInteger minimumPaymentAmount;
 
     private final TransactionManager transactionManager;
 
@@ -94,8 +94,10 @@ public class PaymentService {
 
         this.acceptedCoinId = new CoinId(HexConverter.decode(config.getAcceptedCoinId()));
 
-        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}",
-            aggregatorUrl, config.getAcceptedCoinId());
+        this.minimumPaymentAmount = config.getMinimumPaymentAmount();
+
+        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}, minimum payment: {}",
+            aggregatorUrl, config.getAcceptedCoinId(), this.minimumPaymentAmount);
     }
 
     public void setTimeMeter(TimeMeter timeMeter) {
@@ -483,8 +485,8 @@ public class PaymentService {
     private BigInteger calculateActualPaymentAmount(BigInteger newPlanPrice, BigInteger refundAmount) {
         BigInteger actualAmount = newPlanPrice.subtract(refundAmount);
 
-        if (actualAmount.compareTo(MINIMUM_PAYMENT_AMOUNT) < 0) {
-            return MINIMUM_PAYMENT_AMOUNT;
+        if (actualAmount.compareTo(minimumPaymentAmount) < 0) {
+            return minimumPaymentAmount;
         }
 
         return actualAmount;
