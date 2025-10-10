@@ -36,6 +36,15 @@ public class PaymentRepository {
         WHERE id = ?
         """;
 
+    private static final String FIND_BY_ID_AND_LOCK_SQL = """
+        SELECT id, api_key, payment_address, receiver_nonce,
+               status, target_plan_id, amount_required,
+               token_received, created_at, completed_at, expires_at, should_create_key, refund_amount
+        FROM payment_sessions
+        WHERE id = ?
+        FOR UPDATE NOWAIT
+        """;
+
     private static final String UPDATE_STATUS_SQL = """
         UPDATE payment_sessions
         SET status = ?::varchar, completed_at = ?, token_received = ?
@@ -59,18 +68,13 @@ public class PaymentRepository {
         WHERE api_key = ? AND status = 'pending'
         """;
 
-    /**
-     * Create a new payment session with optional API key creation
-     */
-    public PaymentSession createSessionWithOptionalKey(String apiKey, String paymentAddress,
+    public PaymentSession createSessionWithOptionalKey(Connection conn, String apiKey, String paymentAddress,
                                        byte[] receiverNonce, long targetPlanId,
                                        BigInteger amountRequired, Instant expiresAt,
-                                       boolean shouldCreateKey, BigInteger refundAmount) {
+                                       boolean shouldCreateKey, BigInteger refundAmount) throws SQLException {
         UUID sessionId = UUID.randomUUID();
 
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(CREATE_SESSION_SQL)) {
-
+        try (PreparedStatement stmt = conn.prepareStatement(CREATE_SESSION_SQL)) {
             stmt.setObject(1, sessionId);
             stmt.setString(2, apiKey); // Can be null if shouldCreateKey is true
             stmt.setString(3, paymentAddress);
@@ -91,21 +95,16 @@ public class PaymentRepository {
             }
         } catch (SQLException e) {
             if (e.getMessage() != null && e.getMessage().contains("idx_one_pending_payment_per_key")) {
-                logger.warn("API key {} already has a pending payment session", apiKey);
+                logger.info("API key {} already has a pending payment session", apiKey);
                 throw new IllegalStateException("A pending payment session already exists for this API key");
             }
-            logger.error("Error creating payment session", e);
+            throw e;
         }
         return null;
     }
 
-    /**
-     * Find a payment session by ID
-     */
-    public Optional<PaymentSession> findById(UUID sessionId) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(FIND_BY_ID_SQL)) {
-
+    public Optional<PaymentSession> findById(Connection conn, UUID sessionId) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(FIND_BY_ID_SQL)) {
             stmt.setObject(1, sessionId);
 
             try (ResultSet rs = stmt.executeQuery()) {
@@ -113,19 +112,39 @@ public class PaymentRepository {
                     return Optional.of(mapResultSetToPaymentSession(rs));
                 }
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error finding payment session: " + sessionId, e);
         }
         return Optional.empty();
     }
 
     /**
-     * Update a payment session's status
+     * Find a payment session by ID and lock it for update (prevents concurrent processing).
+     * Uses SELECT FOR UPDATE NOWAIT to fail fast if another transaction is already processing this session.
      */
-    public boolean updateSessionStatus(UUID sessionId, PaymentSessionStatus newStatus, String tokenReceived) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(UPDATE_STATUS_SQL)) {
+    public Optional<PaymentSession> findByIdAndLock(Connection conn, UUID sessionId) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(FIND_BY_ID_AND_LOCK_SQL)) {
+            stmt.setObject(1, sessionId);
 
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    logger.debug("Acquired lock on payment session {}", sessionId);
+                    return Optional.of(mapResultSetToPaymentSession(rs));
+                }
+            }
+        } catch (SQLException e) {
+            // PostgreSQL lock_not_available error code: 55P03
+            if (e.getSQLState() != null && e.getSQLState().equals("55P03")) {
+                logger.info("Payment session {} is already being processed by another request", sessionId);
+                throw new SessionLockedException(
+                    "This payment session is already being processed. Please wait.", e);
+            }
+            throw e;
+        }
+        return Optional.empty();
+    }
+
+    public boolean updateSessionStatus(Connection conn, UUID sessionId, PaymentSessionStatus newStatus,
+                                      String tokenReceived) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(UPDATE_STATUS_SQL)) {
             stmt.setString(1, newStatus.getValue());
             stmt.setTimestamp(2, newStatus == PaymentSessionStatus.COMPLETED ? Timestamp.from(Instant.now()) : null);
             stmt.setString(3, tokenReceived);
@@ -136,8 +155,6 @@ public class PaymentRepository {
                 logger.info("Updated payment session {} to status: {}", sessionId, newStatus);
                 return true;
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error updating payment session status", e);
         }
         return false;
     }
@@ -161,13 +178,8 @@ public class PaymentRepository {
         }
     }
 
-    /**
-     * Update the API key for a session (used when creating a new key on payment completion)
-     */
-    public boolean updateSessionApiKey(UUID sessionId, String apiKey) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(UPDATE_SESSION_API_KEY_SQL)) {
-
+    public boolean updateSessionApiKey(Connection conn, UUID sessionId, String apiKey) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(UPDATE_SESSION_API_KEY_SQL)) {
             stmt.setString(1, apiKey);
             stmt.setObject(2, sessionId);
 
@@ -176,19 +188,12 @@ public class PaymentRepository {
                 logger.info("Updated session {} with new API key: {}", sessionId, apiKey);
                 return true;
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error updating session API key", e);
         }
         return false;
     }
 
-    /**
-     * Cancel any pending payment sessions for an API key
-     */
-    public int cancelPendingSessions(String apiKey) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(CANCEL_PENDING_SESSION_SQL)) {
-
+    public int cancelPendingSessions(Connection conn, String apiKey) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(CANCEL_PENDING_SESSION_SQL)) {
             stmt.setString(1, apiKey);
 
             int cancelled = stmt.executeUpdate();
@@ -196,8 +201,6 @@ public class PaymentRepository {
                 logger.info("Cancelled {} pending payment sessions for API key: {}", cancelled, apiKey);
             }
             return cancelled;
-        } catch (SQLException e) {
-            throw new RuntimeException("Error cancelling pending sessions for API key: " + apiKey, e);
         }
     }
 
@@ -218,6 +221,88 @@ public class PaymentRepository {
             rs.getBoolean("should_create_key"),
             rs.getBigDecimal("refund_amount").toBigInteger()
         );
+    }
+
+    public void storeCompletionRequest(Connection conn, UUID sessionId, String requestId, String completionRequestJson) throws SQLException {
+        String sql = """
+            UPDATE payment_sessions
+            SET request_id = ?,
+                completion_request_json = ?,
+                completion_request_timestamp = CURRENT_TIMESTAMP
+            WHERE id = ?
+              AND (request_id IS NULL OR request_id = ?)
+              AND (completion_request_json IS NULL OR completion_request_json = ?)
+            """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, requestId);
+            stmt.setString(2, completionRequestJson);
+            stmt.setObject(3, sessionId);
+            stmt.setString(4, requestId); // Allow same request_id (idempotent)
+            stmt.setString(5, completionRequestJson); // Allow same json (idempotent)
+
+            int rows = stmt.executeUpdate();
+            if (rows == 0) {
+                // Check if session exists
+                try (PreparedStatement checkStmt = conn.prepareStatement(
+                    "SELECT request_id, completion_request_json FROM payment_sessions WHERE id = ?")) {
+                    checkStmt.setObject(1, sessionId);
+                    try (ResultSet rs = checkStmt.executeQuery()) {
+                        if (!rs.next()) {
+                            throw new SQLException("No payment session found with id: " + sessionId);
+                        }
+                        // Session exists but update failed - must be a conflict
+                        String existingRequestId = rs.getString("request_id");
+                        logger.error("Completion request conflict for session {}: existing request_id={}, new request_id={}",
+                            sessionId, existingRequestId, requestId);
+                        throw new CompletionRequestConflictException(
+                            "A different completion request is already being processed for this session");
+                    }
+                }
+            } else {
+                logger.info("Stored completion request for session {} with request_id {}",
+                    sessionId, requestId);
+            }
+        } catch (SQLException e) {
+            // PostgreSQL unique violation error code: 23505
+            if (e.getSQLState() != null && e.getSQLState().equals("23505") &&
+                e.getMessage().contains("idx_payment_sessions_request_id")) {
+                logger.error("Duplicate request_id detected: {}", requestId);
+                throw new DuplicateRequestIdException(
+                    "This token has already been used for payment. Request ID: " + requestId,
+                    e
+                );
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Exception thrown when a request_id is reused (same token used twice).
+     */
+    public static class DuplicateRequestIdException extends RuntimeException {
+        public DuplicateRequestIdException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Exception thrown when a session is already locked by another transaction.
+     */
+    public static class SessionLockedException extends RuntimeException {
+        public SessionLockedException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Exception thrown when trying to store a different completion request for a session
+     * that already has one stored.
+     */
+    public static class CompletionRequestConflictException extends RuntimeException {
+        public CompletionRequestConflictException(String message) {
+            super(message);
+        }
     }
 
     public record PaymentSession(UUID id, String apiKey, String paymentAddress, byte[] receiverNonce,

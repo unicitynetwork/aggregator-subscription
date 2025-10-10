@@ -1,6 +1,6 @@
 package org.unicitylabs.proxy.service;
 
-import org.unicitylabs.proxy.model.PaymentModels.CreateApiKeyResponse.PricingPlanInfo;
+import org.unicitylabs.proxy.model.PaymentModels.PricingPlanInfo;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
 
 import java.util.List;

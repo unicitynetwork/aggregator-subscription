@@ -118,9 +118,15 @@ public class PricingPlanRepository {
     }
 
     public PricingPlan findById(Long id) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(FIND_BY_ID_SQL)) {
+        try (Connection conn = DatabaseConfig.getConnection()) {
+            return findById(conn, id);
+        } catch (SQLException e) {
+            throw new RuntimeException("Error finding pricing plan by id: " + id, e);
+        }
+    }
 
+    public PricingPlan findById(Connection conn, Long id) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(FIND_BY_ID_SQL)) {
             stmt.setLong(1, id);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
@@ -133,8 +139,6 @@ public class PricingPlanRepository {
                     );
                 }
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error finding pricing plan by id: " + id, e);
         }
         return null;
     }

@@ -120,6 +120,12 @@ In the response, the server has responded with the address where the payment sho
 
 After that, the user sends the transfer commitment data as a JSON object, as well as the token contents.
 
+In the same payment session, the user can only pay with one token which must contain exactly the right amount of the right coins and no other coins.
+
+If the user invokes this endpoint twice (for example, when the first invocation timed out), the user must use the same token the next time as well.
+
+Note that the server stores the request input data in the `payment_sessions` table (committed in a separate database transaction than the rest of the endpoint execution), so that even if a payment fails, the table still contains the `request_id` field and the token that the user sent. This allows the server administrator to query whether the token was successfully aggregated into the Unicity blockchain (therefore received by her) irrespective of whether the payment session as a whole failed for some reason; and if the payment was indeed aggregated but the payment failed on the server side (in other words, if she did receive the payment but the user did not get the corresponding payment plan), she can fix the situation in the administrative interface manually; she can also construct the received token manually.
+
 **Request:**
 
 `POST /api/payment/complete`

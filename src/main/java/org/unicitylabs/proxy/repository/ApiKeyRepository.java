@@ -64,17 +64,6 @@ public class ApiKeyRepository {
         VALUES (?, ?, ?, 'active'::api_key_status, CURRENT_TIMESTAMP + INTERVAL '1 day' * ?)
         """;
 
-    public static final String UPDATE_PRICING_PLAN_AND_EXTEND_EXPIRY = """
-            UPDATE api_keys
-            SET pricing_plan_id = ?,
-                active_until = CASE
-                    WHEN active_until IS NULL OR active_until < CURRENT_TIMESTAMP
-                    THEN CURRENT_TIMESTAMP + INTERVAL '1 day' * ?
-                    ELSE active_until + INTERVAL '1 day' * ?
-                END
-            WHERE api_key = ?
-            """;
-
     public static final String UPDATE_PRICING_PLAN_AND_SET_EXPIRY = """
             UPDATE api_keys
             SET pricing_plan_id = ?,
@@ -117,9 +106,15 @@ public class ApiKeyRepository {
     }
 
     public Optional<ApiKeyInfo> findByKeyIfNotRevoked(String apiKey) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(FIND_BY_KEY_SQL)) {
+        try (Connection conn = DatabaseConfig.getConnection()) {
+            return findByKeyIfNotRevoked(conn, apiKey);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
+    public Optional<ApiKeyInfo> findByKeyIfNotRevoked(Connection conn, String apiKey) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(FIND_BY_KEY_SQL)) {
             stmt.setString(1, apiKey);
 
             try (ResultSet rs = stmt.executeQuery()) {
@@ -143,16 +138,21 @@ public class ApiKeyRepository {
                     ));
                 }
             }
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
         }
         return Optional.empty();
     }
 
     public void insert(String apiKey, long pricingPlanId, Instant activeUntil) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(INSERT_SQL)) {
+        try (Connection conn = DatabaseConfig.getConnection()) {
+            insert(conn, apiKey, pricingPlanId, activeUntil);
+        } catch (SQLException e) {
+            logger.error("Error saving API key: {}", apiKey, e);
+            throw new RuntimeException("Failed to insert API key: " + apiKey, e);
+        }
+    }
 
+    public void insert(Connection conn, String apiKey, long pricingPlanId, Instant activeUntil) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(INSERT_SQL)) {
             stmt.setString(1, apiKey);
             stmt.setLong(2, pricingPlanId);
             stmt.setString(3, ApiKeyStatus.ACTIVE.getValue());
@@ -162,17 +162,9 @@ public class ApiKeyRepository {
             logger.info("Saved API key: {} with pricing plan id: {} expiring at {}",
                 apiKey, pricingPlanId, activeUntil);
             CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
-        } catch (SQLException e) {
-            logger.error("Error saving API key: " + apiKey, e);
-            throw new RuntimeException("Failed to insert API key: " + apiKey, e);
         }
     }
 
-    public void insert(String apiKey, long pricingPlanId) {
-        Instant defaultExpiry = Instant.now().plus(PAYMENT_VALIDITY_DURATION_DAYS, java.time.temporal.ChronoUnit.DAYS);
-        insert(apiKey, pricingPlanId, defaultExpiry);
-    }
-    
     public void delete(String apiKey) {
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_SQL)) {
@@ -224,10 +216,12 @@ public class ApiKeyRepository {
         }
     }
 
-    public void updatePricingPlanAndSetExpiry(String apiKey, long newPricingPlanId, Instant newExpiry) {
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(UPDATE_PRICING_PLAN_AND_SET_EXPIRY)) {
-
+    /**
+     * Update pricing plan and set expiry within an existing transaction
+     */
+    public void updatePricingPlanAndSetExpiry(Connection conn, String apiKey, long newPricingPlanId,
+                                             Instant newExpiry) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(UPDATE_PRICING_PLAN_AND_SET_EXPIRY)) {
             stmt.setLong(1, newPricingPlanId);
             stmt.setTimestamp(2, Timestamp.from(newExpiry));
             stmt.setString(3, apiKey);
@@ -239,8 +233,6 @@ public class ApiKeyRepository {
                            apiKey, newPricingPlanId, newExpiry);
                 CachedApiKeyManager.getInstance().removeCacheEntry(apiKey);
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error updating pricing plan and setting expiry for API key: " + apiKey, e);
         }
     }
 
@@ -384,7 +376,7 @@ public class ApiKeyRepository {
             stmt.executeUpdate();
             logger.info("Created API key without plan: {}", apiKey);
         } catch (SQLException e) {
-            logger.error("Error creating API key without plan: " + apiKey, e);
+            logger.error("Error creating API key without plan: {}", apiKey, e);
             throw new RuntimeException("Failed to create API key", e);
         }
     }
@@ -419,6 +411,51 @@ public class ApiKeyRepository {
             return Optional.empty();
         } catch (SQLException e) {
             throw new RuntimeException("Error finding API key by key: " + apiKey, e);
+        }
+    }
+
+    /**
+     * Lock the API key row for update within an existing transaction.
+     * Uses SELECT FOR UPDATE NOWAIT to fail fast if another transaction holds the lock.
+     * <p>
+     * This prevents concurrent payment processing for the same API key.
+     */
+    public void lockForUpdate(Connection conn, String apiKey) throws SQLException {
+        String sql = """
+            SELECT id, api_key, status
+            FROM api_keys
+            WHERE api_key = ?
+            FOR UPDATE NOWAIT
+            """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, apiKey);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalArgumentException("API key not found: " + apiKey);
+                }
+                logger.debug("Acquired lock for API key: {}", apiKey);
+            }
+        } catch (SQLException e) {
+            // PostgreSQL error code 55P03 = lock_not_available
+            if (e.getSQLState() != null && e.getSQLState().equals("55P03")) {
+                logger.warn("Lock contention for API key: {}", apiKey);
+                throw new LockConflictException(
+                    "Another payment for this API key is currently being processed. Please wait and try again.",
+                    e
+                );
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Exception thrown when a row lock cannot be acquired due to another transaction holding it.
+     */
+    public static class LockConflictException extends RuntimeException {
+        public LockConflictException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

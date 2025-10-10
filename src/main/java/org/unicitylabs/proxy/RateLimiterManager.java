@@ -33,7 +33,7 @@ public class RateLimiterManager {
     public RateLimitResult tryConsume(String apiKey) {
         CachedApiKeyManager.ApiKeyInfo currentApiKeyInfo = apiKeyManager.getApiKeyInfo(apiKey);
         if (currentApiKeyInfo == null) {
-            logger.warn("Attempted to rate limit unknown API key: {}", apiKey);
+            logger.info("Attempted to rate limit unknown API key: {}", apiKey);
             return RateLimitResult.denied(0);
         }
 

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
 import org.unicitylabs.proxy.service.PaymentService;
@@ -105,6 +106,10 @@ public class PaymentHandler extends Handler.Abstract {
 
             sendJsonResponse(response, callback, HttpStatus.OK_200, initiateResponse);
 
+        } catch (ApiKeyRepository.LockConflictException e) {
+            logger.info("Lock conflict during payment initiation: {}", e.getMessage());
+            sendErrorResponse(response, callback, HttpStatus.CONFLICT_409,
+                "Conflict", e.getMessage());
         } catch (IllegalArgumentException e) {
             sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
                 "Bad Request", e.getMessage());
@@ -159,6 +164,18 @@ public class PaymentHandler extends Handler.Abstract {
 
             sendJsonResponse(response, callback, statusCode, completeResponse);
 
+        } catch (ApiKeyRepository.LockConflictException e) {
+            logger.info("Lock conflict during payment completion: {}", e.getMessage());
+            sendErrorResponse(response, callback, HttpStatus.CONFLICT_409,
+                "Conflict", e.getMessage());
+        } catch (PaymentRepository.DuplicateRequestIdException e) {
+            logger.info("Duplicate request ID detected during payment completion: {}", e.getMessage());
+            sendErrorResponse(response, callback, HttpStatus.CONFLICT_409,
+                "Conflict", e.getMessage());
+        } catch (IllegalArgumentException e) {
+            logger.info("Invalid payment completion request: {}", e.getMessage());
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", e.getMessage());
         } catch (Exception e) {
             logger.error("Error completing payment", e);
             sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
