@@ -44,7 +44,7 @@ public class ApiKeyRepository {
     private static final String UPDATE_PLAN_SQL = "UPDATE api_keys SET pricing_plan_id = ? WHERE api_key = ?";
 
     private static final String FIND_ALL_DETAILED_SQL = """
-        SELECT ak.id, ak.api_key, ak.description, ak.status, ak.pricing_plan_id, ak.created_at
+        SELECT ak.id, ak.api_key, ak.description, ak.status, ak.pricing_plan_id, ak.created_at, ak.active_until
         FROM api_keys ak
         ORDER BY ak.created_at DESC
         """;
@@ -235,7 +235,7 @@ public class ApiKeyRepository {
     }
 
     public record ApiKeyDetail(Long id, String apiKey, String description, ApiKeyStatus status, Long pricingPlanId,
-                               Timestamp createdAt) {
+                               Timestamp createdAt, Timestamp activeUntil) {
     }
 
     public List<ApiKeyDetail> findAll() {
@@ -254,7 +254,8 @@ public class ApiKeyRepository {
                     rs.getString("description"),
                     ApiKeyStatus.fromValue(rs.getString("status")),
                     pricingPlanId,
-                    rs.getTimestamp("created_at")
+                    rs.getTimestamp("created_at"),
+                    rs.getTimestamp("active_until")
                 ));
             }
         } catch (SQLException e) {
@@ -379,7 +380,7 @@ public class ApiKeyRepository {
 
     public Optional<ApiKeyDetail> findByKey(String apiKey) {
         String sql = """
-            SELECT id, api_key, description, status, pricing_plan_id, created_at
+            SELECT id, api_key, description, status, pricing_plan_id, created_at, active_until
             FROM api_keys
             WHERE api_key = ?
             """;
@@ -400,7 +401,8 @@ public class ApiKeyRepository {
                         rs.getString("description"),
                         ApiKeyStatus.fromValue(rs.getString("status")),
                         pricingPlanId,
-                        rs.getTimestamp("created_at")
+                        rs.getTimestamp("created_at"),
+                        rs.getTimestamp("active_until")
                     ));
                 }
             }

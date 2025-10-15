@@ -602,6 +602,7 @@
                                 <th>API Key</th>
                                 <th>Description</th>
                                 <th>Plan</th>
+                                <th>Valid Until</th>
                                 <th>Status</th>
                                 <th>Rate Limits</th>
                                 <th>Created</th>
@@ -936,9 +937,21 @@
             const tbody = document.getElementById('keysTableBody');
             tbody.innerHTML = '';
 
+            const formatDateTime = (timestamp) => {
+                if (!timestamp) return '-';
+                return new Date(timestamp).toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            };
+
             apiKeys.forEach(key => {
                 const tr = document.createElement('tr');
-                const createdDate = new Date(key.createdAt).toLocaleDateString();
+                const createdDate = formatDateTime(key.createdAt);
+                const validUntilDate = formatDateTime(key.activeUntil);
                 const statusBadge = key.status === 'active' ? 'badge-success' : 'badge-danger';
 
                 tr.innerHTML = `
@@ -954,6 +967,7 @@
                     </td>
                     <td>${key.description || '-'}</td>
                     <td>${key.planName || '-'}</td>
+                    <td>${validUntilDate}</td>
                     <td><span class="badge ${statusBadge}">${key.status}</span></td>
                     <td>
                         <small>${key.requestsPerSecond || '-'} req/s<br>
