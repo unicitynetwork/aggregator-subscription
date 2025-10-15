@@ -5,6 +5,7 @@ import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
 import org.unicitylabs.proxy.service.PaymentService;
 import org.jetbrains.annotations.NotNull;
@@ -72,6 +73,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89"));
 
     private ApiKeyRepository apiKeyRepository;
+    private PaymentRepository paymentRepository;
     private RequestId hackRequestId;
 
     @BeforeAll
@@ -93,6 +95,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void setUpTestData() {
         apiKeyRepository = new ApiKeyRepository();
         apiKeyRepository.setTimeMeter(testTimeMeter);
+        paymentRepository = new PaymentRepository();
 
         recreatePricingPlans();
 
@@ -794,24 +797,13 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         return new Token<>(tokenState, mintCommitment.toTransaction(mintInclusionProof), List.of(), List.of());
     }
 
-    private String getStoredRequestIdFromDatabase(UUID sessionId) throws Exception {
-        try (java.sql.Connection conn = org.unicitylabs.proxy.repository.DatabaseConfig.getConnection();
-             java.sql.PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT request_id FROM payment_sessions WHERE id = ?")) {
-            stmt.setObject(1, sessionId);
-            try (java.sql.ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getString("request_id");
-                }
-            }
-        }
-        return null;
-    }
-
     private void assertRequestIdStoredInDatabase(UUID sessionId, String expectedRequestId) throws Exception {
-        String storedRequestId = getStoredRequestIdFromDatabase(sessionId);
-        assertNotNull(storedRequestId, "RequestId should be stored in database");
-        assertEquals(expectedRequestId, storedRequestId, "Stored requestId should match expected value");
+        try (java.sql.Connection conn = org.unicitylabs.proxy.repository.DatabaseConfig.getConnection()) {
+            var session = paymentRepository.findById(conn, sessionId);
+            assertTrue(session.isPresent(), "Payment session should exist");
+            String storedRequestId = session.get().requestId();
+            assertEquals(expectedRequestId, storedRequestId, "Stored requestId should match expected value");
+        }
     }
 
     private void assertRequestIdAggregatedOnBlockchain(RequestId requestId) throws Exception {

@@ -31,7 +31,8 @@ public class PaymentRepository {
     private static final String FIND_BY_ID_SQL = """
         SELECT id, api_key, payment_address, receiver_nonce,
                status, target_plan_id, amount_required,
-               token_received, created_at, completed_at, expires_at, should_create_key, refund_amount
+               token_received, created_at, completed_at, expires_at, should_create_key, refund_amount,
+               request_id, completion_request_json, completion_request_timestamp
         FROM payment_sessions
         WHERE id = ?
         """;
@@ -39,7 +40,8 @@ public class PaymentRepository {
     private static final String FIND_BY_ID_AND_LOCK_SQL = """
         SELECT id, api_key, payment_address, receiver_nonce,
                status, target_plan_id, amount_required,
-               token_received, created_at, completed_at, expires_at, should_create_key, refund_amount
+               token_received, created_at, completed_at, expires_at, should_create_key, refund_amount,
+               request_id, completion_request_json, completion_request_timestamp
         FROM payment_sessions
         WHERE id = ?
         FOR UPDATE NOWAIT
@@ -91,7 +93,8 @@ public class PaymentRepository {
                     shouldCreateKey ? "new" : "existing");
                 return new PaymentSession(sessionId, apiKey, paymentAddress,
                     receiverNonce, PaymentSessionStatus.PENDING, targetPlanId, amountRequired,
-                    null, Instant.now(), null, expiresAt, shouldCreateKey, refundAmount);
+                    null, Instant.now(), null, expiresAt, shouldCreateKey, refundAmount,
+                    null, null, null);
             }
         } catch (SQLException e) {
             if (e.getMessage() != null && e.getMessage().contains("idx_one_pending_payment_per_key")) {
@@ -205,6 +208,7 @@ public class PaymentRepository {
     }
 
     private PaymentSession mapResultSetToPaymentSession(ResultSet rs) throws SQLException {
+        Timestamp completionRequestTs = rs.getTimestamp("completion_request_timestamp");
         return new PaymentSession(
             (UUID) rs.getObject("id"),
             rs.getString("api_key"),
@@ -219,7 +223,10 @@ public class PaymentRepository {
                 rs.getTimestamp("completed_at").toInstant() : null,
             rs.getTimestamp("expires_at").toInstant(),
             rs.getBoolean("should_create_key"),
-            rs.getBigDecimal("refund_amount").toBigInteger()
+            rs.getBigDecimal("refund_amount").toBigInteger(),
+            rs.getString("request_id"),
+            rs.getString("completion_request_json"),
+            completionRequestTs != null ? completionRequestTs.toInstant() : null
         );
     }
 
@@ -308,6 +315,7 @@ public class PaymentRepository {
     public record PaymentSession(UUID id, String apiKey, String paymentAddress, byte[] receiverNonce,
                                  PaymentSessionStatus status, long targetPlanId, BigInteger amountRequired,
                                  String tokenReceived, Instant createdAt, Instant completedAt, Instant expiresAt,
-                                 boolean shouldCreateKey, BigInteger refundAmount) {
+                                 boolean shouldCreateKey, BigInteger refundAmount, String requestId,
+                                 String completionRequestJson, Instant completionRequestTimestamp) {
     }
 }
