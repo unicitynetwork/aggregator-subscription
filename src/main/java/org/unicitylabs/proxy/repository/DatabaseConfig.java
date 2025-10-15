@@ -18,23 +18,55 @@ public class DatabaseConfig {
         if (dataSource != null) {
             dataSource.close();
         }
-        
+
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(jdbcUrl);
         config.setUsername(username);
         config.setPassword(password);
-        config.setMaximumPoolSize(20);
-        config.setMinimumIdle(5);
-        config.setConnectionTimeout(30000);
-        config.setIdleTimeout(600000);
-        config.setMaxLifetime(1800000);
         config.setDriverClassName("org.postgresql.Driver");
-        
+
+        // Connection pool sizing - configurable via environment variables
+        config.setMaximumPoolSize(getEnvAsInt("HIKARI_MAX_POOL_SIZE", 50));
+        config.setMinimumIdle(getEnvAsInt("HIKARI_MIN_IDLE", 10));
+
+        // Timeout settings
+        config.setConnectionTimeout(getEnvAsInt("HIKARI_CONNECTION_TIMEOUT", 30000));
+        config.setIdleTimeout(getEnvAsInt("HIKARI_IDLE_TIMEOUT", 600000));
+        config.setMaxLifetime(getEnvAsInt("HIKARI_MAX_LIFETIME", 1800000));
+        config.setValidationTimeout(getEnvAsInt("HIKARI_VALIDATION_TIMEOUT", 5000));
+
+        // Connection leak detection (0 = disabled)
+        int leakDetectionThreshold = getEnvAsInt("HIKARI_LEAK_DETECTION_THRESHOLD", 60000);
+        if (leakDetectionThreshold > 0) {
+            config.setLeakDetectionThreshold(leakDetectionThreshold);
+        }
+
+        // Transaction control
+        config.setAutoCommit(true);
+
         dataSource = new HikariDataSource(config);
-        
+
         runMigrations();
-        
-        logger.info("Database connection pool initialized");
+
+        logger.info("Database connection pool initialized (max: {}, minIdle: {}, leak detection: {}ms)",
+            config.getMaximumPoolSize(), config.getMinimumIdle(),
+            leakDetectionThreshold > 0 ? leakDetectionThreshold : "disabled");
+    }
+
+    /**
+     * Read an integer environment variable with a default value.
+     */
+    private static int getEnvAsInt(String key, int defaultValue) {
+        String value = System.getenv(key);
+        if (value == null || value.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid integer value for {}: '{}', using default: {}", key, value, defaultValue);
+            return defaultValue;
+        }
     }
     
     private static void runMigrations() {

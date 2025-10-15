@@ -37,11 +37,18 @@ public class ProxyServer {
         // Create payment handler
         this.paymentHandler = new PaymentHandler(config, serverSecret);
 
-        // Create a combined handler that tries handlers in order: payment, admin, then proxy
+        // Create health check handler
+        HealthCheckHandler healthCheckHandler = new HealthCheckHandler();
+
+        // Create a combined handler that tries handlers in order: health, payment, admin, then proxy
         Handler.Abstract combinedHandler = new Handler.Abstract() {
             @Override
             public boolean handle(Request request, Response response, Callback callback) throws Exception {
-                // Try payment handler first (for /api/payment/* endpoints)
+                // Try health check first (for /health endpoint)
+                if (healthCheckHandler.handle(request, response, callback)) {
+                    return true;
+                }
+                // Try payment handler (for /api/payment/* endpoints)
                 if (paymentHandler.handle(request, response, callback)) {
                     return true;
                 }

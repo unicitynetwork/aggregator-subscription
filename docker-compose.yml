@@ -36,12 +36,26 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/aggregator
       DB_USER: aggregator
       DB_PASSWORD: aggregator
+      # HikariCP connection pool configuration
+      HIKARI_MAX_POOL_SIZE: ${HIKARI_MAX_POOL_SIZE:-50}
+      HIKARI_MIN_IDLE: ${HIKARI_MIN_IDLE:-10}
+      HIKARI_CONNECTION_TIMEOUT: ${HIKARI_CONNECTION_TIMEOUT:-30000}
+      HIKARI_IDLE_TIMEOUT: ${HIKARI_IDLE_TIMEOUT:-600000}
+      HIKARI_MAX_LIFETIME: ${HIKARI_MAX_LIFETIME:-1800000}
+      HIKARI_VALIDATION_TIMEOUT: ${HIKARI_VALIDATION_TIMEOUT:-5000}
+      HIKARI_LEAK_DETECTION_THRESHOLD: ${HIKARI_LEAK_DETECTION_THRESHOLD:-60000}
     ports:
       # Map host port (configurable) to container port 8080 (fixed)
       - "${PROXY_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aggregator-network
     extra_hosts:
