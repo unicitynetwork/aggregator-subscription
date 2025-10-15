@@ -1014,7 +1014,7 @@
                     <td><strong>${plan.name}</strong></td>
                     <td>${plan.requestsPerSecond}</td>
                     <td>${plan.requestsPerDay.toLocaleString()}</td>
-                    <td>${plan.price || 0}</td>
+                    <td>${plan.price || '0'}</td>
                     <td>
                         <div class="actions">
                             <button class="btn btn-secondary" onclick="showEditPlanModal(${plan.id})">Edit</button>
@@ -1126,7 +1126,7 @@
             document.getElementById('editPlanName').value = plan.name;
             document.getElementById('editPlanRps').value = plan.requestsPerSecond;
             document.getElementById('editPlanRpd').value = plan.requestsPerDay;
-            document.getElementById('editPlanPrice').value = (plan.price || 0).toString();
+            document.getElementById('editPlanPrice').value = plan.price || '0';
 
             document.getElementById('editPlanModal').classList.add('show');
         }

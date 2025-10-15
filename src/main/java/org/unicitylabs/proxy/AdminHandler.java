@@ -294,7 +294,7 @@ public class AdminHandler extends Handler.Abstract {
                 planNode.put("name", plan.name());
                 planNode.put("requestsPerSecond", plan.requestsPerSecond());
                 planNode.put("requestsPerDay", plan.requestsPerDay());
-                planNode.put("price", plan.price());
+                planNode.put("price", plan.price().toString());
                 plansArray.add(planNode);
             }
 
