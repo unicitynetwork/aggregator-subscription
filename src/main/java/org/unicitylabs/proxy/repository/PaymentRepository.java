@@ -100,7 +100,7 @@ public class PaymentRepository {
             }
             throw e;
         }
-        return null;
+        throw new RuntimeException("Unable to insert into database");
     }
 
     public Optional<PaymentSession> findById(Connection conn, UUID sessionId) throws SQLException {

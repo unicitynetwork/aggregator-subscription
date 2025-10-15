@@ -29,6 +29,7 @@ import org.unicitylabs.sdk.token.fungible.CoinId;
 import org.unicitylabs.sdk.token.fungible.TokenCoinData;
 import org.unicitylabs.sdk.transaction.*;
 import org.unicitylabs.sdk.util.InclusionProofUtils;
+import org.unicitylabs.sdk.verification.VerificationException;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -41,8 +42,9 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 
@@ -106,27 +108,28 @@ public class PaymentService {
 
     private RootTrustBase loadRootTrustBase(String trustBasePath) {
         try {
-            // Load trust base from config path if provided, otherwise use default
-            if (trustBasePath != null) {
-                File trustBaseFile = new File(trustBasePath);
-                if (!trustBaseFile.exists()) {
-                    throw new RuntimeException("Trust base file not found: " + trustBasePath);
-                }
-                logger.info("Loading trust base from: {}", trustBasePath);
-                return UnicityObjectMapper.JSON.readValue(
-                        new FileInputStream(trustBaseFile),
-                        RootTrustBase.class
-                );
-            } else {
+            if (trustBasePath == null) {
                 logger.info("Using default test trust base");
                 return UnicityObjectMapper.JSON.readValue(
                         getClass().getResourceAsStream("/test-trust-base.json"),
-                        RootTrustBase.class
-                );
+                        RootTrustBase.class);
             }
+
+            return loadTrustBaseFromFile(trustBasePath);
         } catch (IOException e) {
             throw new RuntimeException("Failed to load trust base", e);
         }
+    }
+
+    private RootTrustBase loadTrustBaseFromFile(String trustBasePath) throws IOException {
+        File trustBaseFile = new File(trustBasePath);
+        if (!trustBaseFile.exists()) {
+            throw new RuntimeException("Trust base file not found: " + trustBasePath);
+        }
+        logger.info("Loading trust base from: {}", trustBasePath);
+        return UnicityObjectMapper.JSON.readValue(
+                new FileInputStream(trustBaseFile),
+                RootTrustBase.class);
     }
 
     public PaymentModels.InitiatePaymentResponse initiatePayment(
@@ -162,54 +165,19 @@ public class PaymentService {
 
                 byte[] receiverNonce = random32Bytes();
 
-                SigningService signingService = SigningService.createFromMaskedSecret(
-                    serverSecret, receiverNonce
-                );
+                String paymentAddress = generatePaymentAddress(
+                        SigningService.createFromMaskedSecret(serverSecret, receiverNonce), 
+                        receiverNonce);
 
-                // Use a dummy tokenId for address generation (address doesn't depend on tokenId)
-                TokenId dummyTokenId = new TokenId(new byte[32]);
-                MaskedPredicate predicate = MaskedPredicate.create(
-                    dummyTokenId,
-                    TESTNET_TOKEN_TYPE,
-                    signingService,
-                    HashAlgorithm.SHA256,
-                    receiverNonce
-                );
-
-                String paymentAddress = generatePaymentAddress(predicate);
-
-                BigInteger newPlanPrice = getRequiredAmount(conn, targetPlanId);
-                BigInteger refundAmount = BigInteger.ZERO;
                 Instant expiresAt = Instant.ofEpochMilli(currentTimeMillis(timeMeter))
-                    .plusSeconds(SESSION_EXPIRY_MINUTES * 60);
+                        .plusSeconds(SESSION_EXPIRY_MINUTES * 60);
 
-                if (!shouldCreateKey) {
-                    var existingKeyInfo = apiKeyRepository.findByKeyIfNotRevoked(conn, apiKey);
-                    if (existingKeyInfo.isPresent() && existingKeyInfo.get().pricingPlanId() != null
-                            && existingKeyInfo.get().activeUntil() != null) {
-
-                        var currentPlan = pricingPlanRepository.findById(conn, existingKeyInfo.get().pricingPlanId());
-                        if (currentPlan != null) {
-                            refundAmount = calculateProRatedProportionalRefund(
-                                currentPlan.price(),
-                                existingKeyInfo.get().activeUntil().toInstant(),
-                                    expiresAt
-                            );
-                        }
-                    }
-                }
-
-                BigInteger actualPaymentAmount = calculateActualPaymentAmount(newPlanPrice, refundAmount);
+                PaymentAmount paymentAmount = calculateRequiredPayment(conn, targetPlanId, shouldCreateKey, apiKey, expiresAt);
 
                 PaymentSession session = paymentRepository.createSessionWithOptionalKey(
                     conn, apiKey, paymentAddress, receiverNonce,
-                    targetPlanId, actualPaymentAmount, expiresAt,
-                    shouldCreateKey, refundAmount
-                );
-
-                if (session == null) {
-                    throw new RuntimeException("Failed to create payment session");
-                }
+                    targetPlanId, paymentAmount.requiredPayment(), expiresAt,
+                    shouldCreateKey, paymentAmount.refundAmount());
 
                 return new PaymentModels.InitiatePaymentResponse(
                     session.id(),
@@ -228,9 +196,242 @@ public class PaymentService {
         });
     }
 
-    public PaymentModels.CompletePaymentResponse completePayment(
-            PaymentModels.CompletePaymentRequest request) {
+    private PaymentAmount calculateRequiredPayment(Connection conn, Long targetPlanId, boolean shouldCreateKey, String apiKey, Instant expiresAt) throws SQLException {
+        BigInteger newPlanPrice = pricingPlanRepository.findById(conn, targetPlanId).price();
+        BigInteger refundAmount = BigInteger.ZERO;
 
+        if (!shouldCreateKey) {
+            var existingKeyInfo = apiKeyRepository.findByKeyIfNotRevoked(conn, apiKey);
+            if (existingKeyInfo.isPresent() && existingKeyInfo.get().pricingPlanId() != null
+                    && existingKeyInfo.get().activeUntil() != null) {
+
+                var currentPlan = pricingPlanRepository.findById(conn, existingKeyInfo.get().pricingPlanId());
+                if (currentPlan != null) {
+                    refundAmount = calculateProRatedProportionalRefund(
+                        currentPlan.price(),
+                        existingKeyInfo.get().activeUntil().toInstant(),
+                            expiresAt
+                    );
+                }
+            }
+        }
+
+        BigInteger requiredPayment = calculateActualPaymentAmount(newPlanPrice, refundAmount);
+        return new PaymentAmount(refundAmount, requiredPayment);
+    }
+
+    private record PaymentAmount(BigInteger refundAmount, BigInteger requiredPayment) {
+    }
+
+    private String generatePaymentAddress(SigningService signingService, byte[] receiverNonce) {
+        // Use a dummy tokenId for address generation (address doesn't depend on tokenId)
+        TokenId dummyTokenId = new TokenId(new byte[32]);
+        MaskedPredicate predicate = MaskedPredicate.create(
+            dummyTokenId,
+            TESTNET_TOKEN_TYPE,
+            signingService,
+            HashAlgorithm.SHA256,
+                receiverNonce
+        );
+
+        return generatePaymentAddress(predicate);
+    }
+
+    public PaymentModels.CompletePaymentResponse completePayment(PaymentModels.CompletePaymentRequest request) {
+
+        final TransferCommitment transferCommitment = saveAndCommitRequestToSession(request);
+
+        return transactionManager.executeInTransaction(conn -> {
+            return tryCompletingThePayment(request, conn, transferCommitment);
+        });
+    }
+
+    private PaymentModels.CompletePaymentResponse tryCompletingThePayment(PaymentModels.CompletePaymentRequest request, Connection conn, TransferCommitment transferCommitment) {
+        try {
+            UUID sessionId = request.getSessionId();
+
+            Optional<PaymentSession> sessionOptUnlocked = paymentRepository.findById(conn, sessionId);
+            if (sessionOptUnlocked.isEmpty()) {
+                return new PaymentModels.CompletePaymentResponse(
+                        false, "Invalid session ID", null, null
+                );
+            }
+
+            PaymentSession session = acquireDbLocks(conn, sessionOptUnlocked.get().apiKey(), sessionId);
+
+            PaymentModels.CompletePaymentResponse sessionValidationError = validateSessionForPaymentCompletion(conn, session);
+            if (sessionValidationError != null) { return sessionValidationError; }
+
+            Token<?> sourceToken = jsonMapper.readValue(request.getSourceTokenJson(), Token.class);
+
+            PaymentModels.CompletePaymentResponse validationError = validateIncomingCoins(conn, sourceToken, session);
+            if (validationError != null) { return validationError; }
+
+            SubmitCommitmentResult submitCommitmentResult = submitAndFinaliseCommitment(transferCommitment, session, sourceToken);
+            if (submitCommitmentResult.error != null) { return submitCommitmentResult.error; }
+
+            final String apiKey = finaliseApiKeyAndPaymentPlan(conn, session, submitCommitmentResult);
+
+            logger.info("Payment completed successfully for session {} - API key {} with plan {}",
+                session.id(), apiKey, session.targetPlanId());
+
+            return new PaymentModels.CompletePaymentResponse(
+                    true,
+                    session.shouldCreateKey() ?
+                            "Payment verified. New API key created successfully." :
+                            "Payment verified. API key upgraded successfully.",
+                    session.targetPlanId(),
+                    apiKey
+            );
+
+        } catch (Exception e) {
+            logger.error("Error processing payment for session {}: {}", request.getSessionId(), e.getMessage());
+            throw new RuntimeException("Payment processing failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String finaliseApiKeyAndPaymentPlan(Connection conn, PaymentSession session, SubmitCommitmentResult submitCommitmentResult) throws SQLException, JsonProcessingException {
+        Instant newExpiry = Instant.ofEpochMilli(currentTimeMillis(timeMeter))
+                .plus(PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+
+        final String apiKey;
+        if (session.shouldCreateKey()) {
+            apiKey = ApiKeyService.generateApiKey();
+            apiKeyRepository.insert(conn, apiKey, session.targetPlanId(), newExpiry);
+            // Update the session with the generated API key
+            paymentRepository.updateSessionApiKey(conn, session.id(), apiKey);
+            logger.info("Created new API key {} for session {}", apiKey, session.id());
+        } else {
+            apiKey = session.apiKey();
+            // Update existing API key's pricing plan and set new fixed expiry (not extend)
+            apiKeyRepository.updatePricingPlanAndSetExpiry(conn, apiKey, session.targetPlanId(), newExpiry);
+        }
+
+        paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.COMPLETED,
+            jsonMapper.writeValueAsString(submitCommitmentResult.receivedToken));
+        return apiKey;
+    }
+
+    private record SubmitCommitmentResult(Token<?> receivedToken, PaymentModels.CompletePaymentResponse error) {}
+    
+    private SubmitCommitmentResult submitAndFinaliseCommitment(TransferCommitment transferCommitment, PaymentSession session, Token<?> sourceToken) throws ExecutionException, InterruptedException, TimeoutException, VerificationException {
+        SubmitCommitmentResponse submitResponse = stateTransitionClient.submitCommitment(transferCommitment).get(30, TimeUnit.SECONDS);
+
+        if (submitResponse.getStatus() != SubmitCommitmentStatus.SUCCESS) {
+            logger.error("Failed to submit transfer commitment: {}", submitResponse.getStatus());
+            return new SubmitCommitmentResult(
+                    null,
+                    new PaymentModels.CompletePaymentResponse(
+                    false, "Failed to submit transfer: " + submitResponse.getStatus(), null, null));
+        }
+
+        InclusionProof inclusionProof = InclusionProofUtils.waitInclusionProof(stateTransitionClient, trustBase, transferCommitment).get(60, TimeUnit.SECONDS);
+
+        Transaction<TransferTransactionData> transferTransaction = transferCommitment.toTransaction(inclusionProof);
+
+        SigningService receiverSigningService = SigningService.createFromMaskedSecret(serverSecret, session.receiverNonce());
+
+        MaskedPredicate receiverPredicate = MaskedPredicate.create(
+                sourceToken.getId(),
+                TESTNET_TOKEN_TYPE,
+                receiverSigningService,
+                HashAlgorithm.SHA256,
+                session.receiverNonce()
+        );
+
+        var receivedToken = stateTransitionClient.finalizeTransaction(
+                trustBase,
+                sourceToken,
+                new TokenState(receiverPredicate, null),
+                transferTransaction
+        );
+
+        if (!receivedToken.verify(trustBase).isSuccessful()) {
+            logger.error("Received token verification failed");
+            return new SubmitCommitmentResult(
+                    null,
+                    new PaymentModels.CompletePaymentResponse(
+                    false, "Token verification failed", null, null));
+        }
+        
+        return new SubmitCommitmentResult(receivedToken, null);
+    }
+
+    private PaymentModels.CompletePaymentResponse validateIncomingCoins(Connection conn, Token<?> sourceToken, PaymentSession session) throws SQLException, JsonProcessingException {
+        // Validate that all coins have the accepted coin ID
+        if (!hasOnlyAcceptedCoins(sourceToken, acceptedCoinId)) {
+            logger.warn("Payment contains coins with unaccepted coin IDs. Only coin ID {} is accepted.",
+                    HexConverter.encode(acceptedCoinId.getBytes()));
+            paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.FAILED,
+                    jsonMapper.writeValueAsString(sourceToken));
+            return new PaymentModels.CompletePaymentResponse(
+                    false, "Payment contains unaccepted coin types. Only coin ID " +
+                    HexConverter.encode(acceptedCoinId.getBytes()) + " is accepted.", null, null
+            );
+        }
+
+        BigInteger receivedAmount = calculateTokenAmount(sourceToken, acceptedCoinId);
+        BigInteger requiredAmount = session.amountRequired();
+
+        // Validate exact payment amount
+        if (receivedAmount.compareTo(requiredAmount) < 0) {
+            logger.warn("Insufficient payment amount: {} < {}",
+                    receivedAmount, requiredAmount);
+            paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.FAILED,
+                    jsonMapper.writeValueAsString(sourceToken));
+            return new PaymentModels.CompletePaymentResponse(
+                    false, "Insufficient payment amount. Required: " + requiredAmount +
+                    ", received: " + receivedAmount, null, null
+            );
+        }
+
+        if (receivedAmount.compareTo(requiredAmount) > 0) {
+            logger.warn("Overpayment rejected: {} > {}",
+                    receivedAmount, requiredAmount);
+            paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.FAILED,
+                    jsonMapper.writeValueAsString(sourceToken));
+            return new PaymentModels.CompletePaymentResponse(
+                    false, "Overpayment not accepted. Required: " + requiredAmount +
+                    ", received: " + receivedAmount +
+                    ". Please send the exact amount to protect against accidental overpayment.", null, null
+            );
+        }
+        return null;
+    }
+
+    private PaymentModels.CompletePaymentResponse validateSessionForPaymentCompletion (Connection conn, PaymentSession session) throws SQLException {
+        if (session.status() != PaymentSessionStatus.PENDING) {
+            return new PaymentModels.CompletePaymentResponse(
+                    false, "Session is not pending", null, null
+            );
+        }
+
+        if (Instant.ofEpochMilli(currentTimeMillis(timeMeter)).isAfter(session.expiresAt())) {
+            paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.EXPIRED, null);
+            return new PaymentModels.CompletePaymentResponse(
+                    false, "Session has expired", null, null
+            );
+        }
+        return null;
+    }
+
+    private PaymentSession acquireDbLocks(Connection conn, String apiKey, UUID sessionId) throws SQLException {
+        // STEP 2: Lock API key FIRST (if it exists) to maintain consistent lock ordering
+        // Lock order must match initiatePayment(): API key → Session
+        // This prevents deadlock between completePayment() and initiatePayment()
+        if (apiKey != null && !apiKey.isEmpty()) {
+            apiKeyRepository.lockForUpdate(conn, apiKey);
+            logger.debug("Acquired lock for API key during payment completion: {}", apiKey);
+        }
+
+        // STEP 3: Now lock the session.
+        // The session may have changed state between unlocked read and now, so we re-validate
+        Optional<PaymentSession> sessionOpt = paymentRepository.findByIdAndLock(conn, sessionId);
+
+        return sessionOpt.orElseThrow(() -> new RuntimeException("Payment session missing: " + sessionId));
+    }
+
+    private TransferCommitment saveAndCommitRequestToSession(PaymentModels.CompletePaymentRequest request) {
         final TransferCommitment transferCommitment;
         try {
             transferCommitment = jsonMapper.readValue(
@@ -257,180 +458,7 @@ public class PaymentService {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
-
-        return transactionManager.executeInTransaction(conn -> {
-            try {
-                UUID sessionId = request.getSessionId();
-
-                // STEP 1: Read session (unlocked) to determine if we need to lock an API key
-                Optional<PaymentSession> sessionOptUnlocked = paymentRepository.findById(conn, sessionId);
-                if (sessionOptUnlocked.isEmpty()) {
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Invalid session ID", null, null
-                    );
-                }
-
-                // STEP 2: Lock API key FIRST (if it exists) to maintain consistent lock ordering
-                // Lock order must match initiatePayment(): API key → Session
-                // This prevents deadlock between completePayment() and initiatePayment()
-                String apiKey = sessionOptUnlocked.get().apiKey();
-                if (apiKey != null && !apiKey.isEmpty()) {
-                    apiKeyRepository.lockForUpdate(conn, apiKey);
-                    logger.debug("Acquired lock for API key during payment completion: {}", apiKey);
-                }
-
-                // STEP 3: Now lock the session.
-                // The session may have changed state between unlocked read and now, so we re-validate
-                Optional<PaymentSession> sessionOpt = paymentRepository.findByIdAndLock(conn, sessionId);
-                if (sessionOpt.isEmpty()) {
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Invalid session ID", null, null
-                    );
-                }
-
-                PaymentSession session = sessionOpt.get();
-
-                if (session.status() != PaymentSessionStatus.PENDING) {
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Session is not pending", null, null
-                    );
-                }
-
-                if (Instant.ofEpochMilli(currentTimeMillis(timeMeter)).isAfter(session.expiresAt())) {
-                    paymentRepository.updateSessionStatus(conn, sessionId, PaymentSessionStatus.EXPIRED, null);
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Session has expired", null, null
-                    );
-                }
-
-                Token<?> sourceToken = jsonMapper.readValue(
-                    request.getSourceTokenJson(), Token.class
-                );
-
-                TokenId tokenId = sourceToken.getId();
-
-                CompletableFuture<SubmitCommitmentResponse> futureResponse =
-                    stateTransitionClient.submitCommitment(transferCommitment);
-
-                SubmitCommitmentResponse submitResponse =
-                    futureResponse.get(30, TimeUnit.SECONDS);
-
-                if (submitResponse.getStatus() != SubmitCommitmentStatus.SUCCESS) {
-                    logger.error("Failed to submit transfer commitment: {}", submitResponse.getStatus());
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Failed to submit transfer: " + submitResponse.getStatus(), null, null
-                    );
-                }
-
-                CompletableFuture<InclusionProof> futureProof =
-                    InclusionProofUtils.waitInclusionProof(stateTransitionClient, trustBase, transferCommitment);
-
-                InclusionProof inclusionProof = futureProof.get(60, TimeUnit.SECONDS);
-
-                Transaction<TransferTransactionData> transferTransaction =
-                    transferCommitment.toTransaction(inclusionProof);
-
-                SigningService receiverSigningService = SigningService.createFromMaskedSecret(
-                    serverSecret, session.receiverNonce()
-                );
-
-                MaskedPredicate receiverPredicate = MaskedPredicate.create(
-                    tokenId,
-                    TESTNET_TOKEN_TYPE,
-                    receiverSigningService,
-                    HashAlgorithm.SHA256,
-                    session.receiverNonce()
-                );
-
-                var receivedToken = stateTransitionClient.finalizeTransaction(
-                    trustBase,
-                    sourceToken,
-                    new TokenState(receiverPredicate, null),
-                    transferTransaction
-                );
-
-                if (!receivedToken.verify(trustBase).isSuccessful()) {
-                    logger.error("Received token verification failed");
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Token verification failed", null, null
-                    );
-                }
-
-                // Validate that all coins have the accepted coin ID
-                if (!hasOnlyAcceptedCoins(receivedToken, acceptedCoinId)) {
-                    logger.warn("Payment contains coins with unaccepted coin IDs. Only coin ID {} is accepted.",
-                        HexConverter.encode(acceptedCoinId.getBytes()));
-                    paymentRepository.updateSessionStatus(conn, sessionId, PaymentSessionStatus.FAILED,
-                        jsonMapper.writeValueAsString(receivedToken));
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Payment contains unaccepted coin types. Only coin ID " +
-                            HexConverter.encode(acceptedCoinId.getBytes()) + " is accepted.", null, null
-                    );
-                }
-
-                BigInteger receivedAmount = calculateTokenAmount(receivedToken, acceptedCoinId);
-                BigInteger requiredAmount = session.amountRequired();
-
-                // Validate exact payment amount
-                if (receivedAmount.compareTo(requiredAmount) < 0) {
-                    logger.warn("Insufficient payment amount: {} < {}",
-                        receivedAmount, requiredAmount);
-                    paymentRepository.updateSessionStatus(conn, sessionId, PaymentSessionStatus.FAILED,
-                        jsonMapper.writeValueAsString(receivedToken));
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Insufficient payment amount. Required: " + requiredAmount +
-                            ", received: " + receivedAmount, null, null
-                    );
-                }
-
-                if (receivedAmount.compareTo(requiredAmount) > 0) {
-                    logger.warn("Overpayment rejected: {} > {}",
-                        receivedAmount, requiredAmount);
-                    paymentRepository.updateSessionStatus(conn, sessionId, PaymentSessionStatus.FAILED,
-                        jsonMapper.writeValueAsString(receivedToken));
-                    return new PaymentModels.CompletePaymentResponse(
-                        false, "Overpayment not accepted. Required: " + requiredAmount +
-                            ", received: " + receivedAmount +
-                            ". Please send the exact amount to protect against accidental overpayment.", null, null
-                    );
-                }
-
-                String finalApiKey = session.apiKey();
-
-                Instant newExpiry = Instant.ofEpochMilli(currentTimeMillis(timeMeter))
-                    .plus(PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
-
-                if (session.shouldCreateKey()) {
-                    finalApiKey = ApiKeyService.generateApiKey();
-                    apiKeyRepository.insert(conn, finalApiKey, session.targetPlanId(), newExpiry);
-                    // Update the session with the generated API key
-                    paymentRepository.updateSessionApiKey(conn, sessionId, finalApiKey);
-                    logger.info("Created new API key {} for session {}", finalApiKey, sessionId);
-                } else {
-                    // Update existing API key's pricing plan and set new fixed expiry (not extend)
-                    apiKeyRepository.updatePricingPlanAndSetExpiry(conn, finalApiKey, session.targetPlanId(), newExpiry);
-                }
-
-                paymentRepository.updateSessionStatus(conn, sessionId, PaymentSessionStatus.COMPLETED,
-                    jsonMapper.writeValueAsString(receivedToken));
-
-                logger.info("Payment completed successfully for session {} - API key {} with plan {}",
-                    sessionId, finalApiKey, session.targetPlanId());
-
-                return new PaymentModels.CompletePaymentResponse(
-                    true,
-                    session.shouldCreateKey() ?
-                            "Payment verified. New API key created successfully.":
-                            "Payment verified. API key upgraded successfully.",
-                    session.targetPlanId(),
-                    finalApiKey
-                );
-
-            } catch (Exception e) {
-                logger.error("Error processing payment for session {}: {}", request.getSessionId(), e.getMessage());
-                throw new RuntimeException("Payment processing failed: " + e.getMessage(), e);
-            }
-        });
+        return transferCommitment;
     }
 
     private String generatePaymentAddress(MaskedPredicate predicate) {
@@ -463,10 +491,6 @@ public class PaymentService {
                 .stream()
                 .allMatch(coinId -> coinId.equals(acceptedCoinId))).orElse(false);
 
-    }
-
-    private BigInteger getRequiredAmount(Connection conn, Long planId) throws SQLException {
-       return pricingPlanRepository.findById(conn, planId).price();
     }
 
     private BigInteger calculateProRatedProportionalRefund(BigInteger currentPlanPrice, Instant currentExpiry, Instant sessionEndTime) {

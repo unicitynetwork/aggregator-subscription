@@ -34,10 +34,11 @@ public class ApiKeyRepository {
         INSERT INTO api_keys (api_key, pricing_plan_id, status, active_until)
         VALUES (?, ?, ?::api_key_status, ?)
         """;
-    
-    private static final String DELETE_SQL = "DELETE FROM api_keys WHERE api_key = ?";
-    
-    private static final String DELETE_BY_PLAN_ID_SQL = "DELETE FROM api_keys WHERE pricing_plan_id = ?";
+
+    private static final String CREATE_WITH_DESCRIPTION_SQL = """
+        INSERT INTO api_keys (api_key, description, pricing_plan_id, status, active_until)
+        VALUES (?, ?, ?, 'active'::api_key_status, CURRENT_TIMESTAMP + INTERVAL '1 day' * ?)
+        """;
 
     private static final String UPDATE_PLAN_SQL = "UPDATE api_keys SET pricing_plan_id = ? WHERE api_key = ?";
 
@@ -57,17 +58,16 @@ public class ApiKeyRepository {
 
     private static final String UPDATE_DESCRIPTION_SQL = "UPDATE api_keys SET description = ? WHERE id = ?";
 
-    private static final String CREATE_WITH_DESCRIPTION_SQL = """
-        INSERT INTO api_keys (api_key, description, pricing_plan_id, status, active_until)
-        VALUES (?, ?, ?, 'active'::api_key_status, CURRENT_TIMESTAMP + INTERVAL '1 day' * ?)
-        """;
-
     public static final String UPDATE_PRICING_PLAN_AND_SET_EXPIRY = """
             UPDATE api_keys
             SET pricing_plan_id = ?,
                 active_until = ?
             WHERE api_key = ?
             """;
+
+    private static final String DELETE_SQL = "DELETE FROM api_keys WHERE api_key = ?";
+
+    private static final String DELETE_BY_PLAN_ID_SQL = "DELETE FROM api_keys WHERE pricing_plan_id = ?";
 
     public ApiKeyRepository() {
     }

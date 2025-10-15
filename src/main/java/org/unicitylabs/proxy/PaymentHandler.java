@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class PaymentHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(PaymentHandler.class);
@@ -94,9 +95,7 @@ public class PaymentHandler extends Handler.Abstract {
         PaymentModels.InitiatePaymentRequest initiateRequest =
             objectMapper.readValue(requestBody, PaymentModels.InitiatePaymentRequest.class);
 
-        if (initiateRequest.getTargetPlanId() < 0) {
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", "Valid target plan ID is required");
+        if (!validateInitiateRequest(response, callback, initiateRequest)) {
             return;
         }
 
@@ -119,6 +118,15 @@ public class PaymentHandler extends Handler.Abstract {
         }
     }
 
+    private boolean validateInitiateRequest(Response response, Callback callback, PaymentModels.InitiatePaymentRequest initiateRequest) {
+        if (initiateRequest.getTargetPlanId() < 0) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Valid target plan ID is required");
+            return false;
+        }
+        return true;
+    }
+
     private void handleCompletePayment(Request request, Response response, Callback callback)
             throws Exception {
 
@@ -129,29 +137,7 @@ public class PaymentHandler extends Handler.Abstract {
         PaymentModels.CompletePaymentRequest completeRequest =
             objectMapper.readValue(requestBody, PaymentModels.CompletePaymentRequest.class);
 
-        if (completeRequest.getSessionId() == null) {
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", "Session ID is required");
-            return;
-        }
-
-        if (completeRequest.getSalt() == null || completeRequest.getSalt().isEmpty()) {
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", "Salt is required");
-            return;
-        }
-
-        if (completeRequest.getTransferCommitmentJson() == null ||
-            completeRequest.getTransferCommitmentJson().isEmpty()) {
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", "Transfer commitment is required");
-            return;
-        }
-
-        if (completeRequest.getSourceTokenJson() == null ||
-            completeRequest.getSourceTokenJson().isEmpty()) {
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", "Source token is required");
+        if (!validateCompletePaymentRequest(response, callback, completeRequest)) {
             return;
         }
 
@@ -183,9 +169,46 @@ public class PaymentHandler extends Handler.Abstract {
         }
     }
 
+    private boolean validateCompletePaymentRequest(Response response, Callback callback, PaymentModels.CompletePaymentRequest completeRequest) {
+        if (completeRequest.getSessionId() == null) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Session ID is required");
+            return false;
+        }
+
+        if (completeRequest.getSalt() == null || completeRequest.getSalt().isEmpty()) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Salt is required");
+            return false;
+        }
+
+        if (completeRequest.getTransferCommitmentJson() == null ||
+            completeRequest.getTransferCommitmentJson().isEmpty()) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Transfer commitment is required");
+            return false;
+        }
+
+        if (completeRequest.getSourceTokenJson() == null ||
+            completeRequest.getSourceTokenJson().isEmpty()) {
+            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
+                "Bad Request", "Source token is required");
+            return false;
+        }
+        return true;
+    }
+
     private void handleGetPaymentPlans(Response response, Callback callback) {
         try {
-            var availablePlans = apiKeyService.getAvailablePlans();
+            var availablePlans = pricingPlanRepository.findAll().stream()
+                    .map(plan -> new PaymentModels.PricingPlanInfo(
+                            plan.id(),
+                            plan.name(),
+                            plan.requestsPerSecond(),
+                            plan.requestsPerDay(),
+                            plan.price()
+                    ))
+                    .collect(Collectors.toList());
             Map<String, Object> responseBody = Map.of("availablePlans", availablePlans);
             sendJsonResponse(response, callback, HttpStatus.OK_200, responseBody);
         } catch (Exception e) {
