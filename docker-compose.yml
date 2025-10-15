@@ -1,3 +1,47 @@
+# YAML anchor for shared proxy service configuration
+x-proxy-service: &proxy-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    # Proxy configuration - container always listens on 8080 internally
+    PROXY_ARGS: "--port 8080 --target ${TARGET_URL:-https://goggregator-test.unicity.network}"
+    # Admin dashboard configuration
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+    # Server secret for API operations (must be hex string with even length)
+    SERVER_SECRET: ${SERVER_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    # Logging configuration (used by logback.xml)
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # Database configuration
+    DB_URL: jdbc:postgresql://postgres:5432/aggregator
+    DB_USER: aggregator
+    DB_PASSWORD: ${POSTGRES_PASSWORD:-aggregator}
+    # HikariCP connection pool configuration
+    HIKARI_MAX_POOL_SIZE: ${HIKARI_MAX_POOL_SIZE:-50}
+    HIKARI_MIN_IDLE: ${HIKARI_MIN_IDLE:-10}
+    HIKARI_CONNECTION_TIMEOUT: ${HIKARI_CONNECTION_TIMEOUT:-30000}
+    HIKARI_IDLE_TIMEOUT: ${HIKARI_IDLE_TIMEOUT:-600000}
+    HIKARI_MAX_LIFETIME: ${HIKARI_MAX_LIFETIME:-1800000}
+    HIKARI_VALIDATION_TIMEOUT: ${HIKARI_VALIDATION_TIMEOUT:-5000}
+    HIKARI_LEAK_DETECTION_THRESHOLD: ${HIKARI_LEAK_DETECTION_THRESHOLD:-60000}
+    # Log configuration
+    LOG_DIR: /var/log/aggregator
+  depends_on:
+    postgres:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
+  networks:
+    - aggregator-network
+  extra_hosts:
+    # Allow proxy to connect to host machine (for local aggregator)
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
 services:
   postgres:
     image: postgres:15-alpine
@@ -18,61 +62,51 @@ services:
     networks:
       - aggregator-network
 
-  proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: aggregator-proxy
-    environment:
-      # Proxy configuration - container always listens on 8080 internally
-      PROXY_ARGS: "--port 8080 --target ${TARGET_URL:-https://goggregator-test.unicity.network}"
-      # Admin dashboard configuration
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-      # Server secret for API operations (must be hex string with even length)
-      SERVER_SECRET: ${SERVER_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
-      # Logging configuration (used by logback.xml)
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Database configuration
-      DB_URL: jdbc:postgresql://postgres:5432/aggregator
-      DB_USER: aggregator
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-aggregator}
-      # HikariCP connection pool configuration
-      HIKARI_MAX_POOL_SIZE: ${HIKARI_MAX_POOL_SIZE:-50}
-      HIKARI_MIN_IDLE: ${HIKARI_MIN_IDLE:-10}
-      HIKARI_CONNECTION_TIMEOUT: ${HIKARI_CONNECTION_TIMEOUT:-30000}
-      HIKARI_IDLE_TIMEOUT: ${HIKARI_IDLE_TIMEOUT:-600000}
-      HIKARI_MAX_LIFETIME: ${HIKARI_MAX_LIFETIME:-1800000}
-      HIKARI_VALIDATION_TIMEOUT: ${HIKARI_VALIDATION_TIMEOUT:-5000}
-      HIKARI_LEAK_DETECTION_THRESHOLD: ${HIKARI_LEAK_DETECTION_THRESHOLD:-60000}
-      # Log configuration
-      LOG_DIR: /var/log/aggregator
-      # LOG_MAX_HISTORY: 90              # Days to keep logs (0 = unlimited, default: 90)
-      # LOG_TOTAL_SIZE_CAP: 20GB         # Total size cap (0 = unlimited, default: 20GB)
-      # LOG_MAX_FILE_SIZE: 100MB         # Max size per file (default: 100MB)
+  # HAProxy load balancer - distributes traffic across 3 proxy nodes
+  haproxy:
+    image: haproxy:2.8-alpine
+    container_name: aggregator-haproxy
     ports:
-      # Map host port (configurable) to container port 8080 (fixed)
+      # Main proxy port
       - "${PROXY_PORT:-8080}:8080"
+      # Stats/monitoring page
+      - "${HAPROXY_STATS_PORT:-8404}:8404"
     volumes:
-      - proxy-logs:/var/log/aggregator
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - proxy-1
+      - proxy-2
+      - proxy-3
     networks:
       - aggregator-network
-    extra_hosts:
-      # Allow proxy to connect to host machine (for local aggregator)
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+  # Proxy node 1
+  proxy-1:
+    <<: *proxy-service
+    container_name: aggregator-proxy-1
+    volumes:
+      - proxy-1-logs:/var/log/aggregator
+
+  # Proxy node 2
+  proxy-2:
+    <<: *proxy-service
+    container_name: aggregator-proxy-2
+    volumes:
+      - proxy-2-logs:/var/log/aggregator
+
+  # Proxy node 3
+  proxy-3:
+    <<: *proxy-service
+    container_name: aggregator-proxy-3
+    volumes:
+      - proxy-3-logs:/var/log/aggregator
 
 volumes:
   postgres-data:
-  proxy-logs:
+  proxy-1-logs:
+  proxy-2-logs:
+  proxy-3-logs:
 
 networks:
   aggregator-network:

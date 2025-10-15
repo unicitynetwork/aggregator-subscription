@@ -220,6 +220,77 @@ DB_URL=jdbc:postgresql://localhost:5432/aggregator \
   ./gradlew run -Pargs="--target https://goggregator-test.unicity.network"
 ```
 
+### Docker Compose with Load Balancing
+
+The project includes a Docker Compose configuration with HAProxy load balancing across 3 proxy nodes.
+
+#### Architecture
+
+- **HAProxy**: Load balancer distributing traffic across proxy nodes
+  - Round-robin load balancing for API requests
+  - Cookie-based sticky sessions for admin UI (preserves login state)
+  - Health checks on all backend nodes
+  - Exposed on port 8080 (configurable via `PROXY_PORT`)
+  - Stats page on port 8404 (configurable via `HAPROXY_STATS_PORT`)
+
+- **3 Proxy Nodes** (proxy-1, proxy-2, proxy-3):
+  - Each node runs the same proxy application
+  - Shared PostgreSQL database for API keys, pricing plans, and payments
+  - Independent in-memory rate limiting per node (total capacity = limit × 3)
+  - Independent API key caches (60s TTL)
+  - Separate log volumes for each node
+
+- **PostgreSQL**: Single shared database instance
+
+#### Starting the Load-Balanced Setup
+
+```bash
+# Start all services (1 HAProxy + 3 proxy nodes + 1 database)
+docker-compose up -d
+
+# View logs from all services
+docker-compose logs -f
+
+# View logs from a specific node
+docker-compose logs -f proxy-1
+
+# Check service status
+docker-compose ps
+
+# Access HAProxy stats page
+# Default: http://localhost:8404/stats
+```
+
+#### Configuration
+
+Environment variables can be configured in a `.env` file:
+
+```bash
+# Proxy port (HAProxy frontend)
+PROXY_PORT=8080
+
+# HAProxy stats page port
+HAPROXY_STATS_PORT=8404
+
+# Target aggregator URL
+TARGET_URL=https://goggregator-test.unicity.network
+
+# Admin password for UI
+ADMIN_PASSWORD=your-secure-password
+
+# Server secret (hex string, even length)
+SERVER_SECRET=your-64-char-hex-string
+
+# Database password
+POSTGRES_PASSWORD=aggregator
+
+# Database port
+POSTGRES_PORT=5432
+
+# Logging
+LOG_LEVEL=INFO
+```
+
 ## Development
 
 ```bash
