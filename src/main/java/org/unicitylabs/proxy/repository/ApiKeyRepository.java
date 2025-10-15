@@ -5,6 +5,7 @@ import org.unicitylabs.proxy.model.ApiKeyStatus;
 import io.github.bucket4j.TimeMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.service.PaymentService;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -37,7 +38,7 @@ public class ApiKeyRepository {
 
     private static final String CREATE_WITH_DESCRIPTION_SQL = """
         INSERT INTO api_keys (api_key, description, pricing_plan_id, status, active_until)
-        VALUES (?, ?, ?, 'active'::api_key_status, CURRENT_TIMESTAMP + INTERVAL '1 day' * ?)
+        VALUES (?, ?, ?, 'active'::api_key_status, ?)
         """;
 
     private static final String UPDATE_PLAN_SQL = "UPDATE api_keys SET pricing_plan_id = ? WHERE api_key = ?";
@@ -269,6 +270,7 @@ public class ApiKeyRepository {
             stmt.setString(1, apiKey);
             stmt.setString(2, description);
             stmt.setLong(3, pricingPlanId);
+            stmt.setTimestamp(4, Timestamp.from(PaymentService.getExpiry(timeMeter)));
 
             stmt.executeUpdate();
             logger.info("Created API key: {} with description: {}", apiKey, description);

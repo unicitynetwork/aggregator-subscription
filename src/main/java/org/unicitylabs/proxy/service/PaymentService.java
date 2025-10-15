@@ -46,6 +46,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static java.time.temporal.ChronoUnit.DAYS;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 
 public class PaymentService {
@@ -291,8 +292,7 @@ public class PaymentService {
     }
 
     private String finaliseApiKeyAndPaymentPlan(Connection conn, PaymentSession session, SubmitCommitmentResult submitCommitmentResult) throws SQLException, JsonProcessingException {
-        Instant newExpiry = Instant.ofEpochMilli(currentTimeMillis(timeMeter))
-                .plus(PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+        Instant newExpiry = getExpiry(timeMeter);
 
         final String apiKey;
         if (session.shouldCreateKey()) {
@@ -310,6 +310,10 @@ public class PaymentService {
         paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.COMPLETED,
             jsonMapper.writeValueAsString(submitCommitmentResult.receivedToken));
         return apiKey;
+    }
+
+    public static Instant getExpiry(TimeMeter timeMeter) {
+        return Instant.ofEpochMilli(currentTimeMillis(timeMeter)).plus(PAYMENT_VALIDITY_DAYS, DAYS);
     }
 
     private record SubmitCommitmentResult(Token<?> receivedToken, PaymentModels.CompletePaymentResponse error) {}
