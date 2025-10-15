@@ -44,9 +44,16 @@ services:
       HIKARI_MAX_LIFETIME: ${HIKARI_MAX_LIFETIME:-1800000}
       HIKARI_VALIDATION_TIMEOUT: ${HIKARI_VALIDATION_TIMEOUT:-5000}
       HIKARI_LEAK_DETECTION_THRESHOLD: ${HIKARI_LEAK_DETECTION_THRESHOLD:-60000}
+      # Log configuration
+      LOG_DIR: /var/log/aggregator
+      # LOG_MAX_HISTORY: 90              # Days to keep logs (0 = unlimited, default: 90)
+      # LOG_TOTAL_SIZE_CAP: 20GB         # Total size cap (0 = unlimited, default: 20GB)
+      # LOG_MAX_FILE_SIZE: 100MB         # Max size per file (default: 100MB)
     ports:
       # Map host port (configurable) to container port 8080 (fixed)
       - "${PROXY_PORT:-8080}:8080"
+    volumes:
+      - proxy-logs:/var/log/aggregator
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,6 +72,7 @@ services:
 
 volumes:
   postgres-data:
+  proxy-logs:
 
 networks:
   aggregator-network:

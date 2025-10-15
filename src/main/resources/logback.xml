@@ -1,13 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <!-- Console appender for stdout (Docker logs) -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 
-    <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+    <!-- Rolling file appender for persistent logs -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR:-./logs}/aggregator-proxy.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- Daily rollover with size-based rolling -->
+            <fileNamePattern>${LOG_DIR:-./logs}/aggregator-proxy.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <!-- Each file should be at most 100MB -->
+            <maxFileSize>${LOG_MAX_FILE_SIZE:-100MB}</maxFileSize>
+            <!-- Keep logs for this many days (0 = unlimited, default: 90) -->
+            <maxHistory>${LOG_MAX_HISTORY:-90}</maxHistory>
+            <!-- Total size cap (0 = unlimited, default: 20GB) -->
+            <totalSizeCap>${LOG_TOTAL_SIZE_CAP:-20GB}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Async wrapper for console output -->
+    <appender name="ASYNC_STDOUT" class="ch.qos.logback.classic.AsyncAppender">
         <appender-ref ref="STDOUT" />
+        <queueSize>500</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+    </appender>
+
+    <!-- Async wrapper for file output -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE" />
         <queueSize>500</queueSize>
         <discardingThreshold>0</discardingThreshold>
     </appender>
@@ -18,13 +45,44 @@
     <logger name="com.zaxxer.hikari" level="INFO"/>
 
     <!--
-    Log levels can be configured via environment variables:
+    Log configuration via environment variables:
     - LOG_LEVEL: Sets the root logger level (default: INFO)
-    - Individual package levels can be set via Java system properties:
-      Example in docker-compose: JAVA_OPTS="-Dlogging.level.org.unicitylabs.proxy=DEBUG"
+    - LOG_DIR: Directory for log files (default: ./logs for local, /var/log/aggregator for Docker)
+    - LOG_MAX_FILE_SIZE: Max size per log file before rotation (default: 100MB)
+    - LOG_MAX_HISTORY: Days to keep logs, set to 0 for unlimited (default: 90)
+    - LOG_TOTAL_SIZE_CAP: Total size cap for all logs, set to 0 for unlimited (default: 20GB)
+
+    Logs are written to both:
+    - stdout (for Docker logs: docker logs aggregator-proxy)
+    - Rolling files (for persistent storage and analysis)
+
+    IMPORTANT: If you set unlimited retention (0), you MUST monitor disk usage!
+    Unbounded log growth can fill up the disk and crash the database/application.
+
+    Example docker-compose configurations:
+
+    # Production with 90-day retention (recommended):
+      environment:
+        LOG_LEVEL: INFO
+        LOG_DIR: /var/log/aggregator
+        LOG_MAX_HISTORY: 90
+        LOG_TOTAL_SIZE_CAP: 20GB
+
+    # Long retention for compliance (6 months):
+      environment:
+        LOG_MAX_HISTORY: 180
+        LOG_TOTAL_SIZE_CAP: 50GB
+
+    # Unlimited retention (use with external monitoring!):
+      environment:
+        LOG_MAX_HISTORY: 0
+        LOG_TOTAL_SIZE_CAP: 0
     -->
 
     <root level="${LOG_LEVEL:-INFO}">
-        <appender-ref ref="ASYNC"/>
+        <!-- Always log to console (stdout) for Docker logs -->
+        <appender-ref ref="ASYNC_STDOUT"/>
+        <!-- Always log to file for persistent storage -->
+        <appender-ref ref="ASYNC_FILE"/>
     </root>
 </configuration>
