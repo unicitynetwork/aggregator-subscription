@@ -25,7 +25,7 @@ services:
     container_name: aggregator-proxy
     environment:
       # Proxy configuration - container always listens on 8080 internally
-      PROXY_ARGS: "--port 8080 --target ${TARGET_URL:-http://host.docker.internal:3000}"
+      PROXY_ARGS: "--port 8080 --target ${TARGET_URL:-https://goggregator-test.unicity.network}"
       # Admin dashboard configuration
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       # Server secret for API operations (must be hex string with even length)
