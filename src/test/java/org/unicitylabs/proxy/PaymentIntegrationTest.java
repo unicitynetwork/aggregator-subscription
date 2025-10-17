@@ -1,13 +1,13 @@
 package org.unicitylabs.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.unicitylabs.proxy.model.ApiKeyUtils;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
 import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
-import org.unicitylabs.proxy.service.PaymentService;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
@@ -100,7 +100,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         recreatePricingPlans();
 
         Instant expiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
-            .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+            .plus(ApiKeyUtils.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
         apiKeyRepository.insert(TEST_API_KEY, PLAN_BASIC.id(), expiry);
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
@@ -147,7 +147,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         // Make the key expire, then pay for it again
         testTimeMeter.setTime(Instant.ofEpochMilli(testTimeMeter.getTime())
             .atZone(ZoneId.systemDefault())
-            .plusDays(PaymentService.PAYMENT_VALIDITY_DAYS)
+            .plusDays(ApiKeyUtils.PAYMENT_VALIDITY_DAYS)
             .plusMinutes(1)
             .toInstant()
             .toEpochMilli());
@@ -610,11 +610,11 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertNotNull(keyInfo.get().activeUntil());
 
         long expiryTime = keyInfo.get().activeUntil().getTime();
-        long expectedExpiry = timeBeforePayment + TimeUnit.DAYS.toMillis(PaymentService.PAYMENT_VALIDITY_DAYS);
+        long expectedExpiry = timeBeforePayment + TimeUnit.DAYS.toMillis(ApiKeyUtils.PAYMENT_VALIDITY_DAYS);
 
         // Allow small tolerance for processing time (within 1 second)
         assertTrue(Math.abs(expiryTime - expectedExpiry) < 1000,
-            "Expiry should be exactly " + PaymentService.PAYMENT_VALIDITY_DAYS + " days from payment time");
+            "Expiry should be exactly " + ApiKeyUtils.PAYMENT_VALIDITY_DAYS + " days from payment time");
     }
 
     @Test
@@ -665,7 +665,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private String insertNewPaymentKey(String testKey, Long paymentPlanId) {
         Instant keyExpiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
-                .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+                .plus(ApiKeyUtils.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
         apiKeyRepository.insert(testKey, paymentPlanId, keyExpiry);
         TestDatabaseSetup.markForDeletionDuringReset(testKey);
         return testKey;

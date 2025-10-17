@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.bucket4j.TimeMeter;
 import org.unicitylabs.proxy.ProxyConfig;
+import org.unicitylabs.proxy.model.ApiKeyUtils;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.model.PaymentSessionStatus;
 import org.unicitylabs.proxy.repository.*;
@@ -46,13 +47,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import static java.time.temporal.ChronoUnit.DAYS;
+import static org.unicitylabs.proxy.model.ApiKeyUtils.getExpiryStartingFrom;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 
 public class PaymentService {
     private static final int SESSION_EXPIRY_MINUTES = 15;
-
-    public static final int PAYMENT_VALIDITY_DAYS = 30;
 
     // TODO: Testnet token type - fixed for all tokens on testnet
     public static final TokenType TESTNET_TOKEN_TYPE = new TokenType(HexConverter.decode(
@@ -292,7 +291,7 @@ public class PaymentService {
     }
 
     private String finaliseApiKeyAndPaymentPlan(Connection conn, PaymentSession session, SubmitCommitmentResult submitCommitmentResult) throws SQLException, JsonProcessingException {
-        Instant newExpiry = getExpiry(timeMeter);
+        Instant newExpiry = getExpiryStartingFrom(timeMeter);
 
         final String apiKey;
         if (session.shouldCreateKey()) {
@@ -310,10 +309,6 @@ public class PaymentService {
         paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.COMPLETED,
             jsonMapper.writeValueAsString(submitCommitmentResult.receivedToken));
         return apiKey;
-    }
-
-    public static Instant getExpiry(TimeMeter timeMeter) {
-        return Instant.ofEpochMilli(currentTimeMillis(timeMeter)).plus(PAYMENT_VALIDITY_DAYS, DAYS);
     }
 
     private record SubmitCommitmentResult(Token<?> receivedToken, PaymentModels.CompletePaymentResponse error) {}
@@ -502,7 +497,7 @@ public class PaymentService {
             return BigInteger.ZERO;
         }
 
-        long totalPlanMillis = TimeUnit.DAYS.toMillis(PAYMENT_VALIDITY_DAYS);
+        long totalPlanMillis = TimeUnit.DAYS.toMillis(ApiKeyUtils.PAYMENT_VALIDITY_DAYS);
         long remainingMillis = currentExpiry.toEpochMilli() - sessionEndTime.toEpochMilli();
 
         return currentPlanPrice
