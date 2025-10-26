@@ -9,11 +9,12 @@ import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.model.PaymentSessionStatus;
 import org.unicitylabs.proxy.repository.*;
 import org.unicitylabs.proxy.repository.PaymentRepository.PaymentSession;
+import org.unicitylabs.proxy.util.TokenTypeLoader;
+import org.unicitylabs.sdk.predicate.embedded.MaskedPredicateReference;
 import org.unicitylabs.sdk.util.HexConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.sdk.StateTransitionClient;
-import org.unicitylabs.sdk.address.DirectAddress;
 import org.unicitylabs.sdk.api.AggregatorClient;
 import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
 import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
@@ -23,7 +24,6 @@ import org.unicitylabs.sdk.predicate.embedded.MaskedPredicate;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 import org.unicitylabs.sdk.signing.SigningService;
 import org.unicitylabs.sdk.token.Token;
-import org.unicitylabs.sdk.token.TokenId;
 import org.unicitylabs.sdk.token.TokenState;
 import org.unicitylabs.sdk.token.TokenType;
 import org.unicitylabs.sdk.token.fungible.CoinId;
@@ -53,10 +53,6 @@ import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 public class PaymentService {
     private static final int SESSION_EXPIRY_MINUTES = 15;
 
-    // TODO: Testnet token type - fixed for all tokens on testnet
-    public static final TokenType TESTNET_TOKEN_TYPE = new TokenType(HexConverter.decode(
-        "f8aa13834268d29355ff12183066f0cb902003629bbc5eb9ef0efbe397867509"));
-
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
 
     private final PaymentRepository paymentRepository;
@@ -76,6 +72,8 @@ public class PaymentService {
     private final BigInteger minimumPaymentAmount;
 
     private final TransactionManager transactionManager;
+
+    private final TokenType tokenType;
 
     public PaymentService(ProxyConfig config, byte[] serverSecret) {
         this.paymentRepository = new PaymentRepository();
@@ -98,8 +96,10 @@ public class PaymentService {
 
         this.minimumPaymentAmount = config.getMinimumPaymentAmount();
 
-        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}, minimum payment: {}",
-            aggregatorUrl, config.getAcceptedCoinId(), this.minimumPaymentAmount);
+        this.tokenType = loadTokenType(config.getTokenTypeIdsUrl(), config.getTokenTypeName());
+
+        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}, minimum payment: {}, token type: {}",
+            aggregatorUrl, config.getAcceptedCoinId(), this.minimumPaymentAmount, config.getTokenTypeName());
     }
 
     public void setTimeMeter(TimeMeter timeMeter) {
@@ -130,6 +130,14 @@ public class PaymentService {
         return UnicityObjectMapper.JSON.readValue(
                 new FileInputStream(trustBaseFile),
                 RootTrustBase.class);
+    }
+
+    private TokenType loadTokenType(String tokenTypeIdsUrl, String tokenTypeName) {
+        try {
+            return TokenTypeLoader.loadNonFungibleTokenType(tokenTypeIdsUrl, tokenTypeName);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load token type from " + tokenTypeIdsUrl, e);
+        }
     }
 
     public PaymentModels.InitiatePaymentResponse initiatePayment(
@@ -224,17 +232,12 @@ public class PaymentService {
     }
 
     private String generatePaymentAddress(SigningService signingService, byte[] receiverNonce) {
-        // Use a dummy tokenId for address generation (address doesn't depend on tokenId)
-        TokenId dummyTokenId = new TokenId(new byte[32]);
-        MaskedPredicate predicate = MaskedPredicate.create(
-            dummyTokenId,
-            TESTNET_TOKEN_TYPE,
-            signingService,
-            HashAlgorithm.SHA256,
+        return MaskedPredicateReference.create(
+                tokenType,
+                signingService,
+                HashAlgorithm.SHA256,
                 receiverNonce
-        );
-
-        return generatePaymentAddress(predicate);
+        ).toAddress().getAddress();
     }
 
     public PaymentModels.CompletePaymentResponse completePayment(PaymentModels.CompletePaymentRequest request) {
@@ -332,7 +335,7 @@ public class PaymentService {
 
         MaskedPredicate receiverPredicate = MaskedPredicate.create(
                 sourceToken.getId(),
-                TESTNET_TOKEN_TYPE,
+                tokenType,
                 receiverSigningService,
                 HashAlgorithm.SHA256,
                 session.receiverNonce()
@@ -458,11 +461,6 @@ public class PaymentService {
             throw new RuntimeException(e);
         }
         return transferCommitment;
-    }
-
-    private String generatePaymentAddress(MaskedPredicate predicate) {
-        DirectAddress address = predicate.getReference().toAddress();
-        return address.getAddress();
     }
 
     private byte[] random32Bytes() {

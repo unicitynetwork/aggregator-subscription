@@ -190,6 +190,15 @@ public abstract class AbstractIntegrationTest {
         int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();
         config.setPort(0); // Use random port
         config.setTargetUrl("http://localhost:" + mockServerPort);
+
+        // Use local test token types file instead of fetching from GitHub
+        try {
+            String testTokenTypesUrl = getClass().getResource("/test-token-types.json").toString();
+            config.setTokenTypeIdsUrl(testTokenTypesUrl);
+            System.out.println("Using local token types file: " + testTokenTypesUrl);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load test token types file", e);
+        }
     }
 
     @AfterEach

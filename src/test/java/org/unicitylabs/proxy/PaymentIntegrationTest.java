@@ -51,7 +51,6 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.unicitylabs.proxy.service.PaymentService.TESTNET_TOKEN_TYPE;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.OK;
 import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.PATH_NOT_INCLUDED;
@@ -71,6 +70,10 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private static final CoinId TESTNET_COIN_ID = new CoinId(org.unicitylabs.sdk.util.HexConverter.decode(
         "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89"));
+
+    // Token type ID for testnet (non-fungible unicity token)
+    private static final TokenType TESTNET_TOKEN_TYPE = new TokenType(org.unicitylabs.sdk.util.HexConverter.decode(
+        "f8aa13834268d29355ff12183066f0cb902003629bbc5eb9ef0efbe397867509"));
 
     private ApiKeyRepository apiKeyRepository;
     private PaymentRepository paymentRepository;
