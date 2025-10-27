@@ -42,10 +42,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -127,7 +124,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         String requestIdHex = HexConverter.encode(paymentResult.transferCommitment().getRequestId().toBitString().toBytes());
         assertRequestIdStoredInDatabase(paymentSession.getSessionId(), requestIdHex);
-        assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment().getRequestId());
+        assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment());
 
         // Test that the new API key works
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -809,11 +806,10 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
-    private void assertRequestIdAggregatedOnBlockchain(RequestId requestId) throws Exception {
-        InclusionProofResponse response = aggregatorClient
-                .getInclusionProof(requestId).get(30, TimeUnit.SECONDS);
-        assertEquals(OK, response.getInclusionProof().verify(requestId, trustBase),
-                "RequestId should be aggregated on the blockchain with an inclusion proof");
+    private void assertRequestIdAggregatedOnBlockchain(TransferCommitment commitment) throws Exception {
+        InclusionProofUtils.waitInclusionProof(
+                directToAggregator, trustBase, commitment
+        ).get(60, TimeUnit.SECONDS);
     }
 
     private void assertRequestIdNotAggregatedOnBlockchain(RequestId requestId) throws Exception {
