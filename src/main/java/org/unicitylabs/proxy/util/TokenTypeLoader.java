@@ -10,7 +10,6 @@ import org.unicitylabs.sdk.util.HexConverter;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -98,16 +97,20 @@ public class TokenTypeLoader {
      * Load JSON content from a URL (HTTP/HTTPS) or file path.
      */
     private static String loadJsonContent(String urlString) throws IOException {
-        URL url = new URL(urlString);
+        URI uri = URI.create(urlString);
 
-        if ("file".equalsIgnoreCase(url.getProtocol())) {
-            return new String(java.nio.file.Files.readAllBytes(
-                java.nio.file.Paths.get(url.getPath())
-            ));
+        if ("file".equalsIgnoreCase(uri.getScheme())) {
+            try {
+                return new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get(uri)
+                ));
+            } catch (Exception e) {
+                throw new IOException("Failed to read file: " + urlString, e);
+            }
         } else {
             try {
                 HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(urlString))
+                    .uri(uri)
                     .GET()
                     .timeout(Duration.ofSeconds(30))
                     .build();
