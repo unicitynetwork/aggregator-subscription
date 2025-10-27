@@ -877,15 +877,26 @@
             location.reload();
         }
 
-        // Tab switching
+        // Tab switching with automatic data reload
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
 
                 tab.classList.add('active');
-                const tabId = tab.dataset.tab + 'Tab';
+                const tabName = tab.dataset.tab;
+                const tabId = tabName + 'Tab';
                 document.getElementById(tabId).classList.add('active');
+
+                if (tabName === 'keys') {
+                    loadApiKeys();
+                    loadStats();
+                } else if (tabName === 'utilization') {
+                    loadUtilization();
+                } else if (tabName === 'plans') {
+                    loadPricingPlans();
+                    loadStats();
+                }
             });
         });
 
