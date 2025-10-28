@@ -94,6 +94,8 @@ The returned list above includes the current list of available pricing plans.
 
 Next, the user initiates payment for their API key. The user can either supply an existing API key in the `apiKey` field, or the user can leave the field empty, in which case a new API key will be created for the user. Additionally, the user specifies the chosen payment plan ID.
 
+If the user does not complete the payment flow in about 15 minutes then the flow expires automatically and if the user wishes to continue then the user must start the flow again from the payment initiation endpoint here. The endpoint must also be invoked again if the user wishes to change any of the parameters specified here.
+
 **Request:**
 
 `POST /api/payment/initiate`
@@ -122,7 +124,7 @@ After that, the user sends the transfer commitment data as a JSON object, as wel
 
 In the same payment session, the user can only pay with one token which must contain exactly the right amount of the right coins and no other coins.
 
-If the user invokes this endpoint twice (for example, when the first invocation timed out), the user must use the same token the next time as well.
+If the user invokes this endpoint twice in a row (for example, when the first invocation timed out), the user must use the same token the next time as well (otherwise, the user must invoke the payment initiation endpoint to restart the flow).
 
 Note that the server stores the request input data in the `payment_sessions` table (committed in a separate database transaction than the rest of the endpoint execution), so that even if a payment fails, the table still contains the `request_id` field and the token that the user sent. This allows the server administrator to query whether the token was successfully aggregated into the Unicity blockchain (therefore received by her) irrespective of whether the payment session as a whole failed for some reason; and if the payment was indeed aggregated but the payment failed on the server side (in other words, if she did receive the payment but the user did not get the corresponding payment plan), she can fix the situation in the administrative interface manually; she can also construct the received token manually.
 
