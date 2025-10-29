@@ -1,18 +1,21 @@
 package org.unicitylabs.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.unicitylabs.proxy.model.ApiKeyUtils;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
-import org.unicitylabs.proxy.service.PaymentService;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
 import org.unicitylabs.sdk.address.AddressFactory;
 import org.unicitylabs.sdk.address.DirectAddress;
 import org.unicitylabs.sdk.api.AggregatorClient;
+import org.unicitylabs.sdk.api.InclusionProofResponse;
+import org.unicitylabs.sdk.api.RequestId;
 import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
 import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
 import org.unicitylabs.sdk.hash.HashAlgorithm;
@@ -26,11 +29,8 @@ import org.unicitylabs.sdk.token.TokenState;
 import org.unicitylabs.sdk.token.TokenType;
 import org.unicitylabs.sdk.token.fungible.CoinId;
 import org.unicitylabs.sdk.token.fungible.TokenCoinData;
-import org.unicitylabs.sdk.transaction.InclusionProof;
-import org.unicitylabs.sdk.transaction.MintCommitment;
-import org.unicitylabs.sdk.transaction.MintTransactionData;
-import org.unicitylabs.sdk.transaction.MintTransactionReason;
-import org.unicitylabs.sdk.transaction.TransferCommitment;
+import org.unicitylabs.sdk.transaction.*;
+import org.unicitylabs.sdk.util.HexConverter;
 import org.unicitylabs.sdk.util.InclusionProofUtils;
 
 import java.io.IOException;
@@ -42,17 +42,15 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.unicitylabs.proxy.service.PaymentService.TESTNET_TOKEN_TYPE;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
+import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.OK;
+import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.PATH_NOT_INCLUDED;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PaymentIntegrationTest extends AbstractIntegrationTest {
@@ -62,6 +60,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private static ObjectMapper objectMapper;
 
     private StateTransitionClient directToAggregator;
+    private AggregatorClient aggregatorClient;
 
     private static final byte[] CLIENT_SECRET = randomBytes(32);
     private static final byte[] CLIENT_NONCE = randomBytes(32);
@@ -69,7 +68,13 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private static final CoinId TESTNET_COIN_ID = new CoinId(org.unicitylabs.sdk.util.HexConverter.decode(
         "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89"));
 
+    // Token type ID for testnet (non-fungible unicity token)
+    private static final TokenType TESTNET_TOKEN_TYPE = new TokenType(org.unicitylabs.sdk.util.HexConverter.decode(
+        "f8aa13834268d29355ff12183066f0cb902003629bbc5eb9ef0efbe397867509"));
+
     private ApiKeyRepository apiKeyRepository;
+    private PaymentRepository paymentRepository;
+    private RequestId hackRequestId;
 
     @BeforeAll
     static void setupObjectMapper() {
@@ -90,16 +95,18 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void setUpTestData() {
         apiKeyRepository = new ApiKeyRepository();
         apiKeyRepository.setTimeMeter(testTimeMeter);
+        paymentRepository = new PaymentRepository();
 
         recreatePricingPlans();
 
         Instant expiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
-            .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+            .plus(ApiKeyUtils.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
         apiKeyRepository.insert(TEST_API_KEY, PLAN_BASIC.id(), expiry);
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
         String realAggregatorUrl = getRealAggregatorUrl();
-        directToAggregator = new StateTransitionClient(new AggregatorClient(realAggregatorUrl));
+        aggregatorClient = new AggregatorClient(realAggregatorUrl);
+        directToAggregator = new StateTransitionClient(aggregatorClient);
     }
 
     @Test
@@ -110,10 +117,14 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         byte[] tokenId = randomBytes(32);
         PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(PLAN_PREMIUM.id().intValue());
 
-        // Complete the payment
-        var paymentResponse = signAndSubmitPayment(paymentSession, tokenId);
+        var paymentResult = signAndSubmitPaymentWithDetails(paymentSession, tokenId);
+        var paymentResponse = paymentResult.response();
         String createdApiKey = paymentResponse.getApiKey();
         assertTrue(createdApiKey.startsWith("sk_"), "API key should have correct format");
+
+        String requestIdHex = HexConverter.encode(paymentResult.transferCommitment().getRequestId().toBitString().toBytes());
+        assertRequestIdStoredInDatabase(paymentSession.getSessionId(), requestIdHex);
+        assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment());
 
         // Test that the new API key works
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -136,7 +147,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         // Make the key expire, then pay for it again
         testTimeMeter.setTime(Instant.ofEpochMilli(testTimeMeter.getTime())
             .atZone(ZoneId.systemDefault())
-            .plusDays(PaymentService.PAYMENT_VALIDITY_DAYS)
+            .plusDays(ApiKeyUtils.PAYMENT_VALIDITY_DAYS)
             .plusMinutes(1)
             .toInstant()
             .toEpochMilli());
@@ -397,7 +408,13 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
                         .writeValueAsString(objectMapper.readTree(response.body())));
     }
 
+    private record PaymentResult(PaymentModels.CompletePaymentResponse response, TransferCommitment transferCommitment) {}
+
     private PaymentModels.CompletePaymentResponse signAndSubmitPayment(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
+        return signAndSubmitPaymentWithDetails(paymentSession, tokenId).response();
+    }
+
+    private PaymentResult signAndSubmitPaymentWithDetails(PaymentModels.InitiatePaymentResponse paymentSession, byte[] tokenId) throws Exception {
         var token = mintInitialToken(paymentSession.getPrice(), tokenId);
 
         // Create the transfer commitment
@@ -410,7 +427,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
                 UnicityObjectMapper.JSON.writeValueAsString(transferData.commitment()),
                 UnicityObjectMapper.JSON.writeValueAsString(token)
         ));
-        return objectMapper.readValue(responseBody, PaymentModels.CompletePaymentResponse.class);
+        PaymentModels.CompletePaymentResponse response = objectMapper.readValue(responseBody, PaymentModels.CompletePaymentResponse.class);
+        return new PaymentResult(response, transferData.commitment());
     }
 
     private record TransferData(TransferCommitment commitment, byte[] salt) {}
@@ -428,6 +446,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
                 null, // no message
                 clientSigningService
         );
+
+        this.hackRequestId = transferCommitment.getRequestId();
 
         return new TransferData(transferCommitment, salt);
     }
@@ -488,35 +508,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     private Token<?> mintInitialToken(BigInteger amount, byte[] tokenId, CoinId coinId) throws Exception {
-        MintResult result = attemptMinting(amount, tokenId, directToAggregator, coinId);
-
-        System.out.println("Mint response status: " + result.mintResponse().getStatus());
-        if (result.mintResponse().getStatus() != SubmitCommitmentStatus.SUCCESS) {
-            throw new Exception("Failed to mint initial token: " + result.mintResponse().getStatus());
-        }
-
-        System.out.println("Waiting for inclusion proof for mint commitment: " + result.mintCommitment().getRequestId());
-        InclusionProof mintInclusionProof;
-        try {
-            mintInclusionProof = InclusionProofUtils.waitInclusionProof(
-                    directToAggregator,
-                    trustBase,
-                    result.mintCommitment()
-            ).get(60, TimeUnit.SECONDS);
-            System.out.println("Got inclusion proof: " + mintInclusionProof);
-        } catch (Exception e) {
-            System.err.println("Failed to get inclusion proof: " + e.getMessage());
-            throw e;
-        }
-
-        TokenState tokenState = new TokenState(result.clientPredicate(), null);
-
-        return new Token<>(
-            tokenState,
-            result.mintCommitment().toTransaction(mintInclusionProof),
-            List.of(),
-            List.of()
-        );
+        Map<CoinId, BigInteger> coins = Map.of(coinId, amount);
+        return mintTokenWithMultipleCoins(tokenId, coins);
     }
 
     private @NotNull PaymentIntegrationTest.MintResult attemptMinting(BigInteger amount, byte[] tokenIdBytes, StateTransitionClient aggregator, CoinId coinId) throws InterruptedException, ExecutionException {
@@ -617,11 +610,11 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertNotNull(keyInfo.get().activeUntil());
 
         long expiryTime = keyInfo.get().activeUntil().getTime();
-        long expectedExpiry = timeBeforePayment + TimeUnit.DAYS.toMillis(PaymentService.PAYMENT_VALIDITY_DAYS);
+        long expectedExpiry = timeBeforePayment + TimeUnit.DAYS.toMillis(ApiKeyUtils.PAYMENT_VALIDITY_DAYS);
 
         // Allow small tolerance for processing time (within 1 second)
         assertTrue(Math.abs(expiryTime - expectedExpiry) < 1000,
-            "Expiry should be exactly " + PaymentService.PAYMENT_VALIDITY_DAYS + " days from payment time");
+            "Expiry should be exactly " + ApiKeyUtils.PAYMENT_VALIDITY_DAYS + " days from payment time");
     }
 
     @Test
@@ -672,7 +665,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private String insertNewPaymentKey(String testKey, Long paymentPlanId) {
         Instant keyExpiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
-                .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+                .plus(ApiKeyUtils.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
         apiKeyRepository.insert(testKey, paymentPlanId, keyExpiry);
         TestDatabaseSetup.markForDeletionDuringReset(testKey);
         return testKey;
@@ -724,14 +717,27 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         BigInteger overpaymentAmount = session.getPrice().add(BigInteger.valueOf(1000));
         Token<?> token = mintInitialToken(overpaymentAmount, randomBytes(32));
 
-        PaymentModels.CompletePaymentResponse response = attemptPaymentCompletion(session, token);
+        PaymentAttemptResult result = attemptPaymentCompletionWithDetails(session, token);
+
+        PaymentModels.CompletePaymentResponse response = result.response();
 
         assertFalse(response.isSuccess());
         assertThat(response.getMessage()).contains("Overpayment not accepted");
         assertThat(response.getMessage()).contains("exact amount");
+
+        String requestIdHex = HexConverter.encode(result.transferCommitment().getRequestId().toBitString().toBytes());
+        assertRequestIdStoredInDatabase(session.getSessionId(), requestIdHex);
+        assertRequestIdNotAggregatedOnBlockchain(result.transferCommitment().getRequestId());
     }
 
+    private record PaymentAttemptResult(PaymentModels.CompletePaymentResponse response, TransferCommitment transferCommitment) {}
+
     private PaymentModels.CompletePaymentResponse attemptPaymentCompletion(
+            PaymentModels.InitiatePaymentResponse session, Token<?> token) throws Exception {
+        return attemptPaymentCompletionWithDetails(session, token).response();
+    }
+
+    private PaymentAttemptResult attemptPaymentCompletionWithDetails(
             PaymentModels.InitiatePaymentResponse session, Token<?> token) throws Exception {
         var transferData = createTransferCommitment(token, session.getPaymentAddress());
 
@@ -750,7 +756,8 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
             .build();
 
         HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-        return objectMapper.readValue(response.body(), PaymentModels.CompletePaymentResponse.class);
+        PaymentModels.CompletePaymentResponse paymentResponse = objectMapper.readValue(response.body(), PaymentModels.CompletePaymentResponse.class);
+        return new PaymentAttemptResult(paymentResponse, transferData.commitment());
     }
 
     private Token<?> mintTokenWithSpecificCoinId(BigInteger amount, byte[] tokenIdBytes, CoinId coinId) throws Exception {
@@ -788,5 +795,28 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         TokenState tokenState = new TokenState(clientPredicate, null);
         return new Token<>(tokenState, mintCommitment.toTransaction(mintInclusionProof), List.of(), List.of());
+    }
+
+    private void assertRequestIdStoredInDatabase(UUID sessionId, String expectedRequestId) throws Exception {
+        try (java.sql.Connection conn = org.unicitylabs.proxy.repository.DatabaseConfig.getConnection()) {
+            var session = paymentRepository.findById(conn, sessionId);
+            assertTrue(session.isPresent(), "Payment session should exist");
+            String storedRequestId = session.get().requestId();
+            assertEquals(expectedRequestId, storedRequestId, "Stored requestId should match expected value");
+        }
+    }
+
+    private void assertRequestIdAggregatedOnBlockchain(TransferCommitment commitment) throws Exception {
+        InclusionProofUtils.waitInclusionProof(
+                directToAggregator, trustBase, commitment
+        ).get(60, TimeUnit.SECONDS);
+    }
+
+    private void assertRequestIdNotAggregatedOnBlockchain(RequestId requestId) throws Exception {
+        InclusionProofResponse response = aggregatorClient
+                .getInclusionProof(requestId).get(10, TimeUnit.SECONDS);
+
+        assertEquals(PATH_NOT_INCLUDED, response.getInclusionProof().verify(requestId, trustBase),
+                "RequestId should NOT be aggregated on the blockchain");
     }
 }

@@ -184,6 +184,9 @@ public class AdminHandler extends Handler.Abstract {
                 keyNode.put("status", key.status().getValue());
                 keyNode.put("pricingPlanId", key.pricingPlanId());
                 keyNode.put("createdAt", key.createdAt().toString());
+                if (key.activeUntil() != null) {
+                    keyNode.put("activeUntil", key.activeUntil().toString());
+                }
 
                 // Add current rate limit info
                 var apiKeyInfo = apiKeyManager.getApiKeyInfo(key.apiKey());
@@ -291,7 +294,7 @@ public class AdminHandler extends Handler.Abstract {
                 planNode.put("name", plan.name());
                 planNode.put("requestsPerSecond", plan.requestsPerSecond());
                 planNode.put("requestsPerDay", plan.requestsPerDay());
-                planNode.put("price", plan.price());
+                planNode.put("price", plan.price().toString());
                 plansArray.add(planNode);
             }
 

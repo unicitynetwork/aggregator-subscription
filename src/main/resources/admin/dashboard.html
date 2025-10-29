@@ -602,6 +602,7 @@
                                 <th>API Key</th>
                                 <th>Description</th>
                                 <th>Plan</th>
+                                <th>Valid Until</th>
                                 <th>Status</th>
                                 <th>Rate Limits</th>
                                 <th>Created</th>
@@ -876,15 +877,26 @@
             location.reload();
         }
 
-        // Tab switching
+        // Tab switching with automatic data reload
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
 
                 tab.classList.add('active');
-                const tabId = tab.dataset.tab + 'Tab';
+                const tabName = tab.dataset.tab;
+                const tabId = tabName + 'Tab';
                 document.getElementById(tabId).classList.add('active');
+
+                if (tabName === 'keys') {
+                    loadApiKeys();
+                    loadStats();
+                } else if (tabName === 'utilization') {
+                    loadUtilization();
+                } else if (tabName === 'plans') {
+                    loadPricingPlans();
+                    loadStats();
+                }
             });
         });
 
@@ -936,9 +948,21 @@
             const tbody = document.getElementById('keysTableBody');
             tbody.innerHTML = '';
 
+            const formatDateTime = (timestamp) => {
+                if (!timestamp) return '-';
+                return new Date(timestamp).toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            };
+
             apiKeys.forEach(key => {
                 const tr = document.createElement('tr');
-                const createdDate = new Date(key.createdAt).toLocaleDateString();
+                const createdDate = formatDateTime(key.createdAt);
+                const validUntilDate = formatDateTime(key.activeUntil);
                 const statusBadge = key.status === 'active' ? 'badge-success' : 'badge-danger';
 
                 tr.innerHTML = `
@@ -954,6 +978,7 @@
                     </td>
                     <td>${key.description || '-'}</td>
                     <td>${key.planName || '-'}</td>
+                    <td>${validUntilDate}</td>
                     <td><span class="badge ${statusBadge}">${key.status}</span></td>
                     <td>
                         <small>${key.requestsPerSecond || '-'} req/s<br>
@@ -1000,7 +1025,7 @@
                     <td><strong>${plan.name}</strong></td>
                     <td>${plan.requestsPerSecond}</td>
                     <td>${plan.requestsPerDay.toLocaleString()}</td>
-                    <td>${plan.price || 0}</td>
+                    <td>${plan.price || '0'}</td>
                     <td>
                         <div class="actions">
                             <button class="btn btn-secondary" onclick="showEditPlanModal(${plan.id})">Edit</button>
@@ -1112,7 +1137,7 @@
             document.getElementById('editPlanName').value = plan.name;
             document.getElementById('editPlanRps').value = plan.requestsPerSecond;
             document.getElementById('editPlanRpd').value = plan.requestsPerDay;
-            document.getElementById('editPlanPrice').value = (plan.price || 0).toString();
+            document.getElementById('editPlanPrice').value = plan.price || '0';
 
             document.getElementById('editPlanModal').classList.add('show');
         }

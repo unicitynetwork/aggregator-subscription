@@ -108,6 +108,8 @@ public class RateLimiterManager {
     }
 
     private static class RateLimitEntry {
+        public static final int MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
         private final Bucket bucket;
         private final CachedApiKeyManager.ApiKeyInfo apiKeyInfo;
         private final AtomicLong consumedPerSecond = new AtomicLong(0);
@@ -132,7 +134,7 @@ public class RateLimiterManager {
             }
 
             // Reset per-day counter if more than 24 hours have passed
-            if (now - lastDayReset >= 86400000) { // 24 * 60 * 60 * 1000
+            if (now - lastDayReset >= MILLISECONDS_PER_DAY) {
                 consumedPerDay.set(1);
                 lastDayReset = now;
             } else {
@@ -150,7 +152,7 @@ public class RateLimiterManager {
 
         long getConsumedPerDay() {
             long now = System.currentTimeMillis();
-            if (now - lastDayReset >= 86400000) {
+            if (now - lastDayReset >= MILLISECONDS_PER_DAY) {
                 return 0;
             }
             return consumedPerDay.get();

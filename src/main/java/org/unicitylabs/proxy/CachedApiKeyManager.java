@@ -73,20 +73,16 @@ public class CachedApiKeyManager {
         
         logger.debug("Cache miss for API key: {}, fetching from database", apiKey);
         Optional<ApiKeyRepository.ApiKeyInfo> repoInfo = repository.findByKeyIfNotRevokedAndHasPaid(apiKey);
-        
-        if (repoInfo.isPresent()) {
-            ApiKeyRepository.ApiKeyInfo dbInfo = repoInfo.get();
-            ApiKeyInfo info = new ApiKeyInfo(
-                dbInfo.apiKey(),
-                dbInfo.requestsPerSecond(),
-                dbInfo.requestsPerDay()
-            );
-            cache.put(apiKey, new CacheEntry(info));
-            return info;
-        }
-        
-        cache.put(apiKey, new CacheEntry(null));
-        return null;
+
+        ApiKeyInfo result = repoInfo.map(apiKeyInfo ->
+                new ApiKeyInfo(
+                    apiKeyInfo.apiKey(),
+                    apiKeyInfo.requestsPerSecond(),
+                    apiKeyInfo.requestsPerDay() ))
+                .orElse(null);
+
+        cache.put(apiKey, new CacheEntry(result));
+        return result;
     }
     
     public void setApiKeyForTesting(String apiKey, ApiKeyInfo info) {

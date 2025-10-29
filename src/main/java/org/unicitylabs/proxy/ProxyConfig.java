@@ -40,6 +40,12 @@ public class ProxyConfig {
     @Parameter(names = {"--minimum-payment-amount"}, description = "Minimum payment amount in smallest currency units (default: 1000)")
     private String minimumPaymentAmount = "1000";
 
+    @Parameter(names = {"--token-type-ids-url"}, description = "URL to token type IDs JSON file (defaults to testnet unicity-ids)")
+    private String tokenTypeIdsUrl = "https://raw.githubusercontent.com/unicitynetwork/unicity-ids/main/unicity-ids.testnet.json";
+
+    @Parameter(names = {"--token-type-name"}, description = "Token type name to use from the IDs file (default: unicity)")
+    private String tokenTypeName = "unicity";
+
     @Parameter(names = {"--help", "-h"}, help = true, description = "Show help")
     private boolean help = false;
 
@@ -110,6 +116,22 @@ public class ProxyConfig {
 
     public java.math.BigInteger getMinimumPaymentAmount() {
         return new java.math.BigInteger(minimumPaymentAmount);
+    }
+
+    public String getTokenTypeIdsUrl() {
+        return tokenTypeIdsUrl;
+    }
+
+    public String getTokenTypeName() {
+        return tokenTypeName;
+    }
+
+    public void setTokenTypeIdsUrl(String tokenTypeIdsUrl) {
+        this.tokenTypeIdsUrl = tokenTypeIdsUrl;
+    }
+
+    public void setTokenTypeName(String tokenTypeName) {
+        this.tokenTypeName = tokenTypeName;
     }
 
     @Override

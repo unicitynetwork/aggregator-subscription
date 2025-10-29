@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static org.unicitylabs.proxy.model.ApiKeyUtils.getExpiryStartingFrom;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 
 public class ApiKeyRepository {
@@ -34,15 +35,16 @@ public class ApiKeyRepository {
         INSERT INTO api_keys (api_key, pricing_plan_id, status, active_until)
         VALUES (?, ?, ?::api_key_status, ?)
         """;
-    
-    private static final String DELETE_SQL = "DELETE FROM api_keys WHERE api_key = ?";
-    
-    private static final String DELETE_BY_PLAN_ID_SQL = "DELETE FROM api_keys WHERE pricing_plan_id = ?";
+
+    private static final String CREATE_WITH_DESCRIPTION_SQL = """
+        INSERT INTO api_keys (api_key, description, pricing_plan_id, status, active_until)
+        VALUES (?, ?, ?, 'active'::api_key_status, ?)
+        """;
 
     private static final String UPDATE_PLAN_SQL = "UPDATE api_keys SET pricing_plan_id = ? WHERE api_key = ?";
 
     private static final String FIND_ALL_DETAILED_SQL = """
-        SELECT ak.id, ak.api_key, ak.description, ak.status, ak.pricing_plan_id, ak.created_at
+        SELECT ak.id, ak.api_key, ak.description, ak.status, ak.pricing_plan_id, ak.created_at, ak.active_until
         FROM api_keys ak
         ORDER BY ak.created_at DESC
         """;
@@ -57,17 +59,16 @@ public class ApiKeyRepository {
 
     private static final String UPDATE_DESCRIPTION_SQL = "UPDATE api_keys SET description = ? WHERE id = ?";
 
-    private static final String CREATE_WITH_DESCRIPTION_SQL = """
-        INSERT INTO api_keys (api_key, description, pricing_plan_id, status, active_until)
-        VALUES (?, ?, ?, 'active'::api_key_status, CURRENT_TIMESTAMP + INTERVAL '1 day' * ?)
-        """;
-
     public static final String UPDATE_PRICING_PLAN_AND_SET_EXPIRY = """
             UPDATE api_keys
             SET pricing_plan_id = ?,
                 active_until = ?
             WHERE api_key = ?
             """;
+
+    private static final String DELETE_SQL = "DELETE FROM api_keys WHERE api_key = ?";
+
+    private static final String DELETE_BY_PLAN_ID_SQL = "DELETE FROM api_keys WHERE pricing_plan_id = ?";
 
     public ApiKeyRepository() {
     }
@@ -234,7 +235,7 @@ public class ApiKeyRepository {
     }
 
     public record ApiKeyDetail(Long id, String apiKey, String description, ApiKeyStatus status, Long pricingPlanId,
-                               Timestamp createdAt) {
+                               Timestamp createdAt, Timestamp activeUntil) {
     }
 
     public List<ApiKeyDetail> findAll() {
@@ -253,7 +254,8 @@ public class ApiKeyRepository {
                     rs.getString("description"),
                     ApiKeyStatus.fromValue(rs.getString("status")),
                     pricingPlanId,
-                    rs.getTimestamp("created_at")
+                    rs.getTimestamp("created_at"),
+                    rs.getTimestamp("active_until")
                 ));
             }
         } catch (SQLException e) {
@@ -269,6 +271,7 @@ public class ApiKeyRepository {
             stmt.setString(1, apiKey);
             stmt.setString(2, description);
             stmt.setLong(3, pricingPlanId);
+            stmt.setTimestamp(4, Timestamp.from(getExpiryStartingFrom(timeMeter)));
 
             stmt.executeUpdate();
             logger.info("Created API key: {} with description: {}", apiKey, description);
@@ -377,7 +380,7 @@ public class ApiKeyRepository {
 
     public Optional<ApiKeyDetail> findByKey(String apiKey) {
         String sql = """
-            SELECT id, api_key, description, status, pricing_plan_id, created_at
+            SELECT id, api_key, description, status, pricing_plan_id, created_at, active_until
             FROM api_keys
             WHERE api_key = ?
             """;
@@ -398,7 +401,8 @@ public class ApiKeyRepository {
                         rs.getString("description"),
                         ApiKeyStatus.fromValue(rs.getString("status")),
                         pricingPlanId,
-                        rs.getTimestamp("created_at")
+                        rs.getTimestamp("created_at"),
+                        rs.getTimestamp("active_until")
                     ));
                 }
             }

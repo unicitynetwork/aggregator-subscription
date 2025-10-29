@@ -114,7 +114,7 @@ distributions {
 // Task to create a simple start script
 tasks.register('createStartScripts') {
     doLast {
-        def scriptFile = file("$buildDir/scripts/start.sh")
+        def scriptFile = layout.buildDirectory.file("scripts/start.sh").get().asFile
         scriptFile.parentFile.mkdirs()
         scriptFile.text = """#!/bin/bash
 java --enable-preview -cp "lib/*" org.unicitylabs.proxy.Main "\$@"
