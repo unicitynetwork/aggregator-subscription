@@ -31,7 +31,8 @@ public class ProxyServer {
         AdminHandler adminHandler = new AdminHandler(
             config.getAdminPassword(),
             requestHandler.getApiKeyManager(),
-            this.rateLimiterManager
+            this.rateLimiterManager,
+            config.getMinimumPaymentAmount()
         );
 
         // Create payment handler

@@ -15,7 +15,7 @@ import org.unicitylabs.sdk.util.HexConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.sdk.StateTransitionClient;
-import org.unicitylabs.sdk.api.AggregatorClient;
+import org.unicitylabs.sdk.api.JsonRpcAggregatorClient;
 import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
 import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
 import org.unicitylabs.sdk.bft.RootTrustBase;
@@ -85,7 +85,7 @@ public class PaymentService {
         this.transactionManager = new TransactionManager();
 
         String aggregatorUrl = config.getTargetUrl(); // Use same aggregator as proxy target
-        AggregatorClient aggregatorClient = new AggregatorClient(aggregatorUrl);
+        JsonRpcAggregatorClient aggregatorClient = new JsonRpcAggregatorClient(aggregatorUrl);
         this.stateTransitionClient = new StateTransitionClient(aggregatorClient);
 
         this.serverSecret = serverSecret;
@@ -329,7 +329,7 @@ public class PaymentService {
 
         InclusionProof inclusionProof = InclusionProofUtils.waitInclusionProof(stateTransitionClient, trustBase, transferCommitment).get(60, TimeUnit.SECONDS);
 
-        Transaction<TransferTransactionData> transferTransaction = transferCommitment.toTransaction(inclusionProof);
+        TransferTransaction transferTransaction = transferCommitment.toTransaction(inclusionProof);
 
         SigningService receiverSigningService = SigningService.createFromMaskedSecret(serverSecret, session.receiverNonce());
 
@@ -439,7 +439,8 @@ public class PaymentService {
             transferCommitment = jsonMapper.readValue(
                     request.getTransferCommitmentJson(), TransferCommitment.class
             );
-            String requestId = HexConverter.encode(transferCommitment.getRequestId().toBitString().toBytes());
+
+            String requestId = HexConverter.encode(canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger()));
 
             // EARLY: Store completion request with unique request_id constraint
             // Even if later processing fails, we have this recorded
@@ -461,6 +462,15 @@ public class PaymentService {
             throw new RuntimeException(e);
         }
         return transferCommitment;
+    }
+
+    public static byte[] canonicalRequestId(BigInteger requestIdBitString) {
+        String hex = requestIdBitString.toString(16);
+        if (hex.startsWith("1") && hex.length() > 2) {
+            // For a canonical Request ID value, remove e.g. the leading "1" from "10000..."
+            hex = hex.substring(1);
+        }
+        return HexConverter.decode(hex);
     }
 
     private byte[] random32Bytes() {

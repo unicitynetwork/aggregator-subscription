@@ -13,13 +13,9 @@ import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
 import org.unicitylabs.sdk.address.AddressFactory;
 import org.unicitylabs.sdk.address.DirectAddress;
-import org.unicitylabs.sdk.api.AggregatorClient;
-import org.unicitylabs.sdk.api.InclusionProofResponse;
-import org.unicitylabs.sdk.api.RequestId;
-import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
-import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
+import org.unicitylabs.sdk.api.*;
 import org.unicitylabs.sdk.hash.HashAlgorithm;
-import org.unicitylabs.sdk.jsonrpc.JsonRpcNetworkError;
+import org.unicitylabs.sdk.jsonrpc.JsonRpcNetworkException;
 import org.unicitylabs.sdk.predicate.embedded.MaskedPredicate;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 import org.unicitylabs.sdk.signing.SigningService;
@@ -48,8 +44,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.unicitylabs.proxy.service.PaymentService.canonicalRequestId;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
-import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.OK;
 import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.PATH_NOT_INCLUDED;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -74,7 +70,6 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private ApiKeyRepository apiKeyRepository;
     private PaymentRepository paymentRepository;
-    private RequestId hackRequestId;
 
     @BeforeAll
     static void setupObjectMapper() {
@@ -105,7 +100,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
         String realAggregatorUrl = getRealAggregatorUrl();
-        aggregatorClient = new AggregatorClient(realAggregatorUrl);
+        aggregatorClient = new JsonRpcAggregatorClient(realAggregatorUrl);
         directToAggregator = new StateTransitionClient(aggregatorClient);
     }
 
@@ -122,13 +117,14 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         String createdApiKey = paymentResponse.getApiKey();
         assertTrue(createdApiKey.startsWith("sk_"), "API key should have correct format");
 
-        String requestIdHex = HexConverter.encode(paymentResult.transferCommitment().getRequestId().toBitString().toBytes());
+        String requestIdHex = HexConverter.encode(canonicalRequestId(paymentResult.transferCommitment().getRequestId().toBitString().toBigInteger()));
+
         assertRequestIdStoredInDatabase(paymentSession.getSessionId(), requestIdHex);
         assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment());
 
         // Test that the new API key works
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
-            new AggregatorClient(getProxyUrl(), createdApiKey));
+            new JsonRpcAggregatorClient(getProxyUrl(), createdApiKey));
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }
 
@@ -141,7 +137,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         // Test that the API key is now authorized
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
-            new AggregatorClient(getProxyUrl(), TEST_API_KEY));
+            new JsonRpcAggregatorClient(getProxyUrl(), TEST_API_KEY));
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
 
         // Make the key expire, then pay for it again
@@ -389,23 +385,92 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
                     "name" : "test-basic",
                     "requestsPerSecond" : 5,
                     "requestsPerDay" : 50000,
-                    "price" : "1"
+                    "price" : "10000"
                   }, {
                     "planId" : 6,
                     "name" : "test-standard",
                     "requestsPerSecond" : 10,
                     "requestsPerDay" : 100000,
-                    "price" : "2"
+                    "price" : "20000"
                   }, {
                     "planId" : 7,
                     "name" : "test-premium",
                     "requestsPerSecond" : 20,
                     "requestsPerDay" : 500000,
-                    "price" : "3"
+                    "price" : "30000"
                   } ]
                 }""",
                 objectMapper.writerWithDefaultPrettyPrinter()
                         .writeValueAsString(objectMapper.readTree(response.body())));
+    }
+
+    @Test
+    @Order(19)
+    @DisplayName("Test GET payment plans endpoint with plan price below minimum")
+    void testGetPaymentPlansWithBelowMinimumPrice() throws Exception {
+        // Create a plan with price below minimum payment amount (1000)
+        var pricingPlanRepository = new org.unicitylabs.proxy.repository.PricingPlanRepository();
+        long planId = pricingPlanRepository.create("test-below-minimum", 1, 1000, BigInteger.valueOf(500));
+
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/api/payment/plans"))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode());
+
+            // Parse response and verify the below-minimum plan shows minimum price (1000)
+            var jsonNode = objectMapper.readTree(response.body());
+            var plans = jsonNode.get("availablePlans");
+
+            // Find our test plan
+            boolean found = false;
+            for (var plan : plans) {
+                if (plan.get("planId").asLong() == planId) {
+                    found = true;
+                    // Verify price is the minimum (1000), not the database value (500)
+                    assertEquals("1000", plan.get("price").asText(),
+                        "Plan with price below minimum should display minimum payment amount");
+                    break;
+                }
+            }
+            assertTrue(found, "Test plan should be in response");
+        } finally {
+            TestPricingPlans.deleteTestPlansAndTheirApiKeys(List.of(planId));
+        }
+    }
+
+    @Test
+    @Order(20)
+    @DisplayName("Test initPayment with plan price below minimum enforces minimum payment")
+    void testInitPaymentWithBelowMinimumPlanPrice() throws Exception {
+        // Create a plan with price below minimum payment amount (1000)
+        var pricingPlanRepository = new org.unicitylabs.proxy.repository.PricingPlanRepository();
+        long planId = pricingPlanRepository.create("test-init-below-minimum", 1, 1000, BigInteger.valueOf(100));
+
+        try {
+            // Initiate payment for this low-priced plan
+            PaymentModels.InitiatePaymentResponse paymentSession =
+                initiatePaymentSessionWithoutKey((int) planId);
+
+            // Verify the amount required is the minimum (1000), not the plan price (100)
+            assertEquals(config.getMinimumPaymentAmount(), paymentSession.getPrice(),
+                "Payment amount should be minimum payment amount (1000), not plan price (100)");
+
+            // Now complete the payment with the minimum amount and verify it succeeds
+            byte[] tokenId = randomBytes(32);
+            var paymentResponse = signAndSubmitPayment(paymentSession, tokenId);
+
+            assertTrue(paymentResponse.isSuccess(),
+                "Payment should succeed when paying the minimum amount");
+            assertNotNull(paymentResponse.getApiKey(),
+                "API key should be created after successful payment");
+        } finally {
+            TestPricingPlans.deleteTestPlansAndTheirApiKeys(List.of(planId));
+        }
     }
 
     private record PaymentResult(PaymentModels.CompletePaymentResponse response, TransferCommitment transferCommitment) {}
@@ -446,8 +511,6 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
                 null, // no message
                 clientSigningService
         );
-
-        this.hackRequestId = transferCommitment.getRequestId();
 
         return new TransferData(transferCommitment, salt);
     }
@@ -532,7 +595,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         DirectAddress clientAddress = clientPredicate.getReference().toAddress();
 
-        MintTransactionData<MintTransactionReason> mintData = new MintTransactionData<>(
+        MintTransaction.Data<MintTransactionReason> mintData = new MintTransaction.Data<>(
             tokenId,
             tokenType,
             new byte[0], // No custom data
@@ -543,13 +606,13 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
             null  // no reason
         );
 
-        MintCommitment<MintTransactionData<MintTransactionReason>> mintCommitment =
+        MintCommitment<MintTransactionReason> mintCommitment =
             MintCommitment.create(mintData);
 
         return new MintResult(clientPredicate, mintCommitment, aggregator.submitCommitment(mintCommitment).get());
     }
 
-    private record MintResult(MaskedPredicate clientPredicate, MintCommitment<MintTransactionData<MintTransactionReason>> mintCommitment, SubmitCommitmentResponse mintResponse) {
+    private record MintResult(MaskedPredicate clientPredicate, MintCommitment<MintTransactionReason> mintCommitment, SubmitCommitmentResponse mintResponse) {
     }
 
     private static byte @NotNull [] randomBytes(int count) {
@@ -569,7 +632,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private void assertApiKeyUnauthorizedForMinting(StateTransitionClient proxiedAggregator) {
         ExecutionException e = assertThrows(ExecutionException.class, () ->
                 attemptMinting(BigInteger.TEN, randomBytes(32), proxiedAggregator, TESTNET_COIN_ID));
-        assertInstanceOf(JsonRpcNetworkError.class, e.getCause());
+        assertInstanceOf(JsonRpcNetworkException.class, e.getCause());
         assertEquals("Network error [401] occurred: Unauthorized", e.getCause().getMessage());
     }
 
@@ -725,7 +788,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getMessage()).contains("Overpayment not accepted");
         assertThat(response.getMessage()).contains("exact amount");
 
-        String requestIdHex = HexConverter.encode(result.transferCommitment().getRequestId().toBitString().toBytes());
+        String requestIdHex = HexConverter.encode(canonicalRequestId(result.transferCommitment().getRequestId().toBitString().toBigInteger()));
         assertRequestIdStoredInDatabase(session.getSessionId(), requestIdHex);
         assertRequestIdNotAggregatedOnBlockchain(result.transferCommitment().getRequestId());
     }
@@ -777,12 +840,12 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         DirectAddress clientAddress = clientPredicate.getReference().toAddress();
 
-        MintTransactionData<MintTransactionReason> mintData = new MintTransactionData<>(
+        MintTransaction.Data<MintTransactionReason> mintData = new MintTransaction.Data<>(
             tokenId, tokenType, new byte[0], coinData, clientAddress,
             randomBytes(32), null, null
         );
 
-        MintCommitment<MintTransactionData<MintTransactionReason>> mintCommitment = MintCommitment.create(mintData);
+        MintCommitment<MintTransactionReason> mintCommitment = MintCommitment.create(mintData);
 
         SubmitCommitmentResponse mintResponse = directToAggregator.submitCommitment(mintCommitment).get(30, TimeUnit.SECONDS);
         if (mintResponse.getStatus() != SubmitCommitmentStatus.SUCCESS) {
@@ -794,7 +857,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         ).get(60, TimeUnit.SECONDS);
 
         TokenState tokenState = new TokenState(clientPredicate, null);
-        return new Token<>(tokenState, mintCommitment.toTransaction(mintInclusionProof), List.of(), List.of());
+        return Token.create(trustBase, tokenState, mintCommitment.toTransaction(mintInclusionProof), List.of());
     }
 
     private void assertRequestIdStoredInDatabase(UUID sessionId, String expectedRequestId) throws Exception {

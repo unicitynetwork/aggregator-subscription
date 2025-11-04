@@ -50,13 +50,13 @@ public abstract class AbstractIntegrationTest {
             new PricingPlanRepository.PricingPlan(4L, "enterprise", 50, 1000000, new BigInteger("50000000"));
 
     protected static final PricingPlanRepository.PricingPlan PLAN_TEST_BASIC =
-            new PricingPlanRepository.PricingPlan(5L, "test-basic", 5, 50000, BigInteger.ONE);
+            new PricingPlanRepository.PricingPlan(5L, "test-basic", 5, 50000, BigInteger.valueOf(10000));
 
     protected static final PricingPlanRepository.PricingPlan PLAN_TEST_STANDARD =
-            new PricingPlanRepository.PricingPlan(6L, "test-standard", 10, 100000, BigInteger.valueOf(2));
+            new PricingPlanRepository.PricingPlan(6L, "test-standard", 10, 100000, BigInteger.valueOf(20000));
 
     protected static final PricingPlanRepository.PricingPlan PLAN_TEST_PREMIUM =
-            new PricingPlanRepository.PricingPlan(7L, "test-premium", 20, 500000, BigInteger.valueOf(3));
+            new PricingPlanRepository.PricingPlan(7L, "test-premium", 20, 500000, BigInteger.valueOf(30000));
 
     protected static final List<PricingPlanRepository.PricingPlan> ALL_PLANS = List.of(
             PLAN_BASIC, PLAN_STANDARD, PLAN_PREMIUM, PLAN_ENTERPRISE,
@@ -115,6 +115,7 @@ public abstract class AbstractIntegrationTest {
     protected volatile int mockResponseStatus;
     protected volatile String mockResponseBody;
     protected volatile boolean mockShouldReturnError;
+    protected ProxyConfig config;
 
     @BeforeAll
     static void setUpDatabase() {
@@ -144,7 +145,7 @@ public abstract class AbstractIntegrationTest {
         mockServer = createMockServer();
         mockServer.start();
 
-        ProxyConfig config = new ProxyConfig();
+        config = new ProxyConfig();
         updateConfigForTests(config);
 
         proxyServer = new ProxyServer(config, SERVER_SECRET);

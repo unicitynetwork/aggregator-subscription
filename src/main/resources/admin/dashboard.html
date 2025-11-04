@@ -659,6 +659,10 @@
                             + New Plan
                         </button>
                     </div>
+                    <div id="minimumPaymentNotice" style="display: none; padding: 1rem; margin-bottom: 1rem; background-color: #f0f7ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
+                        <strong>Note:</strong> The minimum payment amount is <strong id="minimumPaymentAmountValue">-</strong>.
+                        Customers will be charged at least this amount even if a plan's price is lower.
+                    </div>
                     <div id="plansLoading" class="loading">
                         <div class="spinner"></div>
                         <p>Loading pricing plans...</p>
@@ -1004,10 +1008,19 @@
         async function loadPricingPlans() {
             document.getElementById('plansLoading').style.display = 'block';
             document.getElementById('plansTable').style.display = 'none';
+            document.getElementById('minimumPaymentNotice').style.display = 'none';
 
             try {
                 const response = await apiCall('/admin/api/plans');
-                pricingPlans = await response.json();
+                const data = await response.json();
+                pricingPlans = data.plans;
+
+                // Display minimum payment amount
+                if (data.minimumPaymentAmount) {
+                    document.getElementById('minimumPaymentAmountValue').textContent = data.minimumPaymentAmount;
+                    document.getElementById('minimumPaymentNotice').style.display = 'block';
+                }
+
                 renderPricingPlans();
                 updatePlanSelect();
             } catch (error) {

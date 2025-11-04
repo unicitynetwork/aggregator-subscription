@@ -26,14 +26,18 @@ public class TestPricingPlans {
         PREMIUM_PLAN_ID = repository.create("test-premium", 20, 500000, BigInteger.valueOf(3));
         createdPlanIds.add(PREMIUM_PLAN_ID);
     }
-    
+
     public static void deleteTestPlansAndTheirApiKeys() {
+        deleteTestPlansAndTheirApiKeys(createdPlanIds);
+        createdPlanIds.clear();
+    }
+
+    public static void deleteTestPlansAndTheirApiKeys(List<Long> createdPlanIds) {
         for (Long planId : createdPlanIds) {
             apiKeyRepository.deleteByPricingPlanId(planId);
         }
         for (Long planId : createdPlanIds) {
             repository.delete(planId);
         }
-        createdPlanIds.clear();
     }
 }

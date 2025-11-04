@@ -39,6 +39,7 @@ public class AdminHandler extends Handler.Abstract {
     private final PricingPlanRepository pricingPlanRepository;
     private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
+    private final BigInteger minimumPaymentAmount;
 
     // Simple session management
     private final ConcurrentHashMap<String, SessionInfo> sessions = new ConcurrentHashMap<>();
@@ -50,12 +51,13 @@ public class AdminHandler extends Handler.Abstract {
             }
     }
 
-    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager) {
+    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager, BigInteger minimumPaymentAmount) {
         this.adminPassword = adminPassword;
         this.apiKeyRepository = new ApiKeyRepository();
         this.pricingPlanRepository = new PricingPlanRepository();
         this.apiKeyManager = apiKeyManager;
         this.rateLimiterManager = rateLimiterManager;
+        this.minimumPaymentAmount = minimumPaymentAmount;
         logger.info("Admin handler initialized");
     }
 
@@ -289,20 +291,29 @@ public class AdminHandler extends Handler.Abstract {
             ArrayNode plansArray = mapper.createArrayNode();
 
             for (var plan : plans) {
-                ObjectNode planNode = mapper.createObjectNode();
-                planNode.put("id", plan.id());
-                planNode.put("name", plan.name());
-                planNode.put("requestsPerSecond", plan.requestsPerSecond());
-                planNode.put("requestsPerDay", plan.requestsPerDay());
-                planNode.put("price", plan.price().toString());
+                var planNode = createPricingPlanNode(plan, mapper);
                 plansArray.add(planNode);
             }
 
-            sendJsonResponse(response, callback, plansArray.toString(), HttpStatus.OK_200);
+            ObjectNode responseNode = mapper.createObjectNode();
+            responseNode.set("plans", plansArray);
+            responseNode.put("minimumPaymentAmount", minimumPaymentAmount.toString());
+
+            sendJsonResponse(response, callback, responseNode.toString(), HttpStatus.OK_200);
         } catch (Exception e) {
             logger.error("Failed to get pricing plans", e);
             sendServerError(response, callback);
         }
+    }
+
+    static ObjectNode createPricingPlanNode(PricingPlanRepository.PricingPlan plan, ObjectMapper mapper) {
+        ObjectNode planNode = mapper.createObjectNode();
+        planNode.put("id", plan.id());
+        planNode.put("name", plan.name());
+        planNode.put("requestsPerSecond", plan.requestsPerSecond());
+        planNode.put("requestsPerDay", plan.requestsPerDay());
+        planNode.put("price", plan.price().toString());
+        return planNode;
     }
 
     private void handleCreatePricingPlan(Request request, Response response, Callback callback) {
