@@ -146,7 +146,7 @@ public abstract class AbstractIntegrationTest {
         mockServer.start();
 
         config = new ProxyConfig();
-        updateConfigForTests(config);
+        setUpConfigForTests(config);
 
         proxyServer = new ProxyServer(config, SERVER_SECRET);
         proxyServer.start();
@@ -187,10 +187,11 @@ public abstract class AbstractIntegrationTest {
         pricingPlanRepository.updateSequenceToMax();
     }
 
-    protected void updateConfigForTests(ProxyConfig config) {
+    protected void setUpConfigForTests(ProxyConfig config) {
         int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();
         config.setPort(0); // Use random port
-        config.setTargetUrl("http://localhost:" + mockServerPort);
+
+        setUpSingleShardAggregatorUrl(config, "http://localhost:" + mockServerPort);
 
         // Use local test token types file instead of fetching from GitHub
         try {
@@ -199,6 +200,26 @@ public abstract class AbstractIntegrationTest {
             System.out.println("Using local token types file: " + testTokenTypesUrl);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load test token types file", e);
+        }
+    }
+
+    protected void setUpSingleShardAggregatorUrl(ProxyConfig config, String aggregatorUrl) {
+        // Use suffix "1" (0 bits) to match all requests - no actual sharding in tests
+        try {
+            String shardConfigJson = String.format(
+                """
+                        {
+                          "version": 1,
+                          "targets": {"1": "%s"}
+                        }""",
+                    aggregatorUrl
+            );
+            java.nio.file.Path tempFile = java.nio.file.Files.createTempFile("test-shard-config-", ".json");
+            java.nio.file.Files.writeString(tempFile, shardConfigJson);
+            tempFile.toFile().deleteOnExit();
+            config.setShardConfigUrl("file://" + tempFile.toAbsolutePath());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create test shard config", e);
         }
     }
 
@@ -227,7 +248,11 @@ public abstract class AbstractIntegrationTest {
         }
     }
 
-    private Server createMockServer() {
+    protected Server createMockServer() {
+        return createMockServer("1");
+    }
+
+    protected Server createMockServer(String shardId) {
         Server server = new Server(0); // Random port
         server.setHandler(new Handler.Abstract() {
             @Override
@@ -235,8 +260,9 @@ public abstract class AbstractIntegrationTest {
                 String path = Request.getPathInContext(request);
                 String method = request.getMethod();
 
-                // Add custom header to all responses
+                // Add custom headers to all responses
                 response.getHeaders().put("X-Mock-Server", "true");
+                response.getHeaders().put("X-Shard-ID", shardId);
 
                 // Check if we should return a configured error response
                 if (mockShouldReturnError) {

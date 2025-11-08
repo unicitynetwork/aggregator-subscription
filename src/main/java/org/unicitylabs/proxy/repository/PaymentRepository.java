@@ -58,6 +58,11 @@ public class PaymentRepository {
         WHERE api_key = ?
         """;
 
+    private static final String DELETE_BY_PRICING_PLAN = """
+        DELETE FROM payment_sessions
+        WHERE target_plan_id = ?
+        """;
+
     private static final String UPDATE_SESSION_API_KEY_SQL = """
         UPDATE payment_sessions
         SET api_key = ?
@@ -180,6 +185,27 @@ public class PaymentRepository {
             throw new RuntimeException("Error deleting payment sessions for API key: " + apiKey, e);
         }
     }
+
+    /**
+     * @return the number of deleted sessions
+     */
+    public int deletePaymentSessionsByPricingPlan(long pricingPlanId) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(DELETE_BY_PRICING_PLAN)) {
+
+            stmt.setLong(1, pricingPlanId);
+
+            int deleted = stmt.executeUpdate();
+            if (deleted > 0) {
+                logger.info("Deleted {} payment sessions for pricing plan ID: {}", deleted, pricingPlanId);
+            }
+            return deleted;
+        } catch (SQLException e) {
+            throw new RuntimeException("Error deleting payment sessions for pricing plan ID: " + pricingPlanId, e);
+        }
+    }
+
+
 
     public boolean updateSessionApiKey(Connection conn, UUID sessionId, String apiKey) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement(UPDATE_SESSION_API_KEY_SQL)) {

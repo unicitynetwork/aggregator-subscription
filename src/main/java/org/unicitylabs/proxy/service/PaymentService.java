@@ -9,6 +9,7 @@ import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.model.PaymentSessionStatus;
 import org.unicitylabs.proxy.repository.*;
 import org.unicitylabs.proxy.repository.PaymentRepository.PaymentSession;
+import org.unicitylabs.proxy.shard.ShardRouter;
 import org.unicitylabs.proxy.util.TokenTypeLoader;
 import org.unicitylabs.sdk.predicate.embedded.MaskedPredicateReference;
 import org.unicitylabs.sdk.util.HexConverter;
@@ -58,9 +59,9 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final ApiKeyRepository apiKeyRepository;
     private final PricingPlanRepository pricingPlanRepository;
-    private final StateTransitionClient stateTransitionClient;
     private final ObjectMapper jsonMapper;
     private final SecureRandom secureRandom;
+    private final ShardRouter shardRouter;
     private TimeMeter timeMeter;
 
     private final byte[] serverSecret;
@@ -75,7 +76,7 @@ public class PaymentService {
 
     private final TokenType tokenType;
 
-    public PaymentService(ProxyConfig config, byte[] serverSecret) {
+    public PaymentService(ProxyConfig config, ShardRouter shardRouter, byte[] serverSecret) {
         this.paymentRepository = new PaymentRepository();
         this.apiKeyRepository = new ApiKeyRepository();
         this.pricingPlanRepository = new PricingPlanRepository();
@@ -84,9 +85,7 @@ public class PaymentService {
         this.timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
         this.transactionManager = new TransactionManager();
 
-        String aggregatorUrl = config.getTargetUrl(); // Use same aggregator as proxy target
-        JsonRpcAggregatorClient aggregatorClient = new JsonRpcAggregatorClient(aggregatorUrl);
-        this.stateTransitionClient = new StateTransitionClient(aggregatorClient);
+        this.shardRouter = shardRouter;
 
         this.serverSecret = serverSecret;
 
@@ -98,8 +97,8 @@ public class PaymentService {
 
         this.tokenType = loadTokenType(config.getTokenTypeIdsUrl(), config.getTokenTypeName());
 
-        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}, minimum payment: {}, token type: {}",
-            aggregatorUrl, config.getAcceptedCoinId(), this.minimumPaymentAmount, config.getTokenTypeName());
+        logger.info("PaymentService initialized with aggregators: {}, accepted coin ID: {}, minimum payment: {}, token type: {}",
+            shardRouter, config.getAcceptedCoinId(), this.minimumPaymentAmount, config.getTokenTypeName());
     }
 
     public void setTimeMeter(TimeMeter timeMeter) {
@@ -316,7 +315,12 @@ public class PaymentService {
 
     private record SubmitCommitmentResult(Token<?> receivedToken, PaymentModels.CompletePaymentResponse error) {}
     
-    private SubmitCommitmentResult submitAndFinaliseCommitment(TransferCommitment transferCommitment, PaymentSession session, Token<?> sourceToken) throws ExecutionException, InterruptedException, TimeoutException, VerificationException {
+    private SubmitCommitmentResult submitAndFinaliseCommitment(TransferCommitment transferCommitment, PaymentSession session, Token<?> sourceToken) throws ExecutionException, InterruptedException, TimeoutException, VerificationException
+    {
+        String hexRequestId = HexConverter.encode(canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger()));
+        JsonRpcAggregatorClient aggregatorClient = new JsonRpcAggregatorClient(shardRouter.routeByRequestId(hexRequestId));
+        var stateTransitionClient = new StateTransitionClient(aggregatorClient);
+
         SubmitCommitmentResponse submitResponse = stateTransitionClient.submitCommitment(transferCommitment).get(30, TimeUnit.SECONDS);
 
         if (submitResponse.getStatus() != SubmitCommitmentStatus.SUCCESS) {

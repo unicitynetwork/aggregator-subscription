@@ -77,13 +77,13 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Override
-    protected void updateConfigForTests(ProxyConfig config) {
-        super.updateConfigForTests(config);
+    protected void setUpConfigForTests(ProxyConfig config) {
+        super.setUpConfigForTests(config);
 
-        // Using a real aggregator here because our mock server is not capable of aggregating
-        // transactions
         config.setPort(443);
-        config.setTargetUrl(getRealAggregatorUrl());
+
+        // Using a real aggregator here because our mock server is not capable of aggregating transactions
+        setUpSingleShardAggregatorUrl(config, getRealAggregatorUrl());
     }
 
     @BeforeEach
@@ -110,7 +110,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void testCompletePaymentWithNewKeyCreation() throws Exception {
         // Initiate payment without providing an API key - one will be created on successful payment
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(PLAN_PREMIUM.id().intValue());
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(PLAN_ENTERPRISE.id().intValue());
 
         var paymentResult = signAndSubmitPaymentWithDetails(paymentSession, tokenId);
         var paymentResponse = paymentResult.response();
@@ -133,7 +133,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test payment flow with existing API key")
     void testPaymentWithExistingKey() throws Exception {
         // Use the pre-created TEST_API_KEY
-        initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
+        initiatePaymentSession(PLAN_ENTERPRISE.id().intValue(), TEST_API_KEY);
 
         // Test that the API key is now authorized
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -152,7 +152,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         // Renew with another payment
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(PLAN_ENTERPRISE.id().intValue(), TEST_API_KEY);
         signAndSubmitPayment(paymentSession, tokenId);
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }

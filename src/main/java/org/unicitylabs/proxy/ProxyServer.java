@@ -5,7 +5,12 @@ import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.shard.ShardConfig;
+import org.unicitylabs.proxy.shard.ShardConfigLoader;
+import org.unicitylabs.proxy.shard.ShardConfigValidator;
+import org.unicitylabs.proxy.shard.ShardRouter;
 
+import java.io.IOException;
 import java.util.concurrent.Executors;
 
 public class ProxyServer {
@@ -16,7 +21,7 @@ public class ProxyServer {
     private final RateLimiterManager rateLimiterManager;
     private final PaymentHandler paymentHandler; 
     
-    public ProxyServer(ProxyConfig config, byte[] serverSecret) {
+    public ProxyServer(ProxyConfig config, byte[] serverSecret) throws IOException {
         this.config = config;
 
         this.server = new Server(getQueuedThreadPool(config));
@@ -24,8 +29,14 @@ public class ProxyServer {
         ServerConnector connector = getServerConnector(config);
         server.addConnector(connector);
 
-        // Create handler chain with admin handler first
-        RequestHandler requestHandler = new RequestHandler(config);
+        // Load shard configuration
+        logger.info("Loading shard configuration from: {}", config.getShardConfigUrl());
+        ShardConfig shardConfig = ShardConfigLoader.load(config.getShardConfigUrl());
+        ShardRouter shardRouter = new ShardRouter(shardConfig);
+        ShardConfigValidator.validate(shardRouter, shardConfig);
+        logger.info("Shard configuration validated successfully");
+
+        RequestHandler requestHandler = new RequestHandler(config, shardRouter);
         this.rateLimiterManager = requestHandler.getRateLimiterManager();
 
         AdminHandler adminHandler = new AdminHandler(
@@ -35,10 +46,8 @@ public class ProxyServer {
             config.getMinimumPaymentAmount()
         );
 
-        // Create payment handler
-        this.paymentHandler = new PaymentHandler(config, serverSecret);
+        this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter);
 
-        // Create a combined handler that tries handlers in order: payment, admin, then proxy
         Handler.Abstract combinedHandler = new Handler.Abstract() {
             @Override
             public boolean handle(Request request, Response response, Callback callback) throws Exception {
@@ -57,8 +66,8 @@ public class ProxyServer {
 
         server.setHandler(combinedHandler);
 
-        logger.info("Proxy server configured on port {} targeting {}",
-            config.getPort(), config.getTargetUrl());
+        logger.info("Proxy server configured on port {} with {} shard targets",
+            config.getPort(), shardRouter.getAllTargets().size());
         logger.info("Admin dashboard available at http://localhost:{}/admin", config.getPort());
     }
 
@@ -99,7 +108,6 @@ public class ProxyServer {
         logger.info("Starting proxy server...");
         server.start();
         logger.info("Proxy server started successfully on port {}", config.getPort());
-        logger.info("Proxying all requests to: {}", config.getTargetUrl());
     }
     
     public void stop() throws Exception {
