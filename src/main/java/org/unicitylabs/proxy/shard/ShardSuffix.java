@@ -1,7 +1,6 @@
 package org.unicitylabs.proxy.shard;
 
 import java.math.BigInteger;
-import java.util.Comparator;
 
 /**
  * Represents a parsed shard suffix from the configuration.
