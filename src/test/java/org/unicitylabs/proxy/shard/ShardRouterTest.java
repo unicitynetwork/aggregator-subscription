@@ -13,8 +13,8 @@ public class ShardRouterTest {
     @DisplayName("Test routing with 1-bit sharding")
     void testRouting1Bit() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "2", "http://shard0.example.com"),
-            new ShardInfo("1", "3", "http://shard1.example.com")
+            new ShardInfo(2, "http://shard0.example.com"),
+            new ShardInfo(3, "http://shard1.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -32,10 +32,10 @@ public class ShardRouterTest {
     @DisplayName("Test routing with 2-bit sharding")
     void testRouting2Bit() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "4", "http://shard-00.example.com"),
-            new ShardInfo("1", "5", "http://shard-01.example.com"),
-            new ShardInfo("2", "6", "http://shard-10.example.com"),
-            new ShardInfo("3", "7", "http://shard-11.example.com")
+            new ShardInfo(4, "http://shard-00.example.com"),
+            new ShardInfo(5, "http://shard-01.example.com"),
+            new ShardInfo(6, "http://shard-10.example.com"),
+            new ShardInfo(7, "http://shard-11.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -51,7 +51,7 @@ public class ShardRouterTest {
     @DisplayName("Test no-sharding configuration (single target)")
     void testNoSharding() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "1", "http://single.example.com")
+            new ShardInfo(1, "http://single.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -66,8 +66,8 @@ public class ShardRouterTest {
     @DisplayName("Test random target selection")
     void testRandomTarget() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "2", "http://shard0.example.com"),
-            new ShardInfo("1", "3", "http://shard1.example.com")
+            new ShardInfo(2, "http://shard0.example.com"),
+            new ShardInfo(3, "http://shard1.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -83,8 +83,8 @@ public class ShardRouterTest {
     @DisplayName("Test routing with null/empty request ID returns random target")
     void testNullRequestId() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "2", "http://shard0.example.com"),
-            new ShardInfo("1", "3", "http://shard1.example.com")
+            new ShardInfo(2, "http://shard0.example.com"),
+            new ShardInfo(3, "http://shard1.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -100,8 +100,8 @@ public class ShardRouterTest {
     @DisplayName("Test getAllTargets returns unique targets")
     void testGetAllTargets() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "2", "http://shard0.example.com"),
-            new ShardInfo("1", "3", "http://shard1.example.com")
+            new ShardInfo(2, "http://shard0.example.com"),
+            new ShardInfo(3, "http://shard1.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -115,8 +115,8 @@ public class ShardRouterTest {
     @DisplayName("Test routing with 0x prefix in request ID")
     void testRequestIdWith0xPrefix() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "2", "http://shard0.example.com"),
-            new ShardInfo("1", "3", "http://shard1.example.com")
+            new ShardInfo(2, "http://shard0.example.com"),
+            new ShardInfo(3, "http://shard1.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -129,28 +129,27 @@ public class ShardRouterTest {
     @DisplayName("Test routing by shard ID")
     void testRouteByShardId() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "3", "http://shard0.example.com"),
-            new ShardInfo("1", "2", "http://shard1.example.com")
+            new ShardInfo(3, "http://shard0.example.com"),
+            new ShardInfo(2, "http://shard1.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
 
-        assertEquals("http://shard0.example.com", router.routeByShardId("0").get());
-        assertEquals("http://shard1.example.com", router.routeByShardId("1").get());
+        assertEquals("http://shard0.example.com", router.routeByShardId(3).get());
+        assertEquals("http://shard1.example.com", router.routeByShardId(2).get());
     }
 
     @Test
     @DisplayName("Test routing by non-existent shard ID returns null")
     void testRouteByInvalidShardId() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "2", "http://shard0.example.com"),
-            new ShardInfo("1", "3", "http://shard1.example.com")
+            new ShardInfo(2, "http://shard0.example.com"),
+            new ShardInfo(3, "http://shard1.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
 
-        assertTrue(router.routeByShardId("999").isEmpty());
-        assertTrue(router.routeByShardId(null).isEmpty());
-        assertTrue(router.routeByShardId("").isEmpty());
+        assertTrue(router.routeByShardId(999).isEmpty());
+        assertTrue(router.routeByShardId(0).isEmpty());
     }
 }

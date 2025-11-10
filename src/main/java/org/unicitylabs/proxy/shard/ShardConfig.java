@@ -44,10 +44,10 @@ public class ShardConfig {
             return;
         }
 
-        Set<BigInteger> seenIds = new HashSet<>();
+        Set<Integer> seenIds = new HashSet<>();
         for (ShardInfo shard : shards) {
-            if (!seenIds.add(shard.getId())) {
-                throw new IllegalArgumentException("Duplicate shard ID: " + shard.getId());
+            if (!seenIds.add(shard.id())) {
+                throw new IllegalArgumentException("Duplicate shard ID: " + shard.id());
             }
         }
     }

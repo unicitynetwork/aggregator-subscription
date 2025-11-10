@@ -208,7 +208,7 @@ public abstract class AbstractIntegrationTest {
     protected void setUpSingleShardAggregatorUrl(String aggregatorUrl) {
         // Use suffix "1" (0 bits) to match all requests - no actual sharding in tests
         insertShardConfig(new ShardConfig(1, List.of(
-            new ShardInfo("0", "1", aggregatorUrl)
+            new ShardInfo(1, aggregatorUrl)
         )));
     }
 

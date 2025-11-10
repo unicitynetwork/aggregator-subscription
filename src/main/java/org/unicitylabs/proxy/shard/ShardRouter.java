@@ -6,7 +6,7 @@ import java.util.Optional;
 public interface ShardRouter {
     String routeByRequestId(String requestIdHex);
 
-    Optional<String> routeByShardId(String shardId);
+    Optional<String> routeByShardId(int shardId);
 
     String getRandomTarget();
 

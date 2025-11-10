@@ -14,7 +14,7 @@ public class DefaultShardRouter implements ShardRouter {
 
     private final List<ShardSuffix> suffixes;
     private final List<String> allTargets;
-    private final Map<java.math.BigInteger, String> shardIdToUrl;
+    private final Map<Integer, String> shardIdToUrl;
     private final Random random;
     private final ShardTreeNode rootNode;
 
@@ -27,7 +27,7 @@ public class DefaultShardRouter implements ShardRouter {
         for (ShardInfo shardInfo : config.getShards()) {
             ShardSuffix suffix = new ShardSuffix(shardInfo);
             suffixes.add(suffix);
-            shardIdToUrl.put(shardInfo.getId(), shardInfo.getUrl());
+            shardIdToUrl.put(shardInfo.id(), shardInfo.url());
         }
 
         // Extract unique target URLs for random selection
@@ -62,7 +62,7 @@ public class DefaultShardRouter implements ShardRouter {
 
             // Walk from LSB to MSB, creating nodes as needed
             for (int bitIndex = 0; bitIndex < bitLength; bitIndex++) {
-                // Extract bit at position bitIndex (0 = LSB)
+                // Extract a bit at position bitIndex (0 = LSB)
                 boolean bitValue = suffix.getSuffixBits().testBit(bitIndex);
 
                 if (bitValue) {
@@ -153,20 +153,8 @@ public class DefaultShardRouter implements ShardRouter {
      * @return Target URL to route to, or null if shard ID not found
      */
     @Override
-    public Optional<String> routeByShardId(String shardId) {
-        if (shardId == null || shardId.isEmpty()) {
-            return Optional.empty();
-        }
-
-        java.math.BigInteger id;
-        try {
-            id = new java.math.BigInteger(shardId, 10);
-        } catch (NumberFormatException e) {
-            logger.warn("Invalid shard ID format: {}", shardId);
-            return Optional.empty();
-        }
-
-        String targetUrl = shardIdToUrl.get(id);
+    public Optional<String> routeByShardId(int shardId) {
+        String targetUrl = shardIdToUrl.get(shardId);
         if (targetUrl != null) {
             logger.trace("Shard ID {} routed to {}", shardId, targetUrl);
             return Optional.of(targetUrl);

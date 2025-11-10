@@ -521,7 +521,14 @@ public class RequestHandler extends Handler.Abstract {
 
         // Route by shard ID if present
         if (params.hasShardId()) {
-            Optional<String> target = shardRouter.routeByShardId(params.shardId());
+            int shardId;
+            try {
+                shardId = Integer.parseInt(params.shardId());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Shard ID not found: " + params.shardId(), e);
+            }
+
+            Optional<String> target = shardRouter.routeByShardId(shardId);
             if (target.isEmpty()) {
                 throw new IllegalArgumentException("Shard ID not found: " + params.shardId());
             }

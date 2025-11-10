@@ -18,8 +18,8 @@ public class ShardSuffix {
     private final String targetUrl;
 
     public ShardSuffix(ShardInfo shardInfo) {
-        this.suffixValue = shardInfo.getSuffix();
-        this.targetUrl = shardInfo.getUrl();
+        this.suffixValue = BigInteger.valueOf(shardInfo.id());
+        this.targetUrl = shardInfo.url();
 
         int totalBits = suffixValue.bitLength();
         this.bitLength = totalBits - 1;

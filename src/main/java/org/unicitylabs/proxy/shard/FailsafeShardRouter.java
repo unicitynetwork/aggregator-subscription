@@ -23,7 +23,7 @@ public class FailsafeShardRouter implements ShardRouter {
     }
 
     @Override
-    public Optional<String> routeByShardId(String shardId) {
+    public Optional<String> routeByShardId(int shardId) {
         throw new IllegalStateException(
             "Shard routing is unavailable due to invalid configuration. " +
             "Please fix the shard configuration via the Admin UI."

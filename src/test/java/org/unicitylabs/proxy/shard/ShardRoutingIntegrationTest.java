@@ -27,7 +27,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     protected void setUpConfigForTests(ProxyConfig config) {
         super.setUpConfigForTests(config);
 
-        asList(0, 1, 2, 3).forEach(shard -> {
+        asList(4, 5, 6, 7).forEach(shard -> {
             Server mockServer = createMockServer(String.valueOf(shard));
             try {
                 mockServer.start();
@@ -38,10 +38,10 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
         });
 
         ShardConfig shardConfig = new ShardConfig(1, List.of(
-            new ShardInfo("0", "4", "http://localhost:" + shardsToMockServerPorts.get(0)),
-            new ShardInfo("1", "5", "http://localhost:" + shardsToMockServerPorts.get(1)),
-            new ShardInfo("2", "6", "http://localhost:" + shardsToMockServerPorts.get(2)),
-            new ShardInfo("3", "7", "http://localhost:" + shardsToMockServerPorts.get(3))
+            new ShardInfo(4, "http://localhost:" + shardsToMockServerPorts.get(4)),
+            new ShardInfo(5, "http://localhost:" + shardsToMockServerPorts.get(5)),
+            new ShardInfo(6, "http://localhost:" + shardsToMockServerPorts.get(6)),
+            new ShardInfo(7, "http://localhost:" + shardsToMockServerPorts.get(7))
         ));
         insertShardConfig(shardConfig);
     }
@@ -54,25 +54,25 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test JSON-RPC request with requestId routes correctly")
     void testRequestIdRouting_shard0() throws Exception {
         HttpResponse<String> response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000000"));
-        assertEquals("0", getShardIdFromResponse(response));
+        assertEquals("4", getShardIdFromResponse(response));
 
        response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000001"));
-        assertEquals("1", getShardIdFromResponse(response));
+        assertEquals("5", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000002"));
-        assertEquals("2", getShardIdFromResponse(response));
+        assertEquals("6", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000003"));
-        assertEquals("3", getShardIdFromResponse(response));
+        assertEquals("7", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000004"));
-        assertEquals("0", getShardIdFromResponse(response));
+        assertEquals("4", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000005"));
-        assertEquals("1", getShardIdFromResponse(response));
+        assertEquals("5", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("1234238947A223094820398423048230482038420840923809EEEEEEE234234F"));
-        assertEquals("3", getShardIdFromResponse(response));
+        assertEquals("7", getShardIdFromResponse(response));
     }
 
     @Test
@@ -93,7 +93,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     void testShardConfigLoadingFromDatabase() {
         // Create and save a test shard config
         ShardConfig shardConfig = new ShardConfig(1, List.of(
-            new ShardInfo("0", "1", "http://localhost:9999")
+            new ShardInfo(1, "http://localhost:9999")
         ));
 
         insertShardConfig(shardConfig);
@@ -106,9 +106,8 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
         assertNotNull(config);
         assertEquals(1, config.getVersion());
         assertEquals(1, config.getShards().size());
-        assertEquals(java.math.BigInteger.ZERO, config.getShards().get(0).getId());
-        assertEquals(java.math.BigInteger.ONE, config.getShards().get(0).getSuffix());
-        assertEquals("http://localhost:9999", config.getShards().get(0).getUrl());
+        assertEquals(1, config.getShards().get(0).id());
+        assertEquals("http://localhost:9999", config.getShards().get(0).url());
     }
 
     @Test
@@ -116,7 +115,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     void testIncompleteConfigValidation() {
         // Create incomplete config (only covers half the space)
         ShardConfig incompleteConfig = new ShardConfig(1, List.of(
-            new ShardInfo("0", "2", "http://localhost:9999")
+            new ShardInfo(2, "http://localhost:9999")
         ));
 
         // Create router with incomplete config
@@ -199,7 +198,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = postJson(jsonRpcRequest);
         assertEquals(200, response.statusCode());
-        assertEquals("2", getShardIdFromResponse(response));
+        assertEquals("6", getShardIdFromResponse(response));
     }
 
     @Test
@@ -210,7 +209,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
                 "jsonrpc": "2.0",
                 "method": "some_method",
                 "params": {
-                    "shardId": "3"
+                    "shardId": "6"
                 },
                 "id": 1
             }
@@ -218,7 +217,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = postJson(jsonRpcRequest);
         assertEquals(200, response.statusCode());
-        assertEquals("3", getShardIdFromResponse(response));
+        assertEquals("6", getShardIdFromResponse(response));
     }
 
     @Test
@@ -230,7 +229,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
                 "method": "some_method",
                 "params": {
                     "requestId": "0000000000000000000000000000000000000000000000000000000000000000",
-                    "shardId": "0"
+                    "shardId": "4"
                 },
                 "id": 1
             }
@@ -253,14 +252,14 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     void testNonJsonRpcWithShardCookieRoutes() throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(getProxyUrl() + "/test"))
-                .header("Cookie", "UNICITY_SHARD_ID=2")
+                .header("Cookie", "UNICITY_SHARD_ID=4")
                 .GET()
                 .timeout(Duration.ofSeconds(5))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         assertEquals(200, response.statusCode());
-        assertEquals("2", getShardIdFromResponse(response));
+        assertEquals("4", getShardIdFromResponse(response));
     }
 
     @Test
@@ -275,7 +274,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         assertEquals(200, response.statusCode());
-        assertEquals("1", getShardIdFromResponse(response));
+        assertEquals("5", getShardIdFromResponse(response));
     }
 
     @Test
@@ -307,6 +306,6 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
         assertNotNull(getShardIdFromResponse(response), "Response should contain X-Shard-ID header");
 
         String shardId = getShardIdFromResponse(response);
-        assertTrue(asList("0", "1", "2", "3").contains(shardId));
+        assertTrue(asList("4", "5", "6", "7").contains(shardId));
     }
 }

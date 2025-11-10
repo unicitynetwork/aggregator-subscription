@@ -202,26 +202,25 @@ The administrative interface allows modifying the shard configuration as a JSON 
   "version": 1,
   "shards": [
     {
-      "id": "0",
-      "suffix": "2",
+      "id": 2,
       "url": "http://host.docker.internal:3001"
     },
     {
-      "id": "1",
-      "suffix": "3",
+      "id": 3,
       "url": "http://host.docker.internal:3002"
     }
   ]
 }
 ```
 
-The above shard configuration example declares 2 shards. Specifically:
+The above shard configuration declares 2 shards. Specifically:
 
-* The first shard has an ID of 0 and the other has an ID of 1.
-* Each shard has a suffix declared for matching Request IDs against the shard. The suffix is written in decimal, and it specifies a binary suffix for a Request ID -- specifically, this suffix will be compared against the least significant binary digits of Request IDs. Note that since the suffixes can have leading zeroes, an additional binary digit of "1" is prepended to every suffix. For example, to match Request IDs that end with 2 binary zeroes (00), the suffix would be 100 in binary, which in decimal form is 4.
+* Each shard has an identifier declared (2 and 3, respectively). This identifier is used in 2 ways: 
+    * It is used in JSON-RPC requests as a `shardId` parameter value to select a given shard.
+    * For other JSON-RPC requests it is used for matching the Request ID value to also select a shard, albeit in a slightly more complex way -- as there exist $2^{256}$ different Request ID values, the Shard ID works here as a suffix for matching Request IDs -- that is, the Request ID must "end with" (its least significant bits should equal) the shard identifier of given shard, with one twist -- the first bit of the Shard ID is not part of the suffix. The first bit of the Shard ID is used here to represent leading zeroes in the suffix: prepending 1-bit in front of the leading zeroes allows to encode the exact number of leading zeroes. The resulting suffix value is written in decimal. For example, to match Request IDs that end with two binary zeroes (00), the suffix would be 100 in binary, which in decimal is 4. The Shard ID would thus be 4. Note that if there is only one shard, its identifier must be 1, which represents an empty suffix (as there are no bits left in the binary digit after removing the first binary bit).
 * Each shard has a corresponding aggregator URL specified. All requests that are matched against the given shard are proxied to that URL.
 
-All requests that are not detected as JSON-RPC requests are proxied to a random shard's URL for load balancing purposes. If needed, cookies can be used to create a "sticky shard" (the names of the cookies are `UNICITY_SHARD_ID` and `UNICITY_REQUEST_ID` and their values are formatted the same as the JSON-RPC parameters `requestId` and `shardId`).
+All requests that are not detected as JSON-RPC requests are proxied to a random shard's URL for load balancing purposes. If needed, cookies can be used to create a "sticky shard" (the names of the cookies are `UNICITY_SHARD_ID` and `UNICITY_REQUEST_ID`; their values are formatted the same way as the JSON-RPC parameters `requestId` and `shardId`).
 
 ## Configuration settings
 

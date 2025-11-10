@@ -7,6 +7,6 @@ CREATE TABLE shard_config (
 
 -- Insert default test config
 INSERT INTO shard_config (config_json, created_by) VALUES (
-    '{"version": 1, "shards": [{"id": "0", "suffix": "1", "url": "https://aggregator-test.unicity.network"}]}',
+    '{"version": 1, "shards": [{"id": 1, "url": "https://aggregator-test.unicity.network"}]}',
     'system'
 );

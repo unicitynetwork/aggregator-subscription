@@ -3,74 +3,41 @@ package org.unicitylabs.proxy.shard;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.math.BigInteger;
-
 /**
  * Configuration for a single shard.
  * Immutable value object representing a shard's ID, suffix pattern, and target URL.
  */
-public class ShardInfo {
-    private final BigInteger id;
-    private final BigInteger suffix;
-    private final String url;
-
+public record ShardInfo(int id, String url) {
     @JsonCreator
     public ShardInfo(
-        @JsonProperty("id") String id,
-        @JsonProperty("suffix") String suffix,
-        @JsonProperty("url") String url
+            @JsonProperty("id") int id,
+            @JsonProperty("url") String url
     ) {
-        if (id == null || id.isEmpty()) {
-            throw new IllegalArgumentException("Shard ID cannot be null or empty");
-        }
-        if (suffix == null || suffix.isEmpty()) {
-            throw new IllegalArgumentException("Shard suffix cannot be null or empty");
+        if (id < 0) {
+            throw new IllegalArgumentException("Shard ID cannot be negative");
         }
         if (url == null || url.isEmpty()) {
             throw new IllegalArgumentException("Shard URL cannot be null or empty");
         }
 
-        try {
-            this.id = new BigInteger(id, 10);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Shard ID must be a valid decimal integer: " + id, e);
-        }
-
-        try {
-            this.suffix = new BigInteger(suffix, 10);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Shard suffix must be a valid decimal integer: " + suffix, e);
-        }
-
+        this.id = id;
         this.url = url;
-    }
-
-    public BigInteger getId() {
-        return id;
-    }
-
-    public BigInteger getSuffix() {
-        return suffix;
-    }
-
-    public String getUrl() {
-        return url;
     }
 
     @Override
     public String toString() {
-        return String.format("ShardInfo{id=%s, suffix=%s, url='%s'}", id, suffix, url);
+        return String.format("ShardInfo{id=%s, url='%s'}", id, url);
     }
 
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof ShardInfo other)) return false;
-        return id.equals(other.id);
+        return id == other.id;
     }
 
     @Override
     public int hashCode() {
-        return id.hashCode();
+        return id;
     }
 }
