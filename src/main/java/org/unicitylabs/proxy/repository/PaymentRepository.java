@@ -150,8 +150,7 @@ public class PaymentRepository {
         return Optional.empty();
     }
 
-    public boolean updateSessionStatus(Connection conn, UUID sessionId, PaymentSessionStatus newStatus,
-                                      String tokenReceived) throws SQLException {
+    public boolean updateSessionStatus(Connection conn, UUID sessionId, PaymentSessionStatus newStatus, String tokenReceived) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement(UPDATE_STATUS_SQL)) {
             stmt.setString(1, newStatus.getValue());
             stmt.setTimestamp(2, newStatus == PaymentSessionStatus.COMPLETED ? Timestamp.from(Instant.now()) : null);
@@ -341,5 +340,130 @@ public class PaymentRepository {
                                  String tokenReceived, Instant createdAt, Instant completedAt, Instant expiresAt,
                                  boolean shouldCreateKey, BigInteger refundAmount, String requestId,
                                  String completionRequestJson, Instant completionRequestTimestamp) {
+    }
+
+    // Simplified record for admin UI listing
+    public record PaymentSessionListItem(
+        UUID sessionId,
+        String apiKey,
+        String planName,
+        BigInteger amountRequired,
+        String status,
+        boolean shouldCreateKey,
+        Instant createdAt,
+        Instant completedAt,
+        String tokenReceived,
+        String completionRequestJson
+    ) {}
+
+    public record PaymentSessionsPage(
+        java.util.List<PaymentSessionListItem> sessions,
+        int totalCount,
+        int page,
+        int pageSize,
+        boolean hasMore
+    ) {}
+
+    private static final String LIST_SESSIONS_SQL = """
+        SELECT ps.id, ps.api_key, ps.status, ps.target_plan_id, ps.amount_required,
+               ps.should_create_key, ps.created_at, ps.completed_at,
+               ps.token_received, ps.completion_request_json,
+               pp.name as plan_name
+        FROM payment_sessions ps
+        LEFT JOIN pricing_plans pp ON ps.target_plan_id = pp.id
+        ORDER BY ps.created_at ASC, ps.id ASC
+        LIMIT ? OFFSET ?
+        """;
+
+    private static final String COUNT_SESSIONS_SQL = """
+        SELECT COUNT(*) FROM payment_sessions
+        """;
+
+    private static final String SEARCH_SESSIONS_SQL = """
+        SELECT ps.id, ps.api_key, ps.status, ps.target_plan_id, ps.amount_required,
+               ps.should_create_key, ps.created_at, ps.completed_at,
+               ps.token_received, ps.completion_request_json,
+               pp.name as plan_name
+        FROM payment_sessions ps
+        LEFT JOIN pricing_plans pp ON ps.target_plan_id = pp.id
+        WHERE ps.api_key = COALESCE(?::TEXT, ps.api_key)
+          AND CAST(ps.id AS TEXT) LIKE COALESCE(?::TEXT, '%')
+          AND ps.created_at >= COALESCE(?::TIMESTAMP, '1970-01-01'::TIMESTAMP)
+        ORDER BY ps.created_at ASC, ps.id ASC
+        LIMIT ?
+        """;
+
+    private PaymentSessionListItem mapToListItem(ResultSet rs) throws SQLException {
+        return new PaymentSessionListItem(
+            (UUID) rs.getObject("id"),
+            rs.getString("api_key"),
+            rs.getString("plan_name"),
+            rs.getBigDecimal("amount_required").toBigInteger(),
+            rs.getString("status"),
+            rs.getBoolean("should_create_key"),
+            rs.getTimestamp("created_at").toInstant(),
+            rs.getTimestamp("completed_at") != null ?
+                rs.getTimestamp("completed_at").toInstant() : null,
+            rs.getString("token_received"),
+            rs.getString("completion_request_json")
+        );
+    }
+
+    public PaymentSessionsPage listSessions(int page, int pageSize) {
+        try (Connection conn = DatabaseConfig.getConnection()) {
+            // Get total count
+            int totalCount = 0;
+            try (PreparedStatement stmt = conn.prepareStatement(COUNT_SESSIONS_SQL);
+                 ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    totalCount = rs.getInt(1);
+                }
+            }
+
+            // Get page of results
+            java.util.List<PaymentSessionListItem> sessions = new java.util.ArrayList<>();
+            int offset = (page - 1) * pageSize;
+
+            try (PreparedStatement stmt = conn.prepareStatement(LIST_SESSIONS_SQL)) {
+                stmt.setInt(1, pageSize);
+                stmt.setInt(2, offset);
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        sessions.add(mapToListItem(rs));
+                    }
+                }
+            }
+
+            boolean hasMore = (offset + pageSize) < totalCount;
+            return new PaymentSessionsPage(sessions, totalCount, page, pageSize, hasMore);
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Error listing payment sessions", e);
+        }
+    }
+
+    public java.util.List<PaymentSessionListItem> searchSessions(
+        String apiKey, String sessionId, Instant createdAfter, int limit
+    ) {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(SEARCH_SESSIONS_SQL)) {
+
+            stmt.setString(1, apiKey);
+            stmt.setString(2, sessionId);
+            stmt.setTimestamp(3, createdAfter == null ? null : Timestamp.from(createdAfter));
+            stmt.setInt(4, limit);
+
+            java.util.List<PaymentSessionListItem> sessions = new java.util.ArrayList<>();
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    sessions.add(mapToListItem(rs));
+                }
+            }
+
+            return sessions;
+        } catch (SQLException e) {
+            throw new RuntimeException("Error searching payment sessions", e);
+        }
     }
 }
