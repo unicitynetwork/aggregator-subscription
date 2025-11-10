@@ -4,15 +4,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.bucket4j.TimeMeter;
 import org.unicitylabs.proxy.ProxyConfig;
+import org.unicitylabs.proxy.model.ApiKeyUtils;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.model.PaymentSessionStatus;
 import org.unicitylabs.proxy.repository.*;
 import org.unicitylabs.proxy.repository.PaymentRepository.PaymentSession;
+import org.unicitylabs.proxy.util.TokenTypeLoader;
+import org.unicitylabs.sdk.predicate.embedded.MaskedPredicateReference;
 import org.unicitylabs.sdk.util.HexConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.sdk.StateTransitionClient;
-import org.unicitylabs.sdk.address.DirectAddress;
 import org.unicitylabs.sdk.api.AggregatorClient;
 import org.unicitylabs.sdk.api.SubmitCommitmentResponse;
 import org.unicitylabs.sdk.api.SubmitCommitmentStatus;
@@ -22,7 +24,6 @@ import org.unicitylabs.sdk.predicate.embedded.MaskedPredicate;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 import org.unicitylabs.sdk.signing.SigningService;
 import org.unicitylabs.sdk.token.Token;
-import org.unicitylabs.sdk.token.TokenId;
 import org.unicitylabs.sdk.token.TokenState;
 import org.unicitylabs.sdk.token.TokenType;
 import org.unicitylabs.sdk.token.fungible.CoinId;
@@ -46,17 +47,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import static java.time.temporal.ChronoUnit.DAYS;
+import static org.unicitylabs.proxy.model.ApiKeyUtils.getExpiryStartingFrom;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 
 public class PaymentService {
     private static final int SESSION_EXPIRY_MINUTES = 15;
-
-    public static final int PAYMENT_VALIDITY_DAYS = 30;
-
-    // TODO: Testnet token type - fixed for all tokens on testnet
-    public static final TokenType TESTNET_TOKEN_TYPE = new TokenType(HexConverter.decode(
-        "f8aa13834268d29355ff12183066f0cb902003629bbc5eb9ef0efbe397867509"));
 
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
 
@@ -77,6 +72,8 @@ public class PaymentService {
     private final BigInteger minimumPaymentAmount;
 
     private final TransactionManager transactionManager;
+
+    private final TokenType tokenType;
 
     public PaymentService(ProxyConfig config, byte[] serverSecret) {
         this.paymentRepository = new PaymentRepository();
@@ -99,8 +96,10 @@ public class PaymentService {
 
         this.minimumPaymentAmount = config.getMinimumPaymentAmount();
 
-        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}, minimum payment: {}",
-            aggregatorUrl, config.getAcceptedCoinId(), this.minimumPaymentAmount);
+        this.tokenType = loadTokenType(config.getTokenTypeIdsUrl(), config.getTokenTypeName());
+
+        logger.info("PaymentService initialized with aggregator: {}, accepted coin ID: {}, minimum payment: {}, token type: {}",
+            aggregatorUrl, config.getAcceptedCoinId(), this.minimumPaymentAmount, config.getTokenTypeName());
     }
 
     public void setTimeMeter(TimeMeter timeMeter) {
@@ -131,6 +130,14 @@ public class PaymentService {
         return UnicityObjectMapper.JSON.readValue(
                 new FileInputStream(trustBaseFile),
                 RootTrustBase.class);
+    }
+
+    private TokenType loadTokenType(String tokenTypeIdsUrl, String tokenTypeName) {
+        try {
+            return TokenTypeLoader.loadNonFungibleTokenType(tokenTypeIdsUrl, tokenTypeName);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load token type from " + tokenTypeIdsUrl, e);
+        }
     }
 
     public PaymentModels.InitiatePaymentResponse initiatePayment(
@@ -225,17 +232,12 @@ public class PaymentService {
     }
 
     private String generatePaymentAddress(SigningService signingService, byte[] receiverNonce) {
-        // Use a dummy tokenId for address generation (address doesn't depend on tokenId)
-        TokenId dummyTokenId = new TokenId(new byte[32]);
-        MaskedPredicate predicate = MaskedPredicate.create(
-            dummyTokenId,
-            TESTNET_TOKEN_TYPE,
-            signingService,
-            HashAlgorithm.SHA256,
+        return MaskedPredicateReference.create(
+                tokenType,
+                signingService,
+                HashAlgorithm.SHA256,
                 receiverNonce
-        );
-
-        return generatePaymentAddress(predicate);
+        ).toAddress().getAddress();
     }
 
     public PaymentModels.CompletePaymentResponse completePayment(PaymentModels.CompletePaymentRequest request) {
@@ -292,7 +294,7 @@ public class PaymentService {
     }
 
     private String finaliseApiKeyAndPaymentPlan(Connection conn, PaymentSession session, SubmitCommitmentResult submitCommitmentResult) throws SQLException, JsonProcessingException {
-        Instant newExpiry = getExpiry(timeMeter);
+        Instant newExpiry = getExpiryStartingFrom(timeMeter);
 
         final String apiKey;
         if (session.shouldCreateKey()) {
@@ -310,10 +312,6 @@ public class PaymentService {
         paymentRepository.updateSessionStatus(conn, session.id(), PaymentSessionStatus.COMPLETED,
             jsonMapper.writeValueAsString(submitCommitmentResult.receivedToken));
         return apiKey;
-    }
-
-    public static Instant getExpiry(TimeMeter timeMeter) {
-        return Instant.ofEpochMilli(currentTimeMillis(timeMeter)).plus(PAYMENT_VALIDITY_DAYS, DAYS);
     }
 
     private record SubmitCommitmentResult(Token<?> receivedToken, PaymentModels.CompletePaymentResponse error) {}
@@ -337,7 +335,7 @@ public class PaymentService {
 
         MaskedPredicate receiverPredicate = MaskedPredicate.create(
                 sourceToken.getId(),
-                TESTNET_TOKEN_TYPE,
+                tokenType,
                 receiverSigningService,
                 HashAlgorithm.SHA256,
                 session.receiverNonce()
@@ -465,11 +463,6 @@ public class PaymentService {
         return transferCommitment;
     }
 
-    private String generatePaymentAddress(MaskedPredicate predicate) {
-        DirectAddress address = predicate.getReference().toAddress();
-        return address.getAddress();
-    }
-
     private byte[] random32Bytes() {
         byte[] result = new byte[32];
         secureRandom.nextBytes(result);
@@ -502,7 +495,7 @@ public class PaymentService {
             return BigInteger.ZERO;
         }
 
-        long totalPlanMillis = TimeUnit.DAYS.toMillis(PAYMENT_VALIDITY_DAYS);
+        long totalPlanMillis = TimeUnit.DAYS.toMillis(ApiKeyUtils.PAYMENT_VALIDITY_DAYS);
         long remainingMillis = currentExpiry.toEpochMilli() - sessionEndTime.toEpochMilli();
 
         return currentPlanPrice

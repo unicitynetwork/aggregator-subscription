@@ -5,7 +5,6 @@ import org.unicitylabs.proxy.model.ApiKeyStatus;
 import io.github.bucket4j.TimeMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.unicitylabs.proxy.service.PaymentService;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -17,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static org.unicitylabs.proxy.model.ApiKeyUtils.getExpiryStartingFrom;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 
 public class ApiKeyRepository {
@@ -271,7 +271,7 @@ public class ApiKeyRepository {
             stmt.setString(1, apiKey);
             stmt.setString(2, description);
             stmt.setLong(3, pricingPlanId);
-            stmt.setTimestamp(4, Timestamp.from(PaymentService.getExpiry(timeMeter)));
+            stmt.setTimestamp(4, Timestamp.from(getExpiryStartingFrom(timeMeter)));
 
             stmt.executeUpdate();
             logger.info("Created API key: {} with description: {}", apiKey, description);

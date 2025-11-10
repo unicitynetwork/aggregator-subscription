@@ -1,13 +1,13 @@
 package org.unicitylabs.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.unicitylabs.proxy.model.ApiKeyUtils;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
 import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
-import org.unicitylabs.proxy.service.PaymentService;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.unicitylabs.sdk.StateTransitionClient;
@@ -42,16 +42,12 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.unicitylabs.proxy.service.PaymentService.TESTNET_TOKEN_TYPE;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.OK;
 import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.PATH_NOT_INCLUDED;
@@ -71,6 +67,10 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private static final CoinId TESTNET_COIN_ID = new CoinId(org.unicitylabs.sdk.util.HexConverter.decode(
         "455ad8720656b08e8dbd5bac1f3c73eeea5431565f6c1c3af742b1aa12d41d89"));
+
+    // Token type ID for testnet (non-fungible unicity token)
+    private static final TokenType TESTNET_TOKEN_TYPE = new TokenType(org.unicitylabs.sdk.util.HexConverter.decode(
+        "f8aa13834268d29355ff12183066f0cb902003629bbc5eb9ef0efbe397867509"));
 
     private ApiKeyRepository apiKeyRepository;
     private PaymentRepository paymentRepository;
@@ -100,7 +100,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         recreatePricingPlans();
 
         Instant expiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
-            .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+            .plus(ApiKeyUtils.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
         apiKeyRepository.insert(TEST_API_KEY, PLAN_BASIC.id(), expiry);
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
@@ -124,7 +124,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         String requestIdHex = HexConverter.encode(paymentResult.transferCommitment().getRequestId().toBitString().toBytes());
         assertRequestIdStoredInDatabase(paymentSession.getSessionId(), requestIdHex);
-        assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment().getRequestId());
+        assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment());
 
         // Test that the new API key works
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -147,7 +147,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         // Make the key expire, then pay for it again
         testTimeMeter.setTime(Instant.ofEpochMilli(testTimeMeter.getTime())
             .atZone(ZoneId.systemDefault())
-            .plusDays(PaymentService.PAYMENT_VALIDITY_DAYS)
+            .plusDays(ApiKeyUtils.PAYMENT_VALIDITY_DAYS)
             .plusMinutes(1)
             .toInstant()
             .toEpochMilli());
@@ -610,11 +610,11 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertNotNull(keyInfo.get().activeUntil());
 
         long expiryTime = keyInfo.get().activeUntil().getTime();
-        long expectedExpiry = timeBeforePayment + TimeUnit.DAYS.toMillis(PaymentService.PAYMENT_VALIDITY_DAYS);
+        long expectedExpiry = timeBeforePayment + TimeUnit.DAYS.toMillis(ApiKeyUtils.PAYMENT_VALIDITY_DAYS);
 
         // Allow small tolerance for processing time (within 1 second)
         assertTrue(Math.abs(expiryTime - expectedExpiry) < 1000,
-            "Expiry should be exactly " + PaymentService.PAYMENT_VALIDITY_DAYS + " days from payment time");
+            "Expiry should be exactly " + ApiKeyUtils.PAYMENT_VALIDITY_DAYS + " days from payment time");
     }
 
     @Test
@@ -665,7 +665,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private String insertNewPaymentKey(String testKey, Long paymentPlanId) {
         Instant keyExpiry = Instant.ofEpochMilli(currentTimeMillis(testTimeMeter))
-                .plus(PaymentService.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
+                .plus(ApiKeyUtils.PAYMENT_VALIDITY_DAYS, java.time.temporal.ChronoUnit.DAYS);
         apiKeyRepository.insert(testKey, paymentPlanId, keyExpiry);
         TestDatabaseSetup.markForDeletionDuringReset(testKey);
         return testKey;
@@ -806,11 +806,10 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         }
     }
 
-    private void assertRequestIdAggregatedOnBlockchain(RequestId requestId) throws Exception {
-        InclusionProofResponse response = aggregatorClient
-                .getInclusionProof(requestId).get(30, TimeUnit.SECONDS);
-        assertEquals(OK, response.getInclusionProof().verify(requestId, trustBase),
-                "RequestId should be aggregated on the blockchain with an inclusion proof");
+    private void assertRequestIdAggregatedOnBlockchain(TransferCommitment commitment) throws Exception {
+        InclusionProofUtils.waitInclusionProof(
+                directToAggregator, trustBase, commitment
+        ).get(60, TimeUnit.SECONDS);
     }
 
     private void assertRequestIdNotAggregatedOnBlockchain(RequestId requestId) throws Exception {

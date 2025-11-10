@@ -42,7 +42,7 @@ The pricing plans as well as API key properties can be changed in the administra
 
 API keys can be paid for using the Unicity token. Different payment plans can have different costs, which can be set using the Admin Interface.
 
-When a user purchases a payment plan, it always lasts for 30 days from the time of payment completion, regardless of any previously active plan. The most recently paid plan becomes the active plan. If the previous plan was still active at the time of the new purchase, the user receives a prorated refund for the unused portion of the previous plan. This refund is calculated based on the fraction of the 30-day period that remains unused (measured from 15 minutes after payment initiation). The prorated refund uses the current expiry time and current price of the previous pricing plan. If pricing has increased over time, this approach benefits the customer by providing a larger refund. If the calculated refund would reduce the payment below a minimum threshold (1000 units at the time of this writing) or make it negative, the user still pays the minimum amount.
+When a user purchases a payment plan, it always lasts for 30 days from the time of payment completion, regardless of any previously active plan. The most recently paid plan becomes the active plan. If the previous plan was still active at the time of the new purchase, the user gets a discount on the new plan equivalent to the cost of the unused portion of the previous plan. This discount is calculated based on the fraction of the 30-day period that remains unused due to the plan change (measured from 15 minutes after payment initiation). The discount uses the current expiry time and current price of the previous pricing plan. (If pricing has increased over time, this approach benefits the customer by providing a larger discount.) If the calculated discount would reduce the payment below a minimum threshold (1000 units at the time of this writing) or make it negative, the user still pays the minimum amount.
 
 Note: The license duration is calculated as a fixed number of milliseconds (30 × 24 × 60 × 60 × 1000), which may not correspond to exactly 30 calendar days in all time zones due to daylight saving time transitions, leap seconds and so forth.
 
@@ -94,6 +94,8 @@ The returned list above includes the current list of available pricing plans.
 
 Next, the user initiates payment for their API key. The user can either supply an existing API key in the `apiKey` field, or the user can leave the field empty, in which case a new API key will be created for the user. Additionally, the user specifies the chosen payment plan ID.
 
+If the user does not complete the payment flow in about 15 minutes then the flow expires automatically and if the user wishes to continue then the user must start the flow again from the payment initiation endpoint here. The endpoint must also be invoked again if the user wishes to change any of the parameters specified here.
+
 **Request:**
 
 `POST /api/payment/initiate`
@@ -122,7 +124,7 @@ After that, the user sends the transfer commitment data as a JSON object, as wel
 
 In the same payment session, the user can only pay with one token which must contain exactly the right amount of the right coins and no other coins.
 
-If the user invokes this endpoint twice (for example, when the first invocation timed out), the user must use the same token the next time as well.
+If the user invokes this endpoint twice in a row (for example, when the first invocation timed out), the user must use the same token the next time as well (otherwise, the user must invoke the payment initiation endpoint to restart the flow).
 
 Note that the server stores the request input data in the `payment_sessions` table (committed in a separate database transaction than the rest of the endpoint execution), so that even if a payment fails, the table still contains the `request_id` field and the token that the user sent. This allows the server administrator to query whether the token was successfully aggregated into the Unicity blockchain (therefore received by her) irrespective of whether the payment session as a whole failed for some reason; and if the payment was indeed aggregated but the payment failed on the server side (in other words, if she did receive the payment but the user did not get the corresponding payment plan), she can fix the situation in the administrative interface manually; she can also construct the received token manually.
 
