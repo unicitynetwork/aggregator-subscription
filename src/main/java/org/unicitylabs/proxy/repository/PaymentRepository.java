@@ -466,4 +466,62 @@ public class PaymentRepository {
             throw new RuntimeException("Error searching payment sessions", e);
         }
     }
+
+    public record PaymentStats(
+        BigInteger completedAllTime,
+        BigInteger completedThisYear,
+        BigInteger completedThisMonth,
+        BigInteger completedToday,
+        int transactionsAllTime,
+        int transactionsThisYear,
+        int transactionsThisMonth,
+        int transactionsToday
+    ) {}
+
+    private static final String PAYMENT_STATS_SQL = """
+        SELECT
+            -- Completed amounts
+            COALESCE(SUM(amount_required) FILTER (WHERE status = 'completed'), 0) as completed_all_time,
+            COALESCE(SUM(amount_required) FILTER (WHERE status = 'completed'
+                AND created_at >= DATE_TRUNC('year', CURRENT_DATE)), 0) as completed_this_year,
+            COALESCE(SUM(amount_required) FILTER (WHERE status = 'completed'
+                AND created_at >= DATE_TRUNC('month', CURRENT_DATE)), 0) as completed_this_month,
+            COALESCE(SUM(amount_required) FILTER (WHERE status = 'completed'
+                AND created_at >= CURRENT_DATE), 0) as completed_today,
+
+            -- Transaction counts (all statuses)
+            COUNT(*) as transactions_all_time,
+            COUNT(*) FILTER (WHERE created_at >= DATE_TRUNC('year', CURRENT_DATE)) as transactions_this_year,
+            COUNT(*) FILTER (WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)) as transactions_this_month,
+            COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as transactions_today
+        FROM payment_sessions
+        """;
+
+    public PaymentStats getPaymentStats() {
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(PAYMENT_STATS_SQL);
+             ResultSet rs = stmt.executeQuery()) {
+
+            if (rs.next()) {
+                return new PaymentStats(
+                    rs.getBigDecimal("completed_all_time").toBigInteger(),
+                    rs.getBigDecimal("completed_this_year").toBigInteger(),
+                    rs.getBigDecimal("completed_this_month").toBigInteger(),
+                    rs.getBigDecimal("completed_today").toBigInteger(),
+                    rs.getInt("transactions_all_time"),
+                    rs.getInt("transactions_this_year"),
+                    rs.getInt("transactions_this_month"),
+                    rs.getInt("transactions_today")
+                );
+            }
+
+            // Return zeros if no data
+            return new PaymentStats(
+                BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO,
+                0, 0, 0, 0
+            );
+        } catch (SQLException e) {
+            throw new RuntimeException("Error fetching payment statistics", e);
+        }
+    }
 }

@@ -139,6 +139,8 @@ public class AdminHandler extends Handler.Abstract {
                 handleGetPaymentSessions(request, response, callback);
             } else if ("/admin/api/payment-sessions/search".equals(path) && "GET".equals(method)) {
                 handleSearchPaymentSessions(request, response, callback);
+            } else if ("/admin/api/stats/payments".equals(path) && "GET".equals(method)) {
+                handleGetPaymentStats(response, callback);
             } else {
                 sendNotFound(response, callback);
             }
@@ -622,6 +624,27 @@ public class AdminHandler extends Handler.Abstract {
             sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
         } catch (Exception e) {
             logger.error("Error searching payment sessions", e);
+            sendServerError(response, callback);
+        }
+    }
+
+    private void handleGetPaymentStats(Response response, Callback callback) {
+        try {
+            PaymentRepository.PaymentStats stats = paymentRepository.getPaymentStats();
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            responseJson.put("completedAllTime", stats.completedAllTime().toString());
+            responseJson.put("completedThisYear", stats.completedThisYear().toString());
+            responseJson.put("completedThisMonth", stats.completedThisMonth().toString());
+            responseJson.put("completedToday", stats.completedToday().toString());
+            responseJson.put("transactionsAllTime", stats.transactionsAllTime());
+            responseJson.put("transactionsThisYear", stats.transactionsThisYear());
+            responseJson.put("transactionsThisMonth", stats.transactionsThisMonth());
+            responseJson.put("transactionsToday", stats.transactionsToday());
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            logger.error("Error fetching payment statistics", e);
             sendServerError(response, callback);
         }
     }

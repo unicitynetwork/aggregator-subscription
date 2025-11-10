@@ -574,6 +574,10 @@
                     <div class="stat-label">Pricing Plans</div>
                     <div class="stat-value" id="totalPlans">-</div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-label">Payment Stats</div>
+                    <div class="stat-value" id="paymentStats" style="font-size: 0.9rem; line-height: 1.4; white-space: pre-wrap;">-</div>
+                </div>
             </div>
 
             <!-- Tabs -->
@@ -1071,6 +1075,21 @@
                 document.getElementById('totalPlans').textContent = stats.totalPricingPlans || 0;
             } catch (error) {
                 console.error('Failed to load stats:', error);
+            }
+
+            // Load payment stats separately
+            try {
+                const response = await apiCall('/admin/api/stats/payments');
+                const stats = await response.json();
+
+                // Format the stats text compactly
+                const formatNum = (n) => BigInt(n).toLocaleString('en-US');
+                const statsText = `Received: ${formatNum(stats.completedToday)} today, ${formatNum(stats.completedThisMonth)} this month, ${formatNum(stats.completedThisYear)} this year, ${formatNum(stats.completedAllTime)} all time\n` +
+                                  `Payment sessions: ${formatNum(stats.transactionsToday)} today, ${formatNum(stats.transactionsThisMonth)} this month, ${formatNum(stats.transactionsThisYear)} this year, ${formatNum(stats.transactionsAllTime)} all time`;
+
+                document.getElementById('paymentStats').textContent = statsText;
+            } catch (error) {
+                console.error('Failed to load payment stats:', error);
             }
         }
 
@@ -1914,10 +1933,11 @@
 
         function getStatusColor(status) {
             const statusMap = {
-                'PENDING': 'warning',
-                'COMPLETED': 'success',
-                'FAILED': 'error',
-                'EXPIRED': 'secondary'
+                'pending': 'warning',
+                'completed': 'success',
+                'failed': 'error',
+                'expired': 'secondary',
+                'cancelled': 'secondary'
             };
             return statusMap[status] || 'secondary';
         }
