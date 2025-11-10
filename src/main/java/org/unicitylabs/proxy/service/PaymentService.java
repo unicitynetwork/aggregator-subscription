@@ -322,7 +322,7 @@ public class PaymentService {
     
     private SubmitCommitmentResult submitAndFinaliseCommitment(TransferCommitment transferCommitment, PaymentSession session, Token<?> sourceToken) throws ExecutionException, InterruptedException, TimeoutException, VerificationException
     {
-        String hexRequestId = HexConverter.encode(canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger()));
+        String hexRequestId = canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger());
         JsonRpcAggregatorClient aggregatorClient = new JsonRpcAggregatorClient(shardRouter.routeByRequestId(hexRequestId));
         var stateTransitionClient = new StateTransitionClient(aggregatorClient);
 
@@ -449,7 +449,7 @@ public class PaymentService {
                     request.getTransferCommitmentJson(), TransferCommitment.class
             );
 
-            String requestId = HexConverter.encode(canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger()));
+            String requestId = canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger());
 
             // EARLY: Store completion request with unique request_id constraint
             // Even if later processing fails, we have this recorded
@@ -473,13 +473,8 @@ public class PaymentService {
         return transferCommitment;
     }
 
-    public static byte[] canonicalRequestId(BigInteger requestIdBitString) {
-        String hex = requestIdBitString.toString(16);
-        if (hex.startsWith("1") && hex.length() > 2) {
-            // For a canonical Request ID value, remove e.g. the leading "1" from "10000..."
-            hex = hex.substring(1);
-        }
-        return HexConverter.decode(hex);
+    public static String canonicalRequestId(BigInteger requestIdBitString) {
+        return requestIdBitString.toString(16);
     }
 
     private byte[] random32Bytes() {

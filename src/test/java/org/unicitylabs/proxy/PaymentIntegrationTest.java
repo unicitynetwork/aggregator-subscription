@@ -117,7 +117,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         String createdApiKey = paymentResponse.getApiKey();
         assertTrue(createdApiKey.startsWith("sk_"), "API key should have correct format");
 
-        String requestIdHex = HexConverter.encode(canonicalRequestId(paymentResult.transferCommitment().getRequestId().toBitString().toBigInteger()));
+        String requestIdHex = canonicalRequestId(paymentResult.transferCommitment().getRequestId().toBitString().toBigInteger());
 
         assertRequestIdStoredInDatabase(paymentSession.getSessionId(), requestIdHex);
         assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment());
@@ -788,7 +788,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getMessage()).contains("Overpayment not accepted");
         assertThat(response.getMessage()).contains("exact amount");
 
-        String requestIdHex = HexConverter.encode(canonicalRequestId(result.transferCommitment().getRequestId().toBitString().toBigInteger()));
+        String requestIdHex = canonicalRequestId(result.transferCommitment().getRequestId().toBitString().toBigInteger());
         assertRequestIdStoredInDatabase(session.getSessionId(), requestIdHex);
         assertRequestIdNotAggregatedOnBlockchain(result.transferCommitment().getRequestId());
     }
