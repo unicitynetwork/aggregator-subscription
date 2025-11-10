@@ -28,16 +28,4 @@ public record ShardInfo(int id, String url) {
     public String toString() {
         return String.format("ShardInfo{id=%s, url='%s'}", id, url);
     }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (!(obj instanceof ShardInfo other)) return false;
-        return id == other.id;
-    }
-
-    @Override
-    public int hashCode() {
-        return id;
-    }
 }
