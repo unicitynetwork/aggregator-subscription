@@ -13,7 +13,7 @@ public class ShardConfigRepository {
     private static final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
 
     private static final String GET_LATEST_SQL = """
-        SELECT config_json, created_at, created_by
+        SELECT id, config_json, created_at, created_by
         FROM shard_config
         ORDER BY created_at DESC, id DESC
         LIMIT 1
@@ -24,7 +24,7 @@ public class ShardConfigRepository {
         VALUES (?::jsonb, ?)
         """;
 
-    public record ShardConfigRecord(ShardConfig config, Timestamp createdAt, String createdBy) {
+    public record ShardConfigRecord(int id, ShardConfig config, Timestamp createdAt, String createdBy) {
     }
 
     public ShardConfigRecord getLatestConfig() {
@@ -37,6 +37,7 @@ public class ShardConfigRepository {
                 ShardConfig config = objectMapper.readValue(configJson, ShardConfig.class);
 
                 return new ShardConfigRecord(
+                    rs.getInt("id"),
                     config,
                     rs.getTimestamp("created_at"),
                     rs.getString("created_by")

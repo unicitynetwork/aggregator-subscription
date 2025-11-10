@@ -1,7 +1,5 @@
 package org.unicitylabs.proxy.shard;
 
-import java.math.BigInteger;
-import java.security.SecureRandom;
 import java.util.*;
 
 public class ShardConfigValidator {
@@ -10,86 +8,46 @@ public class ShardConfigValidator {
             throw new IllegalArgumentException("Shard configuration has no shards");
         }
 
-        int maxBitLength = getMaxBitLength(config);
+        if (router instanceof DefaultShardRouter defaultRouter) {
+            validateTreeCompleteness(defaultRouter.getRootNode());
+        } else if (! (router instanceof FailsafeShardRouter)) {
+            throw new IllegalArgumentException("Unsupported Router instance: " + router.getClass());
+        }
+    }
 
-        List<String> failedPatterns = new ArrayList<>();
+    private static void validateTreeCompleteness(ShardTreeNode node) {
+        validateTreeCompleteness(node, "", 0);
+    }
 
-        testAllRequestIdsInASmallRange(router, maxBitLength, failedPatterns);
-        testRandomRequestIds(router, failedPatterns);
-
-        if (!failedPatterns.isEmpty()) {
+    private static void validateTreeCompleteness(ShardTreeNode node, String pathBits, int depth) {
+        if (node == null) {
             throw new IllegalArgumentException(
-                String.format("Incomplete shard configuration: %d patterns uncovered at %d-bit depth. " +
-                    "First uncovered patterns: %s",
-                    failedPatterns.size(),
-                    maxBitLength,
-                    failedPatterns.stream().limit(10).toList())
+                String.format("Routing tree has null node at depth %d (path: %s)",
+                    depth, pathBits.isEmpty() ? "root" : pathBits)
             );
         }
-    }
 
-    private static void testAllRequestIdsInASmallRange(ShardRouter router, int maxBitLength, List<String> failedPatterns) {
-        BigInteger totalPatternsToTest = BigInteger.ONE.shiftLeft(maxBitLength);
-        // For speed, let's not check too many options
-        totalPatternsToTest = totalPatternsToTest.min(BigInteger.valueOf(100_000L));
-
-        for (BigInteger i = BigInteger.ZERO; i.compareTo(totalPatternsToTest) < 0; i = i.add(BigInteger.ONE)) {
-            String testRequestId = padLeftWithZeroes(i.toString(16), 64);
-
-            testRoute(testRequestId, router, failedPatterns);
-        }
-    }
-
-    private static void testRandomRequestIds(ShardRouter router, List<String> failedPatterns) {
-        final SecureRandom random = new SecureRandom();
-        for (int i = 0; i < 10_000; i++) {
-            testRoute(nextRandomRequestId(random), router, failedPatterns);
-        }
-    }
-
-    private static String nextRandomRequestId(SecureRandom random) {
-        return padLeftWithZeroes(
-                new BigInteger(
-                        1,
-                        nextRandomBytes(random, 32)
-                ).toString(16),
-                64);
-    }
-
-    private static byte[] nextRandomBytes(SecureRandom random, int count) {
-        byte[] requestId = new byte[count];
-        random.nextBytes(requestId);
-        return requestId;
-    }
-
-    private static int getMaxBitLength(ShardConfig config) {
-        int maxBitLength = 0;
-        for (ShardInfo shard : config.getShards()) {
-            BigInteger suffix = shard.getSuffix();
-            int bitLength = suffix.bitLength() - 1; // Subtract 1 for implicit leading '1'
-            if (bitLength > maxBitLength) {
-                maxBitLength = bitLength;
+        if (node.isLeaf()) {
+            if (node.getTargetUrl() == null || node.getTargetUrl().isEmpty()) {
+                throw new IllegalArgumentException(
+                    String.format("Leaf node has no target URL at depth %d (path: %s)",
+                        depth, pathBits.isEmpty() ? "root" : pathBits)
+                );
             }
-        }
-        return maxBitLength;
-    }
-
-    private static void testRoute(String testRequestId, ShardRouter router, List<String> failedPatterns) {
-        try {
-            String targetUrl = router.routeByRequestId(testRequestId);
-            if (targetUrl == null) {
-                failedPatterns.add(testRequestId);
+        } else {
+            if (node.getLeft() == null) {
+                throw new IllegalArgumentException(
+                    String.format("Incomplete routing tree: missing left child for request IDs with binary suffix: 0%s", pathBits)
+                );
             }
-        } catch (Exception e) {
-            failedPatterns.add(testRequestId);
-        }
-    }
+            if (node.getRight() == null) {
+                throw new IllegalArgumentException(
+                    String.format("Incomplete routing tree: missing right child for request IDs with binary suffix: 1%s", pathBits)
+                );
+            }
 
-    private static String padLeftWithZeroes(String str, int length) {
-        StringBuilder strBuilder = new StringBuilder(str);
-        while (strBuilder.length() < length) {
-            strBuilder.insert(0, "0");
+            validateTreeCompleteness(node.getLeft(), "0" + pathBits, depth + 1);
+            validateTreeCompleteness(node.getRight(), "1" + pathBits, depth + 1);
         }
-        return strBuilder.toString();
     }
 }

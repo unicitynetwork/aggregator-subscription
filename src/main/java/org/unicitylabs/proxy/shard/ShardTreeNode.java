@@ -42,10 +42,7 @@ public class ShardTreeNode {
         this.targetUrl = targetUrl;
     }
 
-    /**
-     * Check if this node is a leaf (has a target URL).
-     */
     public boolean isLeaf() {
-        return targetUrl != null;
+        return this.left == null && this.right == null;
     }
 }

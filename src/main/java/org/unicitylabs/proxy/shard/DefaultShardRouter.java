@@ -195,4 +195,12 @@ public class DefaultShardRouter implements ShardRouter {
     public List<String> getAllTargets() {
         return Collections.unmodifiableList(allTargets);
     }
+
+    /**
+     * Get the root node of the routing tree for validation purposes.
+     * Package-private to allow ShardConfigValidator to access it.
+     */
+    ShardTreeNode getRootNode() {
+        return rootNode;
+    }
 }

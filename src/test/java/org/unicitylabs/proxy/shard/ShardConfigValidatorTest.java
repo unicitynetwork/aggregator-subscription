@@ -47,13 +47,12 @@ public class ShardConfigValidatorTest {
     }
 
     @Test
-    @DisplayName("Test invalid configuration - missing shard")
-    void testInvalidMissingShard() {
-        // Only defines 00, 01, 10 but missing 11
+    @DisplayName("Test invalid configuration - missing 'left' shard")
+    void testInvalidMissingLeftShard() {
         ShardConfig config = new ShardConfig(1, List.of(
-            new ShardInfo("0", "4", "http://shard-00.example.com"),
             new ShardInfo("1", "5", "http://shard-01.example.com"),
-            new ShardInfo("2", "6", "http://shard-10.example.com")
+            new ShardInfo("0", "6", "http://shard-10.example.com"),
+            new ShardInfo("2", "7", "http://shard-11.example.com")
         ));
 
         ShardRouter router = new DefaultShardRouter(config);
@@ -61,8 +60,24 @@ public class ShardConfigValidatorTest {
             ShardConfigValidator.validate(router, config)
         );
 
-        assertTrue(exception.getMessage().startsWith("Incomplete shard configuration"), exception.getMessage());
-        assertTrue(exception.getMessage().contains("patterns uncovered at 2-bit depth. First uncovered patterns: [0000000000000000000000000000000000000000000000000000000000000003,"), exception.getMessage());
+        assertEquals("Incomplete routing tree: missing left child for request IDs with binary suffix: 00", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("Test invalid configuration - missing 'right' shard")
+    void testInvalidMissingRightShard() {
+        ShardConfig config = new ShardConfig(1, List.of(
+                new ShardInfo("0", "4", "http://shard-00.example.com"),
+                new ShardInfo("1", "5", "http://shard-01.example.com"),
+                new ShardInfo("2", "6", "http://shard-10.example.com")
+        ));
+
+        ShardRouter router = new DefaultShardRouter(config);
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                ShardConfigValidator.validate(router, config)
+        );
+
+        assertEquals("Incomplete routing tree: missing right child for request IDs with binary suffix: 11", exception.getMessage());
     }
 
     @Test
@@ -76,8 +91,24 @@ public class ShardConfigValidatorTest {
         var exception = assertThrows(IllegalArgumentException.class, () ->
             ShardConfigValidator.validate(router, config)
         );
-        assertTrue(exception.getMessage().startsWith("Incomplete shard configuration"), exception.getMessage());
-        assertTrue(exception.getMessage().contains("patterns uncovered at 1-bit depth. First uncovered patterns: [0000000000000000000000000000000000000000000000000000000000000001,"), exception.getMessage());
+        assertEquals("Incomplete routing tree: missing right child for request IDs with binary suffix: 1", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("Test invalid configuration - missing URL in a shard configuration tree node")
+    void testInvalidMissingUrl() {
+        ShardConfig config = new ShardConfig(1, List.of(
+                new ShardInfo("0", "1", "http://shard0.example.com")
+        ));
+
+        DefaultShardRouter router = new DefaultShardRouter(config);
+        router.getRootNode().setTargetUrl(null);
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                ShardConfigValidator.validate(router, config)
+        );
+
+        assertEquals("Leaf node has no target URL at depth 0 (path: root)", exception.getMessage());
     }
 
     @Test

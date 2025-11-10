@@ -11,8 +11,6 @@ import org.unicitylabs.proxy.shard.FailsafeShardRouter;
 import org.unicitylabs.proxy.shard.ShardConfigValidator;
 import org.unicitylabs.proxy.shard.ShardRouter;
 
-import java.io.IOException;
-import java.sql.Timestamp;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -30,7 +28,7 @@ public class ProxyServer {
     private final ShardConfigRepository shardConfigRepository;
     private final ScheduledExecutorService configPoller;
 
-    private volatile Timestamp lastConfigTimestamp; 
+    private volatile int lastConfigId;
     
     public ProxyServer(ProxyConfig config, byte[] serverSecret) {
         this.config = config;
@@ -53,17 +51,17 @@ public class ProxyServer {
             ShardConfigRepository.ShardConfigRecord configRecord = shardConfigRepository.getLatestConfig();
             ShardRouter tempRouter = new DefaultShardRouter(configRecord.config());
             ShardConfigValidator.validate(tempRouter, configRecord.config());
-            this.lastConfigTimestamp = configRecord.createdAt();
+            this.lastConfigId = configRecord.id();
             shardRouter = tempRouter;
-            logger.info("Shard configuration loaded and validated successfully (created at: {})", lastConfigTimestamp);
+            logger.info("Shard configuration loaded and validated successfully (id: {}, created at: {})",
+                configRecord.id(), configRecord.createdAt());
         } catch (Exception e) {
             logger.error("Failed to load or validate shard configuration from database. " +
                 "Application will start with failsafe router. " +
                 "Admin UI is available to fix the configuration. Error: {}", e.getMessage(), e);
             // Use failsafe router to allow app to start and Admin UI to be accessible
             shardRouter = new FailsafeShardRouter();
-            // Set timestamp to epoch so first valid config will be picked up
-            this.lastConfigTimestamp = new Timestamp(0);
+            this.lastConfigId = -1;
             logger.warn("SHARD ROUTING IS UNAVAILABLE - Fix configuration via Admin UI at http://localhost:{}/admin",
                 config.getPort());
         }
@@ -116,9 +114,9 @@ public class ProxyServer {
             try {
                 ShardConfigRepository.ShardConfigRecord latestRecord = shardConfigRepository.getLatestConfig();
 
-                if (latestRecord.createdAt().after(lastConfigTimestamp)) {
-                    logger.info("Detected new shard configuration (created at: {}), reloading...",
-                        latestRecord.createdAt());
+                if (latestRecord.id() > lastConfigId) {
+                    logger.info("Detected new shard configuration (id: {}, created at: {}), reloading...",
+                        latestRecord.id(), latestRecord.createdAt());
 
                     try {
                         ShardRouter newRouter = new DefaultShardRouter(latestRecord.config());
@@ -126,14 +124,14 @@ public class ProxyServer {
 
                         requestHandler.updateShardRouter(newRouter);
                         paymentHandler.updateShardRouter(newRouter);
-                        lastConfigTimestamp = latestRecord.createdAt();
+                        lastConfigId = latestRecord.id();
 
-                        logger.info("Shard configuration hot-reloaded successfully with {} targets",
-                            newRouter.getAllTargets().size());
+                        logger.info("Shard configuration hot-reloaded successfully (id: {}) with {} targets",
+                            latestRecord.id(), newRouter.getAllTargets().size());
                     } catch (Exception e) {
-                        logger.error("Failed to load or validate new shard configuration (created at: {}). " +
-                            "Keeping current router. Error: {}", latestRecord.createdAt(), e.getMessage());
-                        // Don't update lastConfigTimestamp so we'll try again on next poll
+                        logger.error("Failed to load or validate new shard configuration (id: {}, created at: {}). " +
+                            "Keeping current router. Error: {}", latestRecord.id(), latestRecord.createdAt(), e.getMessage());
+                        // Don't update lastConfigId so we'll try again on next poll
                     }
                 }
             } catch (Exception e) {
