@@ -205,8 +205,6 @@ public class PaymentRepository {
         }
     }
 
-
-
     public boolean updateSessionApiKey(Connection conn, UUID sessionId, String apiKey) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement(UPDATE_SESSION_API_KEY_SQL)) {
             stmt.setString(1, apiKey);
