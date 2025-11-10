@@ -581,6 +581,7 @@
                 <div class="tab active" data-tab="keys">API Keys</div>
                 <div class="tab" data-tab="utilization">Utilization</div>
                 <div class="tab" data-tab="plans">Pricing Plans</div>
+                <div class="tab" data-tab="shardconfig">Shard Configuration</div>
             </div>
 
             <!-- API Keys Tab -->
@@ -680,6 +681,36 @@
                         <tbody id="plansTableBody">
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- Shard Configuration Tab -->
+            <div id="shardconfigTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Shard Configuration</h2>
+                        <button class="btn btn-primary" onclick="showUploadShardConfigModal()">
+                            📤 Upload New Configuration
+                        </button>
+                    </div>
+                    <div id="shardConfigLoading" class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading shard configuration...</p>
+                    </div>
+                    <div id="shardConfigContent" style="display: none;">
+                        <div style="margin-bottom: 1.5rem; padding: 1rem; background: #f0f7ff; border-left: 4px solid #3b82f6; border-radius: 4px;">
+                            <strong>Note:</strong> Configuration changes are hot-reloaded automatically within seconds. All proxy instances will pick up the new configuration.
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <strong>Last Updated:</strong> <span id="shardConfigUpdatedAt">-</span>
+                            <br>
+                            <strong>Updated By:</strong> <span id="shardConfigUpdatedBy">-</span>
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <label for="currentShardConfig" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Current Configuration:</label>
+                            <textarea id="currentShardConfig" readonly style="width: 100%; min-height: 300px; padding: 1rem; border: 1px solid var(--border); border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.875rem; background: var(--bg);"></textarea>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -812,6 +843,29 @@
         </div>
     </div>
 
+    <!-- Upload Shard Config Modal -->
+    <div id="uploadShardConfigModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Upload Shard Configuration</h2>
+            </div>
+            <form id="uploadShardConfigForm">
+                <div class="form-group">
+                    <label for="shardConfigJson">Configuration JSON</label>
+                    <textarea id="shardConfigJson" rows="15" style="width: 100%; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.875rem;" placeholder='{"version": 1, "shards": [{"id": "0", "suffix": "1", "url": "http://localhost:8080"}]}' required></textarea>
+                    <small style="color: var(--text-muted);">
+                        Enter the shard configuration in JSON format. The configuration will be validated before saving.
+                    </small>
+                </div>
+                <div id="uploadShardConfigError" class="alert alert-error hidden"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('uploadShardConfigModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Upload Configuration</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Success Modal -->
     <div id="successModal" class="modal">
         <div class="modal-content">
@@ -873,6 +927,7 @@
             loadApiKeys();
             loadPricingPlans();
             loadUtilization();
+            loadShardConfig();
         }
 
         function logout() {
@@ -900,6 +955,8 @@
                 } else if (tabName === 'plans') {
                     loadPricingPlans();
                     loadStats();
+                } else if (tabName === 'shardconfig') {
+                    loadShardConfig();
                 }
             });
         });
@@ -1398,6 +1455,90 @@
         window.addEventListener('beforeunload', () => {
             if (autoRefreshInterval) {
                 clearInterval(autoRefreshInterval);
+            }
+        });
+
+        // Shard Configuration functions
+        async function loadShardConfig() {
+            document.getElementById('shardConfigLoading').style.display = 'block';
+            document.getElementById('shardConfigContent').style.display = 'none';
+
+            try {
+                const response = await apiCall('/admin/api/shard-config');
+                const data = await response.json();
+
+                // Pretty print the JSON
+                const configObj = JSON.parse(data.configJson);
+                document.getElementById('currentShardConfig').value = JSON.stringify(configObj, null, 2);
+
+                // Format and display metadata
+                const createdAt = new Date(data.createdAt);
+                document.getElementById('shardConfigUpdatedAt').textContent = createdAt.toLocaleString();
+                document.getElementById('shardConfigUpdatedBy').textContent = data.createdBy || '-';
+
+                document.getElementById('shardConfigLoading').style.display = 'none';
+                document.getElementById('shardConfigContent').style.display = 'block';
+            } catch (error) {
+                console.error('Failed to load shard configuration:', error);
+                document.getElementById('shardConfigLoading').style.display = 'none';
+            }
+        }
+
+        function showUploadShardConfigModal() {
+            document.getElementById('uploadShardConfigError').classList.add('hidden');
+
+            // Pre-fill with current configuration
+            const currentConfig = document.getElementById('currentShardConfig').value;
+            document.getElementById('shardConfigJson').value = currentConfig;
+
+            document.getElementById('uploadShardConfigModal').classList.add('show');
+        }
+
+        // Upload Shard Config form handler
+        document.getElementById('uploadShardConfigForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const configJson = document.getElementById('shardConfigJson').value;
+            const errorDiv = document.getElementById('uploadShardConfigError');
+
+            // Validate JSON format
+            try {
+                JSON.parse(configJson);
+            } catch (err) {
+                errorDiv.textContent = 'Invalid JSON format: ' + err.message;
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                const response = await apiCall('/admin/api/shard-config', {
+                    method: 'POST',
+                    body: JSON.stringify({ configJson })
+                });
+
+                if (response.ok) {
+                    closeModal('uploadShardConfigModal');
+                    document.getElementById('uploadShardConfigForm').reset();
+
+                    // Show success message
+                    document.getElementById('successMessage').textContent =
+                        'Shard configuration uploaded successfully! Changes will be applied within seconds.';
+                    document.getElementById('newApiKey').style.display = 'none';
+                    document.getElementById('successModal').classList.add('show');
+
+                    // Reload configuration
+                    setTimeout(() => {
+                        loadShardConfig();
+                    }, 500);
+                } else {
+                    const errorData = await response.json();
+                    errorDiv.textContent = errorData.error || 'Failed to upload configuration';
+                    errorDiv.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Failed to upload shard configuration:', error);
+                errorDiv.textContent = 'Failed to upload configuration: ' + error.message;
+                errorDiv.classList.remove('hidden');
             }
         });
     </script>

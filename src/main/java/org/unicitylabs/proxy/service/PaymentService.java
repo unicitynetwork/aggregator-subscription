@@ -61,7 +61,7 @@ public class PaymentService {
     private final PricingPlanRepository pricingPlanRepository;
     private final ObjectMapper jsonMapper;
     private final SecureRandom secureRandom;
-    private final ShardRouter shardRouter;
+    private volatile ShardRouter shardRouter;
     private TimeMeter timeMeter;
 
     private final byte[] serverSecret;
@@ -103,6 +103,11 @@ public class PaymentService {
 
     public void setTimeMeter(TimeMeter timeMeter) {
         this.timeMeter = timeMeter;
+    }
+
+    public void updateShardRouter(ShardRouter newRouter) {
+        this.shardRouter = newRouter;
+        logger.info("PaymentService updated with new shard router ({} targets)", newRouter.getAllTargets().size());
     }
 
     private RootTrustBase loadRootTrustBase(String trustBasePath) {

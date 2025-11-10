@@ -6,8 +6,8 @@ import java.util.*;
 
 public class ShardConfigValidator {
     public static void validate(ShardRouter router, ShardConfig config) {
-        if (config.getTargets() == null || config.getTargets().isEmpty()) {
-            throw new IllegalArgumentException("Shard configuration has no targets");
+        if (config.getShards() == null || config.getShards().isEmpty()) {
+            throw new IllegalArgumentException("Shard configuration has no shards");
         }
 
         int maxBitLength = getMaxBitLength(config);
@@ -64,15 +64,11 @@ public class ShardConfigValidator {
 
     private static int getMaxBitLength(ShardConfig config) {
         int maxBitLength = 0;
-        for (String hexPrefix : config.getTargets().keySet()) {
-            try {
-                BigInteger value = new BigInteger(hexPrefix, 16);
-                int bitLength = value.bitLength() - 1; // Subtract 1 for implicit leading '1'
-                if (bitLength > maxBitLength) {
-                    maxBitLength = bitLength;
-                }
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Invalid hex prefix: " + hexPrefix, e);
+        for (ShardInfo shard : config.getShards()) {
+            BigInteger suffix = shard.getSuffix();
+            int bitLength = suffix.bitLength() - 1; // Subtract 1 for implicit leading '1'
+            if (bitLength > maxBitLength) {
+                maxBitLength = bitLength;
             }
         }
         return maxBitLength;

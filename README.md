@@ -186,7 +186,42 @@ Note that currently, the payment actives the key for 1 month. If the user pays a
 
 There is an administrative interface, by default available at http://localhost:8080/admin. The password is set either by the `ADMIN_PASSWORD` environment variable or as a configuration setting.
 
-The interface allows to modify API keys and pricing plans.
+The interface allows to modify API keys, pricing plans and shard configuration.
+
+## Sharding
+
+The subscription proxy routes JSON-RPC messages to aggregators in the correct shards. For that purpose, every JSON-RPC message must contain exactly one of the following parameters:
+
+* `requestId`: this is a standard Request ID parameter that is used for aggregator's JSON-RPC endpoints like `submit_commitment`. It contains the Unicity aggregation tree's Request ID in hex, without the "0x" prefix. The subscription proxy automatically routes the request to the correct shard according to the shard configuration.
+* `shardId`: this specifies a Shard ID, a non-negative integer which is assigned also in the shard configuration.
+
+The administrative interface allows modifying the shard configuration as a JSON file. When the configuration is updated in the UI, the changes are propagated to all instances of the subscription proxy within seconds. A sample shard configuration is as follows:
+
+```json
+{
+  "version": 1,
+  "shards": [
+    {
+      "id": "0",
+      "suffix": "2",
+      "url": "http://host.docker.internal:3001"
+    },
+    {
+      "id": "1",
+      "suffix": "3",
+      "url": "http://host.docker.internal:3002"
+    }
+  ]
+}
+```
+
+The above shard configuration example declares 2 shards. Specifically:
+
+* The first shard has an ID of 0 and the other has an ID of 1.
+* Each shard has a suffix declared for matching Request IDs against the shard. The suffix is written in decimal, and it specifies a binary suffix for a Request ID -- specifically, this suffix will be compared against the least significant binary digits of Request IDs. Note that since the suffixes can have leading zeroes, an additional binary digit of "1" is prepended to every suffix. For example, to match Request IDs that end with 2 binary zeroes (00), the suffix would be 100 in binary, which in decimal form is 4.
+* Each shard has a corresponding aggregator URL specified. All requests that are matched against the given shard are proxied to that URL.
+
+All requests that are not detected as JSON-RPC requests are proxied to a random shard's URL for load balancing purposes. If needed, cookies can be used to create a "sticky shard" (the names of the cookies are `UNICITY_SHARD_ID` and `UNICITY_REQUEST_ID` and their values are formatted the same as the JSON-RPC parameters `requestId` and `shardId`).
 
 ## Configuration settings
 
@@ -219,14 +254,14 @@ DB_URL=jdbc:postgresql://localhost:5432/aggregator \
   DB_USER=postgres \
   DB_PASSWORD=postgres \
   SERVER_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  ./gradlew run -Pargs="--target https://goggregator-test.unicity.network"
+  ./gradlew run"
 ```
 
 ## Development
 
+Run tests, including integration tests using a local aggregator at http://localhost:3000.
 ```bash
-# Run tests
-./gradlew test
+export AGGREGATOR_URL="http://localhost:3000" && ./gradlew clean test
 
 ```
 To run within an IDE, use the main class ```org.unicitylabs.proxy.Main```.

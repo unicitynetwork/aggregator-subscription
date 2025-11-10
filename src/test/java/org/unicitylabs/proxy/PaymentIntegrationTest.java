@@ -83,7 +83,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         config.setPort(443);
 
         // Using a real aggregator here because our mock server is not capable of aggregating transactions
-        setUpSingleShardAggregatorUrl(config, getRealAggregatorUrl());
+        setUpSingleShardAggregatorUrl(getRealAggregatorUrl());
     }
 
     @BeforeEach

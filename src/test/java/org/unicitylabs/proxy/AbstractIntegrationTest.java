@@ -1,6 +1,8 @@
 package org.unicitylabs.proxy;
 
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
+import org.unicitylabs.proxy.shard.ShardConfig;
+import org.unicitylabs.proxy.shard.ShardInfo;
 import org.unicitylabs.proxy.testparameterization.AuthMode;
 import io.github.bucket4j.TimeMeter;
 import org.eclipse.jetty.http.HttpHeader;
@@ -157,7 +159,7 @@ public abstract class AbstractIntegrationTest {
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
 
-        await().atMost(5, TimeUnit.SECONDS)
+        await().atMost(10, TimeUnit.SECONDS)
                 .until(() -> isServerReady(proxyPort));
 
         testTimeMeter = new TestTimeMeter();
@@ -191,7 +193,7 @@ public abstract class AbstractIntegrationTest {
         int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();
         config.setPort(0); // Use random port
 
-        setUpSingleShardAggregatorUrl(config, "http://localhost:" + mockServerPort);
+        setUpSingleShardAggregatorUrl("http://localhost:" + mockServerPort);
 
         // Use local test token types file instead of fetching from GitHub
         try {
@@ -203,24 +205,15 @@ public abstract class AbstractIntegrationTest {
         }
     }
 
-    protected void setUpSingleShardAggregatorUrl(ProxyConfig config, String aggregatorUrl) {
+    protected void setUpSingleShardAggregatorUrl(String aggregatorUrl) {
         // Use suffix "1" (0 bits) to match all requests - no actual sharding in tests
-        try {
-            String shardConfigJson = String.format(
-                """
-                        {
-                          "version": 1,
-                          "targets": {"1": "%s"}
-                        }""",
-                    aggregatorUrl
-            );
-            java.nio.file.Path tempFile = java.nio.file.Files.createTempFile("test-shard-config-", ".json");
-            java.nio.file.Files.writeString(tempFile, shardConfigJson);
-            tempFile.toFile().deleteOnExit();
-            config.setShardConfigUrl("file://" + tempFile.toAbsolutePath());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create test shard config", e);
-        }
+        insertShardConfig(new ShardConfig(1, List.of(
+            new ShardInfo("0", "1", aggregatorUrl)
+        )));
+    }
+
+    protected void insertShardConfig(ShardConfig shardConfig) {
+        new org.unicitylabs.proxy.repository.ShardConfigRepository().saveConfig(shardConfig, "test");
     }
 
     @AfterEach

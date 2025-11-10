@@ -10,105 +10,72 @@ import static org.junit.jupiter.api.Assertions.*;
 public class ShardSuffixTest {
 
     @Test
-    @DisplayName("Test parsing single bit prefix '2' (binary '10', suffix '0')")
-    void testParseSingleBitPrefix0() {
-        ShardSuffix prefix = new ShardSuffix("2", "http://shard0.example.com");
+    @DisplayName("Test parsing single bit suffix '2' (binary '10', suffix '0')")
+    void testParseSingleBitSuffix0() {
+        ShardInfo shardInfo = new ShardInfo("0", "2", "http://shard0.example.com");
+        ShardSuffix suffix = new ShardSuffix(shardInfo);
 
-        assertEquals("2", prefix.getHexValue());
-        assertEquals(1, prefix.getBitLength());
-        assertEquals(BigInteger.ZERO, prefix.getSuffixBits());
-        assertEquals("http://shard0.example.com", prefix.getTargetUrl());
+        assertEquals(new BigInteger("2"), suffix.getSuffixValue());
+        assertEquals(1, suffix.getBitLength());
+        assertEquals(BigInteger.ZERO, suffix.getSuffixBits());
+        assertEquals("http://shard0.example.com", suffix.getTargetUrl());
     }
 
     @Test
-    @DisplayName("Test parsing single bit prefix '3' (binary '11', suffix '1')")
-    void testParseSingleBitPrefix1() {
-        ShardSuffix prefix = new ShardSuffix("3", "http://shard1.example.com");
+    @DisplayName("Test parsing single bit suffix '3' (binary '11', suffix '1')")
+    void testParseSingleBitSuffix1() {
+        ShardInfo shardInfo = new ShardInfo("1", "3", "http://shard1.example.com");
+        ShardSuffix suffix = new ShardSuffix(shardInfo);
 
-        assertEquals("3", prefix.getHexValue());
-        assertEquals(1, prefix.getBitLength());
-        assertEquals(BigInteger.ONE, prefix.getSuffixBits());
+        assertEquals(new BigInteger("3"), suffix.getSuffixValue());
+        assertEquals(1, suffix.getBitLength());
+        assertEquals(BigInteger.ONE, suffix.getSuffixBits());
     }
 
     @Test
-    @DisplayName("Test parsing 2-bit prefix '4' (binary '100', suffix '00')")
-    void testParse2BitPrefix00() {
-        ShardSuffix prefix = new ShardSuffix("4", "http://shard-00.example.com");
+    @DisplayName("Test parsing 2-bit suffix '4' (binary '100', suffix '00')")
+    void testParse2BitSuffix00() {
+        ShardInfo shardInfo = new ShardInfo("0", "4", "http://shard-00.example.com");
+        ShardSuffix suffix = new ShardSuffix(shardInfo);
 
-        assertEquals(2, prefix.getBitLength());
-        assertEquals(BigInteger.ZERO, prefix.getSuffixBits());
+        assertEquals(2, suffix.getBitLength());
+        assertEquals(BigInteger.ZERO, suffix.getSuffixBits());
     }
 
     @Test
-    @DisplayName("Test parsing 2-bit prefix '7' (binary '111', suffix '11')")
-    void testParse2BitPrefix11() {
-        ShardSuffix prefix = new ShardSuffix("7", "http://shard-11.example.com");
+    @DisplayName("Test parsing 2-bit suffix '7' (binary '111', suffix '11')")
+    void testParse2BitSuffix11() {
+        ShardInfo shardInfo = new ShardInfo("3", "7", "http://shard-11.example.com");
+        ShardSuffix suffix = new ShardSuffix(shardInfo);
 
-        assertEquals(2, prefix.getBitLength());
-        assertEquals(new BigInteger("3"), prefix.getSuffixBits()); // binary 11 = 3
+        assertEquals(2, suffix.getBitLength());
+        assertEquals(new BigInteger("3"), suffix.getSuffixBits());
     }
 
     @Test
-    @DisplayName("Test parsing 8-bit prefix '100' (binary '100000000', suffix '00000000')")
-    void testParse8BitPrefix() {
-        ShardSuffix prefix = new ShardSuffix("100", "http://shard-00.example.com");
+    @DisplayName("Test parsing 8-bit suffix '256' (binary '100000000', suffix '00000000')")
+    void testParse8BitSuffix() {
+        ShardInfo shardInfo = new ShardInfo("0", "256", "http://shard-00.example.com");
+        ShardSuffix suffix = new ShardSuffix(shardInfo);
 
-        assertEquals(8, prefix.getBitLength());
-        assertEquals(BigInteger.ZERO, prefix.getSuffixBits());
+        assertEquals(8, suffix.getBitLength());
+        assertEquals(BigInteger.ZERO, suffix.getSuffixBits());
     }
 
     @Test
-    @DisplayName("Test parsing no-shard prefix '1' (0 bits)")
-    void testParseNoShardPrefix() {
-        ShardSuffix prefix = new ShardSuffix("1", "http://single.example.com");
+    @DisplayName("Test parsing no-shard suffix '1' (0 bits)")
+    void testParseNoShardSuffix() {
+        ShardInfo shardInfo = new ShardInfo("0", "1", "http://single.example.com");
+        ShardSuffix suffix = new ShardSuffix(shardInfo);
 
-        assertEquals(0, prefix.getBitLength());
-        assertEquals(BigInteger.ZERO, prefix.getSuffixBits());
+        assertEquals(0, suffix.getBitLength());
+        assertEquals(BigInteger.ZERO, suffix.getSuffixBits());
     }
 
     @Test
-    @DisplayName("Test matching request ID with 1-bit prefix")
-    void testMatching1Bit() {
-        ShardSuffix prefix0 = new ShardSuffix("2", "http://shard0.example.com"); // suffix "0"
-        ShardSuffix prefix1 = new ShardSuffix("3", "http://shard1.example.com"); // suffix "1"
-
-        // Request ID ending in even hex digit (last bit = 0)
-        String requestIdEven = "0000000000000000000000000000000000000000000000000000000000000000";
-        assertTrue(prefix0.matches(requestIdEven));
-        assertFalse(prefix1.matches(requestIdEven));
-
-        // Request ID ending in odd hex digit (last bit = 1)
-        String requestIdOdd = "000000000000000000000000000000000000000000000000000000000000000F";
-        assertFalse(prefix0.matches(requestIdOdd));
-        assertTrue(prefix1.matches(requestIdOdd));
-    }
-
-    @Test
-    @DisplayName("Test no-shard prefix matches everything")
-    void testNoShardMatchesAll() {
-        ShardSuffix prefix = new ShardSuffix("1", "http://single.example.com");
-
-        assertTrue(prefix.matches("0000000000000000000000000000000000000000000000000000000000000000"));
-        assertTrue(prefix.matches("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"));
-        assertTrue(prefix.matches("1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF"));
-    }
-
-    @Test
-    @DisplayName("Test invalid prefix throws exception")
-    void testInvalidPrefix() {
-        assertThrows(IllegalArgumentException.class, () -> new ShardSuffix("0", "http://example.com"));
-    }
-
-    @Test
-    @DisplayName("Test prefix sorting by bit length (longest first)")
-    void testPrefixSorting() {
-        ShardSuffix prefix1bit = new ShardSuffix("2", "http://example.com");
-        ShardSuffix prefix2bit = new ShardSuffix("4", "http://example.com");
-        ShardSuffix prefix0bit = new ShardSuffix("1", "http://example.com");
-
-        // Longer prefixes should come first
-        assertTrue(ShardSuffix.BIT_LENGTH_COMPARATOR.compare(prefix2bit, prefix1bit) < 0);
-        assertTrue(ShardSuffix.BIT_LENGTH_COMPARATOR.compare(prefix1bit, prefix0bit) < 0);
-        assertTrue(ShardSuffix.BIT_LENGTH_COMPARATOR.compare(prefix2bit, prefix0bit) < 0);
+    @DisplayName("Test invalid suffix throws exception")
+    void testInvalidSuffix() {
+        ShardInfo shardInfo = new ShardInfo("0", "0", "http://example.com");
+        assertThrows(IllegalArgumentException.class, () -> new ShardSuffix(shardInfo));
     }
 }

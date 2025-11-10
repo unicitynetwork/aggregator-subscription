@@ -44,6 +44,11 @@ public class PaymentHandler extends Handler.Abstract {
         return paymentService;
     }
 
+    public void updateShardRouter(ShardRouter newRouter) {
+        paymentService.updateShardRouter(newRouter);
+        logger.info("PaymentHandler updated with new shard router");
+    }
+
     @Override
     public boolean handle(Request request, Response response, Callback callback) {
         String path = request.getHttpURI().getPath();

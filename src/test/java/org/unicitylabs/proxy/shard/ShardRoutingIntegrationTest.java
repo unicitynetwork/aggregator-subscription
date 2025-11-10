@@ -12,10 +12,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static java.util.Arrays.asList;
@@ -28,7 +27,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     protected void setUpConfigForTests(ProxyConfig config) {
         super.setUpConfigForTests(config);
 
-        asList(0, 1).forEach(shard -> {
+        asList(0, 1, 2, 3).forEach(shard -> {
             Server mockServer = createMockServer(String.valueOf(shard));
             try {
                 mockServer.start();
@@ -38,26 +37,13 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
             shardsToMockServerPorts.put(shard, ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort());
         });
 
-        try {
-            String shardConfigJson = String.format(
-                    """
-                            {
-                              "version": 1,
-                              "targets": {
-                                "2": "http://localhost:%d",
-                                "3": "http://localhost:%d"
-                              }
-                            }""",
-                    shardsToMockServerPorts.get(0),
-                    shardsToMockServerPorts.get(1)
-            );
-            java.nio.file.Path tempFile = java.nio.file.Files.createTempFile("test-shard-config-", ".json");
-            java.nio.file.Files.writeString(tempFile, shardConfigJson);
-            tempFile.toFile().deleteOnExit();
-            config.setShardConfigUrl("file://" + tempFile.toAbsolutePath());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create test shard config", e);
-        }
+        ShardConfig shardConfig = new ShardConfig(1, List.of(
+            new ShardInfo("0", "4", "http://localhost:" + shardsToMockServerPorts.get(0)),
+            new ShardInfo("1", "5", "http://localhost:" + shardsToMockServerPorts.get(1)),
+            new ShardInfo("2", "6", "http://localhost:" + shardsToMockServerPorts.get(2)),
+            new ShardInfo("3", "7", "http://localhost:" + shardsToMockServerPorts.get(3))
+        ));
+        insertShardConfig(shardConfig);
     }
 
     private String getShardIdFromResponse(HttpResponse<String> response) {
@@ -74,29 +60,19 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
         assertEquals("1", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000002"));
-        assertEquals("0", getShardIdFromResponse(response));
+        assertEquals("2", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000003"));
+        assertEquals("3", getShardIdFromResponse(response));
+
+        response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000004"));
+        assertEquals("0", getShardIdFromResponse(response));
+
+        response = postJson(inclusionProofRequest("0000000000000000000000000000000000000000000000000000000000000005"));
         assertEquals("1", getShardIdFromResponse(response));
 
         response = postJson(inclusionProofRequest("1234238947A223094820398423048230482038420840923809EEEEEEE234234F"));
-        assertEquals("1", getShardIdFromResponse(response));
-    }
-
-    @Test
-    @DisplayName("Test request without requestId uses random routing")
-    void testRandomRouting() throws Exception {
-        String jsonRpcRequest = """
-            {
-                "jsonrpc": "2.0",
-                "method": "some_method",
-                "params": {},
-                "id": 1
-            }
-            """;
-
-        HttpResponse<String> response = postJson(jsonRpcRequest);
-        assertNotNull(getShardIdFromResponse(response), "Response should contain X-Shard-ID header");
+        assertEquals("3", getShardIdFromResponse(response));
     }
 
     @Test
@@ -113,90 +89,43 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("Test shard config loading from file")
-    void testShardConfigLoadingFromFile() throws Exception {
-        // Create a test shard config file
-        String shardConfigJson = """
-            {
-                "version": 1,
-                "targets": {
-                    "1": "http://localhost:9999"
-                }
-            }
-            """;
+    @DisplayName("Test shard config loading from database")
+    void testShardConfigLoadingFromDatabase() {
+        // Create and save a test shard config
+        ShardConfig shardConfig = new ShardConfig(1, List.of(
+            new ShardInfo("0", "1", "http://localhost:9999")
+        ));
 
-        Path tempFile = Files.createTempFile("test-shard-", ".json");
-        Files.writeString(tempFile, shardConfigJson);
-        tempFile.toFile().deleteOnExit();
+        insertShardConfig(shardConfig);
 
-        // Load config
-        ShardConfig config = ShardConfigLoader.load("file://" + tempFile.toAbsolutePath());
+        // Load config from database
+        var shardConfigRepository = new org.unicitylabs.proxy.repository.ShardConfigRepository();
+        var configRecord = shardConfigRepository.getLatestConfig();
+        ShardConfig config = configRecord.config();
 
         assertNotNull(config);
         assertEquals(1, config.getVersion());
-        assertEquals(1, config.getTargets().size());
-        assertTrue(config.getTargets().containsKey("1"));
-        assertEquals("http://localhost:9999", config.getTargets().get("1"));
-    }
-
-    @Test
-    @DisplayName("Test invalid shard config file throws exception")
-    void testInvalidShardConfigThrows() {
-        assertThrows(Exception.class, () ->
-            ShardConfigLoader.load("file:///nonexistent/path/config.json")
-        );
+        assertEquals(1, config.getShards().size());
+        assertEquals(java.math.BigInteger.ZERO, config.getShards().get(0).getId());
+        assertEquals(java.math.BigInteger.ONE, config.getShards().get(0).getSuffix());
+        assertEquals("http://localhost:9999", config.getShards().get(0).getUrl());
     }
 
     @Test
     @DisplayName("Test incomplete shard config fails validation")
-    void testIncompleteConfigValidation() throws Exception {
+    void testIncompleteConfigValidation() {
         // Create incomplete config (only covers half the space)
-        String incompleteConfigJson = """
-            {
-                "version": 1,
-                "targets": {
-                    "2": "http://localhost:9999"
-                }
-            }
-            """;
+        ShardConfig incompleteConfig = new ShardConfig(1, List.of(
+            new ShardInfo("0", "2", "http://localhost:9999")
+        ));
 
-        Path tempFile = Files.createTempFile("test-incomplete-shard-", ".json");
-        Files.writeString(tempFile, incompleteConfigJson);
-        tempFile.toFile().deleteOnExit();
-
-        // Load config and create router
-        ShardConfig config = ShardConfigLoader.load("file://" + tempFile.toAbsolutePath());
-        ShardRouter router = new ShardRouter(config);
+        // Create router with incomplete config
+        ShardRouter router = new DefaultShardRouter(incompleteConfig);
 
         // Validation should throw
         assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, config)
+            ShardConfigValidator.validate(router, incompleteConfig)
         );
-    }
-
-    @Test
-    @DisplayName("Test complete 2-bit shard config passes validation")
-    void testComplete2BitConfig() throws Exception {
-        String completeConfigJson = """
-            {
-                "version": 1,
-                "targets": {
-                    "4": "http://shard-00.example.com",
-                    "5": "http://shard-01.example.com",
-                    "6": "http://shard-10.example.com",
-                    "7": "http://shard-11.example.com"
-                }
-            }
-            """;
-
-        Path tempFile = Files.createTempFile("test-complete-shard-", ".json");
-        Files.writeString(tempFile, completeConfigJson);
-        tempFile.toFile().deleteOnExit();
-
-        ShardConfig config = ShardConfigLoader.load("file://" + tempFile.toAbsolutePath());
-
-        assertNotNull(config);
-        assertEquals(4, config.getTargets().size());
     }
 
     private @NotNull HttpResponse<String> postJson(String jsonRpcRequest) throws IOException, InterruptedException {
@@ -212,7 +141,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     }
 
     private @NotNull String inclusionProofRequest(String requestId) {
-        String jsonRpcRequest = String.format("""
+        return String.format("""
             {
                 "jsonrpc": "2.0",
                 "method": "get_inclusion_proof",
@@ -222,12 +151,162 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
                 "id": 1
             }
             """, requestId);
-        return jsonRpcRequest;
     }
 
     private HttpRequest getHttpRequest(HttpRequest.Builder jsonRpcRequest) {
         return jsonRpcRequest
                 .timeout(Duration.ofSeconds(5))
                 .build();
+    }
+
+    @Test
+    @DisplayName("Test JSON-RPC request without routing params returns 400")
+    void testJsonRpcWithoutRoutingParamsReturns400() throws Exception {
+        String jsonRpcRequest = """
+            {
+                "jsonrpc": "2.0",
+                "method": "some_method",
+                "params": {},
+                "id": 1
+            }
+            """;
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl()))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonRpcRequest))
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, response.statusCode());
+        assertTrue(response.body().contains("JSON-RPC requests must include either requestId or shardId"));
+    }
+
+    @Test
+    @DisplayName("Test JSON-RPC request with requestId succeeds")
+    void testJsonRpcWithRequestIdSucceeds() throws Exception {
+        String jsonRpcRequest = """
+            {
+                "jsonrpc": "2.0",
+                "method": "get_inclusion_proof",
+                "params": {
+                    "requestId": "00000000000000000000000000000000000000000000000000000000000000F2"
+                },
+                "id": 1
+            }
+            """;
+
+        HttpResponse<String> response = postJson(jsonRpcRequest);
+        assertEquals(200, response.statusCode());
+        assertEquals("2", getShardIdFromResponse(response));
+    }
+
+    @Test
+    @DisplayName("Test JSON-RPC request with shardId succeeds")
+    void testJsonRpcWithShardIdSucceeds() throws Exception {
+        String jsonRpcRequest = """
+            {
+                "jsonrpc": "2.0",
+                "method": "some_method",
+                "params": {
+                    "shardId": "3"
+                },
+                "id": 1
+            }
+            """;
+
+        HttpResponse<String> response = postJson(jsonRpcRequest);
+        assertEquals(200, response.statusCode());
+        assertEquals("3", getShardIdFromResponse(response));
+    }
+
+    @Test
+    @DisplayName("Test JSON-RPC request with both requestId and shardId returns 400")
+    void testJsonRpcWithBothParamsReturns400() throws Exception {
+        String jsonRpcRequest = """
+            {
+                "jsonrpc": "2.0",
+                "method": "some_method",
+                "params": {
+                    "requestId": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "shardId": "0"
+                },
+                "id": 1
+            }
+            """;
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl()))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonRpcRequest))
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, response.statusCode());
+        assertTrue(response.body().contains("Cannot specify both requestId and shardId"));
+    }
+
+    @Test
+    @DisplayName("Test non-JSON-RPC request with shard cookie routes correctly")
+    void testNonJsonRpcWithShardCookieRoutes() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/test"))
+                .header("Cookie", "UNICITY_SHARD_ID=2")
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        assertEquals("2", getShardIdFromResponse(response));
+    }
+
+    @Test
+    @DisplayName("Test non-JSON-RPC request with requestId cookie routes correctly")
+    void testNonJsonRpcWithRequestIdCookieRoutes() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/test"))
+                .header("Cookie", "UNICITY_REQUEST_ID=00000000000000000000000000000000000000000000000000000000000000F1")
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        assertEquals("1", getShardIdFromResponse(response));
+    }
+
+    @Test
+    @DisplayName("Test non-JSON-RPC request with both cookies returns 400")
+    void testNonJsonRpcWithBothCookiesReturns400() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/test"))
+                .header("Cookie", "UNICITY_SHARD_ID=0; UNICITY_REQUEST_ID=0000000000000000000000000000000000000000000000000000000000000000")
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, response.statusCode());
+        assertTrue(response.body().contains("Cannot specify both requestId and shardId"));
+    }
+
+    @Test
+    @DisplayName("Test non-JSON-RPC request without cookies uses random routing")
+    void testNonJsonRpcWithoutCookiesUsesRandom() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + "/test"))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        assertNotNull(getShardIdFromResponse(response), "Response should contain X-Shard-ID header");
+
+        String shardId = getShardIdFromResponse(response);
+        assertTrue(asList("0", "1", "2", "3").contains(shardId));
     }
 }

@@ -10,9 +10,6 @@ public class ProxyConfig {
     @Parameter(names = {"--port", "-p"}, description = "Proxy server port")
     private int port = 8080;
 
-    @Parameter(names = {"--shard-config-url"}, description = "URL to shard configuration JSON (file:// or https://)", required = true)
-    private String shardConfigUrl = null;
-    
     @Parameter(names = {"--worker-threads"}, description = "Number of worker threads")
     private int workerThreads = 0;
     
@@ -55,14 +52,6 @@ public class ProxyConfig {
     
     public void setPort(int port) {
         this.port = port;
-    }
-
-    public String getShardConfigUrl() {
-        return shardConfigUrl;
-    }
-
-    public void setShardConfigUrl(String shardConfigUrl) {
-        this.shardConfigUrl = shardConfigUrl;
     }
 
     public int getWorkerThreads() {
@@ -137,9 +126,9 @@ public class ProxyConfig {
     @Override
     public String toString() {
         return String.format(
-            "ProxyConfig{port=%d, shardConfigUrl='%s', workerThreads=%d, " +
+            "ProxyConfig{port=%d, workerThreads=%d, " +
             "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, protectedMethods='%s'}",
-            port, shardConfigUrl, workerThreads,
+            port, workerThreads,
             connectTimeout, readTimeout, idleTimeout, protectedMethods
         );
     }

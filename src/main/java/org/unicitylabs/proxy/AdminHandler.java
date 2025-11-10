@@ -7,7 +7,12 @@ import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
+import org.unicitylabs.proxy.repository.ShardConfigRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
+import org.unicitylabs.proxy.shard.DefaultShardRouter;
+import org.unicitylabs.proxy.shard.ShardConfig;
+import org.unicitylabs.proxy.shard.ShardConfigValidator;
+import org.unicitylabs.proxy.shard.ShardRouter;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MimeTypes;
@@ -37,6 +42,7 @@ public class AdminHandler extends Handler.Abstract {
     private final String adminPassword;
     private final ApiKeyRepository apiKeyRepository;
     private final PricingPlanRepository pricingPlanRepository;
+    private final ShardConfigRepository shardConfigRepository;
     private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
     private final BigInteger minimumPaymentAmount;
@@ -55,6 +61,7 @@ public class AdminHandler extends Handler.Abstract {
         this.adminPassword = adminPassword;
         this.apiKeyRepository = new ApiKeyRepository();
         this.pricingPlanRepository = new PricingPlanRepository();
+        this.shardConfigRepository = new ShardConfigRepository();
         this.apiKeyManager = apiKeyManager;
         this.rateLimiterManager = rateLimiterManager;
         this.minimumPaymentAmount = minimumPaymentAmount;
@@ -118,6 +125,10 @@ public class AdminHandler extends Handler.Abstract {
                 handleGetStats(response, callback);
             } else if ("/admin/api/utilization".equals(path) && "GET".equals(method)) {
                 handleGetUtilization(response, callback);
+            } else if ("/admin/api/shard-config".equals(path) && "GET".equals(method)) {
+                handleGetShardConfig(response, callback);
+            } else if ("/admin/api/shard-config".equals(path) && "POST".equals(method)) {
+                handleUploadShardConfig(request, response, callback);
             } else {
                 sendNotFound(response, callback);
             }
@@ -467,6 +478,61 @@ public class AdminHandler extends Handler.Abstract {
         } catch (Exception e) {
             logger.error("Failed to get utilization", e);
             sendServerError(response, callback);
+        }
+    }
+
+    private void handleGetShardConfig(Response response, Callback callback) {
+        try {
+            var configRecord = shardConfigRepository.getLatestConfig();
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            responseJson.put("configJson", mapper.writeValueAsString(configRecord.config()));
+            responseJson.put("createdAt", configRecord.createdAt().toString());
+            responseJson.put("createdBy", configRecord.createdBy());
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            logger.error("Failed to get shard configuration", e);
+            sendServerError(response, callback);
+        }
+    }
+
+    private void handleUploadShardConfig(Request request, Response response, Callback callback) {
+        try {
+            String body = Content.Source.asString(request);
+            ObjectNode uploadRequest = (ObjectNode) mapper.readTree(body);
+
+            String configJson = uploadRequest.get("configJson").asText();
+
+            // Parse the configuration
+            ShardConfig shardConfig = mapper.readValue(configJson, ShardConfig.class);
+
+            // Validate the configuration
+            ShardRouter shardRouter = new DefaultShardRouter(shardConfig);
+            try {
+                ShardConfigValidator.validate(shardRouter, shardConfig);
+            } catch (IllegalArgumentException e) {
+                // Validation failed - return error without saving
+                logger.warn("Shard configuration validation failed: {}", e.getMessage());
+                ObjectNode error = mapper.createObjectNode();
+                error.put("error", "Configuration validation failed: " + e.getMessage());
+                sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);
+                return;
+            }
+
+            // Save to database only if validation succeeds
+            shardConfigRepository.saveConfig(shardConfig, "admin");
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            responseJson.put("message", "Shard configuration uploaded successfully");
+            responseJson.put("note", "Configuration will be applied within seconds");
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            logger.error("Failed to upload shard configuration", e);
+            ObjectNode error = mapper.createObjectNode();
+            error.put("error", "Invalid configuration: " + e.getMessage());
+            sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);
         }
     }
 
