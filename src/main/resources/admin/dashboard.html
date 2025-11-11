@@ -722,7 +722,7 @@
                         <div class="spinner"></div>
                         <p>Loading payment sessions...</p>
                     </div>
-                    <table class="table" id="sessionsTable" style="display: none;">
+                    <table class="table" id="sessionsTable" style="display: none; transition: opacity 0.2s ease;">
                         <thead>
                             <tr>
                                 <th>Session ID</th>
@@ -741,7 +741,7 @@
                     </table>
 
                     <!-- Pagination -->
-                    <div id="sessionsPagination" style="display: none; padding: 1rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                    <div id="sessionsPagination" style="display: none; padding: 1rem; border-top: 1px solid var(--border); justify-content: space-between; align-items: center; transition: opacity 0.2s ease;">
                         <div id="sessionsPageInfo"></div>
                         <div style="display: flex; gap: 0.5rem;">
                             <button id="sessionsPrevBtn" class="btn btn-secondary" onclick="previousSessionsPage()">← Previous</button>
@@ -944,7 +944,7 @@
                 <textarea id="jsonDataContent" readonly rows="20" style="width: 100%; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.875rem; background: #f8fafc;"></textarea>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="copyJsonToClipboard()">📋 Copy</button>
+                <button type="button" class="btn btn-secondary" onclick="copyJsonToClipboard(event)">📋 Copy</button>
                 <button type="button" class="btn btn-primary" onclick="closeModal('jsonModal')">Close</button>
             </div>
         </div>
@@ -1648,12 +1648,22 @@
         let currentSessionsData = null;
         let isSearchMode = false;
 
-        async function loadPaymentSessions(page = 'last') {
+        async function loadPaymentSessions(page = 'last', preserveScroll = false) {
             isSearchMode = false;
 
-            document.getElementById('sessionsLoading').style.display = 'block';
-            document.getElementById('sessionsTable').style.display = 'none';
-            document.getElementById('sessionsPagination').style.display = 'none';
+            // Use opacity to prevent layout shift during loading
+            const table = document.getElementById('sessionsTable');
+            const pagination = document.getElementById('sessionsPagination');
+            if (preserveScroll) {
+                table.style.opacity = '0.3';
+                pagination.style.opacity = '0.3';
+                table.style.pointerEvents = 'none';
+                pagination.style.pointerEvents = 'none';
+            } else {
+                document.getElementById('sessionsLoading').style.display = 'block';
+                table.style.display = 'none';
+                pagination.style.display = 'none';
+            }
 
             try {
                 // If page is 'last', first get page 1 to calculate the last page number
@@ -1726,9 +1736,20 @@
                 document.getElementById('sessionsPrevBtn').disabled = true;
                 document.getElementById('sessionsNextBtn').disabled = true;
             } finally {
-                document.getElementById('sessionsLoading').style.display = 'none';
-                document.getElementById('sessionsTable').style.display = 'table';
-                document.getElementById('sessionsPagination').style.display = 'flex';
+                const table = document.getElementById('sessionsTable');
+                const pagination = document.getElementById('sessionsPagination');
+
+                if (preserveScroll) {
+                    // Restore opacity and interactivity
+                    table.style.opacity = '1';
+                    pagination.style.opacity = '1';
+                    table.style.pointerEvents = 'auto';
+                    pagination.style.pointerEvents = 'auto';
+                } else {
+                    document.getElementById('sessionsLoading').style.display = 'none';
+                    table.style.display = 'table';
+                    pagination.style.display = 'flex';
+                }
             }
         }
 
@@ -1911,13 +1932,13 @@
 
         function previousSessionsPage() {
             if (currentSessionsPage > 1) {
-                loadPaymentSessions(currentSessionsPage - 1);
+                loadPaymentSessions(currentSessionsPage - 1, true);
             }
         }
 
         function nextSessionsPage() {
             if (currentSessionsData && currentSessionsData.hasMore) {
-                loadPaymentSessions(currentSessionsPage + 1);
+                loadPaymentSessions(currentSessionsPage + 1, true);
             }
         }
 
@@ -1959,18 +1980,26 @@
             document.getElementById('jsonModal').classList.add('show');
         }
 
-        function copyJsonToClipboard() {
+        async function copyJsonToClipboard(event) {
             const content = document.getElementById('jsonDataContent');
-            content.select();
-            document.execCommand('copy');
-
-            // Visual feedback
             const btn = event.target;
             const originalText = btn.textContent;
-            btn.textContent = '✓ Copied!';
-            setTimeout(() => {
-                btn.textContent = originalText;
-            }, 2000);
+
+            try {
+                await navigator.clipboard.writeText(content.value);
+                // Visual feedback on success
+                btn.textContent = '✓ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy to clipboard:', err);
+                // Visual feedback on error
+                btn.textContent = '✗ Failed';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            }
         }
     </script>
 </body>
