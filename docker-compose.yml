@@ -66,6 +66,8 @@ services:
   haproxy:
     image: haproxy:2.8-alpine
     container_name: aggregator-haproxy
+    environment:
+      HAPROXY_STATS_PASSWORD: ${HAPROXY_STATS_PASSWORD}
     ports:
       # Main proxy port
       - "${PROXY_PORT:-8080}:8080"
@@ -74,9 +76,12 @@ services:
     volumes:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
-      - proxy-1
-      - proxy-2
-      - proxy-3
+      proxy-1:
+        condition: service_healthy
+      proxy-2:
+        condition: service_healthy
+      proxy-3:
+        condition: service_healthy
     networks:
       - aggregator-network
     restart: unless-stopped
