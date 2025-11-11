@@ -1939,7 +1939,7 @@
                 'expired': 'secondary',
                 'cancelled': 'secondary'
             };
-            return statusMap[status] || 'secondary';
+            return statusMap[status ? status.toLowerCase() : status] || 'secondary';
         }
 
         function formatDate(timestamp) {
