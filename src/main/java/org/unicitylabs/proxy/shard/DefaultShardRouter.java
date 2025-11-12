@@ -96,10 +96,6 @@ public class DefaultShardRouter implements ShardRouter {
      */
     @Override
     public String routeByRequestId(String requestIdHex) {
-        if (requestIdHex == null || requestIdHex.isEmpty()) {
-            return getRandomTarget();
-        }
-
         // Normalize: remove any 0x prefix if present
         String normalizedHex = requestIdHex.toLowerCase();
         if (normalizedHex.startsWith("0x")) {
@@ -112,7 +108,7 @@ public class DefaultShardRouter implements ShardRouter {
             requestId = new java.math.BigInteger(normalizedHex, 16);
         } catch (NumberFormatException e) {
             logger.warn("Invalid request ID format: {}, using random target", requestIdHex);
-            return getRandomTarget();
+            throw new IllegalArgumentException("Invalid request ID format: '" + requestIdHex + "'");
         }
 
         // Walk the tree from LSB to MSB
@@ -133,7 +129,7 @@ public class DefaultShardRouter implements ShardRouter {
             // Safety check to prevent infinite loop
             if (bitIndex > 256) {
                 logger.error("Tree traversal exceeded 256 bits for request ID: {}", requestIdHex);
-                return getRandomTarget();
+                throw new IllegalArgumentException("Tree traversal exceeded 256 bits for request ID: '" + requestIdHex + "'");
             }
         }
 

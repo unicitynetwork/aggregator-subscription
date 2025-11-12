@@ -80,7 +80,7 @@ public class ShardRouterTest {
     }
 
     @Test
-    @DisplayName("Test routing with null/empty request ID returns random target")
+    @DisplayName("Test routing with null/empty request ID throws an error")
     void testNullRequestId() {
         ShardConfig config = new ShardConfig(1, List.of(
             new ShardInfo(2, "http://shard0.example.com"),
@@ -89,11 +89,12 @@ public class ShardRouterTest {
 
         ShardRouter router = new DefaultShardRouter(config);
 
-        String targetNull = router.routeByRequestId(null);
-        assertTrue(targetNull.equals("http://shard0.example.com") || targetNull.equals("http://shard1.example.com"));
+        assertThrows(NullPointerException.class, () ->
+                router.routeByRequestId(null));
 
-        String targetEmpty = router.routeByRequestId("");
-        assertTrue(targetEmpty.equals("http://shard0.example.com") || targetEmpty.equals("http://shard1.example.com"));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () ->
+                router.routeByRequestId(""));
+        assertEquals("Invalid request ID format: ''", e.getMessage());
     }
 
     @Test
