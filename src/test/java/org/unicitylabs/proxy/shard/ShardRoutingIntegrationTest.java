@@ -76,6 +76,18 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("Test JSON-RPC request with invalid requestId returns error messages")
+    void testRequestIdRouting_invalidRequestId() throws Exception {
+        HttpResponse<String> response = postJsonNoStatusCheck(inclusionProofRequest(""));
+        assertEquals(400, response.statusCode());
+        assertEquals("{\"error\":\"JSON-RPC requests must include either requestId or shardId\"}", response.body());
+
+        response = postJsonNoStatusCheck(inclusionProofRequest("invalid"));
+        assertEquals(400, response.statusCode());
+        assertEquals("{\"error\":\"Invalid request ID format: 'invalid'\"}", response.body());
+    }
+
+    @Test
     @DisplayName("Test GET request uses random routing")
     void testGetRequestRandomRouting() throws Exception {
         HttpRequest request = getHttpRequest(HttpRequest.newBuilder()
@@ -128,14 +140,18 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
     }
 
     private @NotNull HttpResponse<String> postJson(String jsonRpcRequest) throws IOException, InterruptedException {
+        HttpResponse<String> response = postJsonNoStatusCheck(jsonRpcRequest);
+        assertEquals(200, response.statusCode());
+        return response;
+    }
+
+    private HttpResponse<String> postJsonNoStatusCheck(String jsonRpcRequest) throws IOException, InterruptedException {
         HttpRequest request = getHttpRequest(HttpRequest.newBuilder()
                 .uri(URI.create(getProxyUrl()))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonRpcRequest)));
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        assertEquals(200, response.statusCode());
         return response;
     }
 
