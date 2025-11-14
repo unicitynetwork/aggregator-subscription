@@ -125,12 +125,6 @@ public class DefaultShardRouter implements ShardRouter {
             }
 
             bitIndex++;
-
-            // Safety check to prevent infinite loop
-            if (bitIndex > 256) {
-                logger.error("Tree traversal exceeded 256 bits for request ID: {}", requestIdHex);
-                throw new IllegalArgumentException("Tree traversal exceeded 256 bits for request ID: '" + requestIdHex + "'");
-            }
         }
 
         if (current != null && current.isLeaf()) {
@@ -145,7 +139,7 @@ public class DefaultShardRouter implements ShardRouter {
     /**
      * Route based on explicit shard ID.
      *
-     * @param shardId Shard ID as string (decimal)
+     * @param shardId Shard ID as integer
      * @return Target URL to route to, or null if shard ID not found
      */
     @Override

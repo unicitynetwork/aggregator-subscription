@@ -1,6 +1,7 @@
 package org.unicitylabs.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.ValueInstantiationException;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
@@ -529,6 +530,11 @@ public class AdminHandler extends Handler.Abstract {
 
             sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
         } catch (Exception e) {
+            if (e instanceof ValueInstantiationException instantiationException) {
+                if (instantiationException.getCause() instanceof Exception causeException) {
+                    e = causeException;
+                }
+            }
             logger.error("Failed to upload shard configuration", e);
             ObjectNode error = mapper.createObjectNode();
             error.put("error", "Invalid configuration: " + e.getMessage());

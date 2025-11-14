@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 public class ProxyServer {
     private static final Logger logger = LoggerFactory.getLogger(ProxyServer.class);
 
-    public static final int SHARD_CONFIG_POLLING_INTERVAL = 2;
+    public static final int SHARD_CONFIG_POLLING_INTERVAL_SECONDS = 2;
 
     private final ProxyConfig config;
     private final Server server;
@@ -137,9 +137,9 @@ public class ProxyServer {
             } catch (Exception e) {
                 logger.error("Error polling shard configuration from database", e);
             }
-        }, SHARD_CONFIG_POLLING_INTERVAL, SHARD_CONFIG_POLLING_INTERVAL, TimeUnit.SECONDS);
+        }, SHARD_CONFIG_POLLING_INTERVAL_SECONDS, SHARD_CONFIG_POLLING_INTERVAL_SECONDS, TimeUnit.SECONDS);
 
-        logger.info("Shard configuration polling started (interval: {} seconds)", SHARD_CONFIG_POLLING_INTERVAL);
+        logger.info("Shard configuration polling started (interval: {} seconds)", SHARD_CONFIG_POLLING_INTERVAL_SECONDS);
     }
 
     private static QueuedThreadPool getQueuedThreadPool(ProxyConfig config) {

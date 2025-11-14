@@ -8,10 +8,25 @@ public class ShardConfigValidator {
             throw new IllegalArgumentException("Shard configuration has no shards");
         }
 
+        validateUniqueShardIds(config.getShards());
+
         if (router instanceof DefaultShardRouter defaultRouter) {
             validateTreeCompleteness(defaultRouter.getRootNode());
         } else if (! (router instanceof FailsafeShardRouter)) {
             throw new IllegalArgumentException("Unsupported Router instance: " + router.getClass());
+        }
+    }
+
+    private static void validateUniqueShardIds(List<ShardInfo> shards) {
+        if (shards == null) {
+            return;
+        }
+
+        Set<Integer> seenIds = new HashSet<>();
+        for (ShardInfo shard : shards) {
+            if (!seenIds.add(shard.id())) {
+                throw new IllegalArgumentException("Duplicate shard ID: " + shard.id());
+            }
         }
     }
 

@@ -2,10 +2,7 @@ package org.unicitylabs.proxy.shard;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.math.BigInteger;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 public class ShardConfig {
     @JsonProperty("version")
@@ -19,7 +16,6 @@ public class ShardConfig {
     public ShardConfig(int version, List<ShardInfo> shards) {
         this.version = version;
         this.shards = shards;
-        validateUniqueShardIds();
     }
 
     public int getVersion() {
@@ -36,20 +32,6 @@ public class ShardConfig {
 
     public void setShards(List<ShardInfo> shards) {
         this.shards = shards;
-        validateUniqueShardIds();
-    }
-
-    private void validateUniqueShardIds() {
-        if (shards == null) {
-            return;
-        }
-
-        Set<Integer> seenIds = new HashSet<>();
-        for (ShardInfo shard : shards) {
-            if (!seenIds.add(shard.id())) {
-                throw new IllegalArgumentException("Duplicate shard ID: " + shard.id());
-            }
-        }
     }
 
     @Override

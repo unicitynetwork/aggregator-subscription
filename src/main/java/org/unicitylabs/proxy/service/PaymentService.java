@@ -11,6 +11,7 @@ import org.unicitylabs.proxy.repository.*;
 import org.unicitylabs.proxy.repository.PaymentRepository.PaymentSession;
 import org.unicitylabs.proxy.shard.ShardRouter;
 import org.unicitylabs.proxy.util.TokenTypeLoader;
+import org.unicitylabs.sdk.api.RequestId;
 import org.unicitylabs.sdk.predicate.embedded.MaskedPredicateReference;
 import org.unicitylabs.sdk.util.HexConverter;
 import org.slf4j.Logger;
@@ -322,7 +323,7 @@ public class PaymentService {
     
     private SubmitCommitmentResult submitAndFinaliseCommitment(TransferCommitment transferCommitment, PaymentSession session, Token<?> sourceToken) throws ExecutionException, InterruptedException, TimeoutException, VerificationException
     {
-        String hexRequestId = canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger());
+        String hexRequestId = canonicalRequestId(transferCommitment.getRequestId());
         JsonRpcAggregatorClient aggregatorClient = new JsonRpcAggregatorClient(shardRouter.routeByRequestId(hexRequestId));
         var stateTransitionClient = new StateTransitionClient(aggregatorClient);
 
@@ -449,7 +450,7 @@ public class PaymentService {
                     request.getTransferCommitmentJson(), TransferCommitment.class
             );
 
-            String requestId = canonicalRequestId(transferCommitment.getRequestId().toBitString().toBigInteger());
+            String requestId = canonicalRequestId(transferCommitment.getRequestId());
 
             // EARLY: Store completion request with unique request_id constraint
             // Even if later processing fails, we have this recorded
@@ -473,8 +474,8 @@ public class PaymentService {
         return transferCommitment;
     }
 
-    public static String canonicalRequestId(BigInteger requestIdBitString) {
-        return requestIdBitString.toString(16);
+    public static String canonicalRequestId(RequestId requestId) {
+        return requestId.toBitString().toBigInteger().toString(16);
     }
 
     private byte[] random32Bytes() {

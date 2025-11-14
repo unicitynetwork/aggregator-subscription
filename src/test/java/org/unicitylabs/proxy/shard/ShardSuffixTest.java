@@ -69,7 +69,7 @@ public class ShardSuffixTest {
         ShardSuffix suffix = new ShardSuffix(shardInfo);
 
         assertEquals(0, suffix.getBitLength());
-        assertEquals(BigInteger.ZERO, suffix.getSuffixBits());
+        assertNull(suffix.getSuffixBits());
     }
 
     @Test

@@ -40,7 +40,7 @@ public class ShardSuffix {
             this.suffixBits = suffixValue.and(mask);
         } else {
             // Special case: "1" means no suffix (0 bits)
-            this.suffixBits = BigInteger.ZERO;
+            this.suffixBits = null;
         }
     }
 

@@ -138,7 +138,7 @@ public class RequestHandler extends Handler.Abstract {
 
         JsonNode root = attemptParsingRequestBodyAsJson(method, requestBody);
 
-        if (requiresAuthentication(request.getMethod(), requestBody, root)) {
+        if (requiresAuthentication(request.getMethod(), root)) {
             if (!performAuthenticationAndRateLimiting(request, response, callback, method, path)) {
                 return true;
             }
@@ -164,7 +164,7 @@ public class RequestHandler extends Handler.Abstract {
             try {
                root = objectMapper.readTree(requestBody);
             } catch (IOException e) {
-              // Invalid content, skip
+              // Non-JSON or invalid JSON content, will be treated as non-JSON-RPC request
               logger.debug("Could not extract JSON method from request body", e);
             }
         }
@@ -214,9 +214,9 @@ public class RequestHandler extends Handler.Abstract {
         return true;
     }
 
-    private boolean requiresAuthentication(String method, byte[] requestBody, JsonNode root) {
+    private boolean requiresAuthentication(String method, JsonNode root) {
         boolean requiresAuth = false;
-        if ("POST".equals(method) && requestBody != null) {
+        if ("POST".equals(method) && root != null) {
             String jsonRpcMethod = extractJsonRpcMethodFromBody(root);
             if (jsonRpcMethod != null && protectedMethods.contains(jsonRpcMethod)) {
                 requiresAuth = true;
@@ -390,7 +390,7 @@ public class RequestHandler extends Handler.Abstract {
 
     private static Set<String> parseConnectionTokens(HttpField connectionField) {
         String connectionHeader = connectionField != null ? connectionField.getValue() : null;
-        if (connectionHeader == null || connectionHeader .isEmpty()) {
+        if (connectionHeader == null || connectionHeader.isEmpty()) {
             return Set.of();
         }
         return Arrays.stream(connectionHeader.split(","))
@@ -525,7 +525,7 @@ public class RequestHandler extends Handler.Abstract {
             try {
                 shardId = Integer.parseInt(params.shardId());
             } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Shard ID not found: " + params.shardId(), e);
+                throw new IllegalArgumentException("Invalid Shard ID format: " + params.shardId(), e);
             }
 
             Optional<String> target = shardRouter.routeByShardId(shardId);
