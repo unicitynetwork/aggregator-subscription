@@ -574,6 +574,10 @@
                     <div class="stat-label">Pricing Plans</div>
                     <div class="stat-value" id="totalPlans">-</div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-label">Payment Stats</div>
+                    <div class="stat-value" id="paymentStats" style="font-size: 0.9rem; line-height: 1.4; white-space: pre-wrap;">-</div>
+                </div>
             </div>
 
             <!-- Tabs -->
@@ -581,6 +585,7 @@
                 <div class="tab active" data-tab="keys">API Keys</div>
                 <div class="tab" data-tab="utilization">Utilization</div>
                 <div class="tab" data-tab="plans">Pricing Plans</div>
+                <div class="tab" data-tab="paymentsessions">Payment Sessions</div>
                 <div class="tab" data-tab="shardconfig">Shard Configuration</div>
             </div>
 
@@ -681,6 +686,68 @@
                         <tbody id="plansTableBody">
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- Payment Sessions Tab -->
+            <div id="paymentsessionsTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Payment Sessions</h2>
+                    </div>
+
+                    <!-- Search Form -->
+                    <div style="padding: 1.5rem; border-bottom: 1px solid var(--border);">
+                        <form id="sessionSearchForm" onsubmit="searchPaymentSessions(event)" style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="searchApiKey">API Key</label>
+                                <input type="text" id="searchApiKey" placeholder="Search by API key">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="searchSessionId">Session ID</label>
+                                <input type="text" id="searchSessionId" placeholder="Search by session ID">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="searchCreatedAfter">Created After</label>
+                                <input type="datetime-local" id="searchCreatedAfter">
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button type="submit" class="btn btn-primary">Search</button>
+                                <button type="button" class="btn btn-secondary" onclick="clearSearch()">Clear</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div id="sessionsLoading" class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading payment sessions...</p>
+                    </div>
+                    <table class="table" id="sessionsTable" style="display: none; transition: opacity 0.2s ease;">
+                        <thead>
+                            <tr>
+                                <th>Session ID</th>
+                                <th>API Key</th>
+                                <th>Plan</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>New Key</th>
+                                <th>Created At</th>
+                                <th>Completed At</th>
+                                <th>Token Data</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessionsTableBody">
+                        </tbody>
+                    </table>
+
+                    <!-- Pagination -->
+                    <div id="sessionsPagination" style="display: none; padding: 1rem; border-top: 1px solid var(--border); justify-content: space-between; align-items: center; transition: opacity 0.2s ease;">
+                        <div id="sessionsPageInfo"></div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="sessionsPrevBtn" class="btn btn-secondary" onclick="previousSessionsPage()">← Previous</button>
+                            <button id="sessionsNextBtn" class="btn btn-secondary" onclick="nextSessionsPage()">Next →</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -866,6 +933,23 @@
         </div>
     </div>
 
+    <!-- JSON Viewer Modal -->
+    <div id="jsonModal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="jsonModalTitle">JSON Data</h2>
+            </div>
+            <div class="form-group">
+                <label id="jsonDataLabel">Data:</label>
+                <textarea id="jsonDataContent" readonly rows="20" style="width: 100%; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.875rem; background: #f8fafc;"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="copyJsonToClipboard(event)">📋 Copy</button>
+                <button type="button" class="btn btn-primary" onclick="closeModal('jsonModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Success Modal -->
     <div id="successModal" class="modal">
         <div class="modal-content">
@@ -955,6 +1039,8 @@
                 } else if (tabName === 'plans') {
                     loadPricingPlans();
                     loadStats();
+                } else if (tabName === 'paymentsessions') {
+                    loadPaymentSessions();
                 } else if (tabName === 'shardconfig') {
                     loadShardConfig();
                 }
@@ -989,6 +1075,21 @@
                 document.getElementById('totalPlans').textContent = stats.totalPricingPlans || 0;
             } catch (error) {
                 console.error('Failed to load stats:', error);
+            }
+
+            // Load payment stats separately
+            try {
+                const response = await apiCall('/admin/api/stats/payments');
+                const stats = await response.json();
+
+                // Format the stats text compactly
+                const formatNum = (n) => BigInt(n).toLocaleString('en-US');
+                const statsText = `Received: ${formatNum(stats.completedToday)} today, ${formatNum(stats.completedThisMonth)} this month, ${formatNum(stats.completedThisYear)} this year, ${formatNum(stats.completedAllTime)} all time\n` +
+                                  `Payment sessions: ${formatNum(stats.transactionsToday)} today, ${formatNum(stats.transactionsThisMonth)} this month, ${formatNum(stats.transactionsThisYear)} this year, ${formatNum(stats.transactionsAllTime)} all time`;
+
+                document.getElementById('paymentStats').textContent = statsText;
+            } catch (error) {
+                console.error('Failed to load payment stats:', error);
             }
         }
 
@@ -1541,6 +1642,365 @@
                 errorDiv.classList.remove('hidden');
             }
         });
+
+        // Payment Sessions functionality
+        let currentSessionsPage = 1;
+        let currentSessionsData = null;
+        let isSearchMode = false;
+
+        async function loadPaymentSessions(page = 'last', preserveScroll = false) {
+            isSearchMode = false;
+
+            // Use opacity to prevent layout shift during loading
+            const table = document.getElementById('sessionsTable');
+            const pagination = document.getElementById('sessionsPagination');
+            if (preserveScroll) {
+                table.style.opacity = '0.3';
+                pagination.style.opacity = '0.3';
+                table.style.pointerEvents = 'none';
+                pagination.style.pointerEvents = 'none';
+            } else {
+                document.getElementById('sessionsLoading').style.display = 'block';
+                table.style.display = 'none';
+                pagination.style.display = 'none';
+            }
+
+            try {
+                // If page is 'last', first get page 1 to calculate the last page number
+                let targetPage = page;
+                let firstPageData = null;
+
+                if (page === 'last') {
+                    const firstResponse = await fetch(`/admin/api/payment-sessions?page=1`, {
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
+
+                    if (firstResponse.ok) {
+                        firstPageData = await firstResponse.json();
+                        // Calculate last page from total count and page size
+                        if (firstPageData.pageSize > 0) {
+                            targetPage = Math.ceil(firstPageData.totalCount / firstPageData.pageSize);
+                            if (targetPage < 1) targetPage = 1;
+                        } else {
+                            // Invalid pageSize, fallback to page 1
+                            console.error('Invalid pageSize:', firstPageData.pageSize);
+                            targetPage = 1;
+                        }
+                    } else {
+                        console.error('Failed to get total count');
+                        targetPage = 1;
+                    }
+                }
+
+                currentSessionsPage = targetPage;
+
+                // If we already fetched the target page (when lastPage === 1), reuse it
+                if (firstPageData && targetPage === 1) {
+                    currentSessionsData = firstPageData;
+                    renderPaymentSessions(firstPageData.sessions);
+                    updateSessionsPagination(firstPageData);
+                } else {
+                    const response = await fetch(`/admin/api/payment-sessions?page=${targetPage}`, {
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        currentSessionsData = data;
+                        renderPaymentSessions(data.sessions);
+                        updateSessionsPagination(data);
+                    } else {
+                        console.error('Failed to load payment sessions');
+                        // Show error state
+                        document.getElementById('sessionsTableBody').innerHTML =
+                            '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: var(--danger);">Failed to load payment sessions</td></tr>';
+                        // Clear pagination info and state on error
+                        currentSessionsData = null;
+                        document.getElementById('sessionsPageInfo').textContent = 'Error loading sessions';
+                        document.getElementById('sessionsPrevBtn').disabled = true;
+                        document.getElementById('sessionsNextBtn').disabled = true;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading payment sessions:', error);
+                // Show error state
+                document.getElementById('sessionsTableBody').innerHTML =
+                    '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: var(--danger);">Error: ' + error.message + '</td></tr>';
+                // Clear pagination info and state on error
+                currentSessionsData = null;
+                document.getElementById('sessionsPageInfo').textContent = 'Error loading sessions';
+                document.getElementById('sessionsPrevBtn').disabled = true;
+                document.getElementById('sessionsNextBtn').disabled = true;
+            } finally {
+                const table = document.getElementById('sessionsTable');
+                const pagination = document.getElementById('sessionsPagination');
+
+                if (preserveScroll) {
+                    // Restore opacity and interactivity
+                    table.style.opacity = '1';
+                    pagination.style.opacity = '1';
+                    table.style.pointerEvents = 'auto';
+                    pagination.style.pointerEvents = 'auto';
+                } else {
+                    document.getElementById('sessionsLoading').style.display = 'none';
+                    table.style.display = 'table';
+                    pagination.style.display = 'flex';
+                }
+            }
+        }
+
+        async function searchPaymentSessions(event) {
+            event.preventDefault();
+            isSearchMode = true;
+
+            const apiKey = document.getElementById('searchApiKey').value;
+            const sessionId = document.getElementById('searchSessionId').value;
+            const createdAfter = document.getElementById('searchCreatedAfter').value;
+
+            if (!apiKey && !sessionId && !createdAfter) {
+                loadPaymentSessions('last');
+                return;
+            }
+
+            document.getElementById('sessionsLoading').style.display = 'block';
+            document.getElementById('sessionsTable').style.display = 'none';
+            document.getElementById('sessionsPagination').style.display = 'none';
+
+            try {
+                const params = new URLSearchParams();
+                if (apiKey) params.append('apiKey', apiKey);
+                if (sessionId) params.append('sessionId', sessionId);
+                if (createdAfter) params.append('createdAfter', new Date(createdAfter).toISOString());
+
+                const response = await fetch(`/admin/api/payment-sessions/search?${params.toString()}`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    renderPaymentSessions(data.sessions);
+
+                    // Show limited pagination info for search
+                    document.getElementById('sessionsPageInfo').textContent =
+                        `Found ${data.sessions.length} session${data.sessions.length !== 1 ? 's' : ''}` +
+                        (data.hasMore ? ' (showing first 10)' : '');
+                    document.getElementById('sessionsPrevBtn').style.display = 'none';
+                    document.getElementById('sessionsNextBtn').style.display = 'none';
+                } else {
+                    console.error('Failed to search payment sessions');
+                    // Show error state
+                    document.getElementById('sessionsTableBody').innerHTML =
+                        '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: var(--danger);">Failed to search payment sessions</td></tr>';
+                    document.getElementById('sessionsPageInfo').textContent = 'Search failed';
+                    document.getElementById('sessionsPrevBtn').style.display = 'none';
+                    document.getElementById('sessionsNextBtn').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error searching payment sessions:', error);
+                // Show error state
+                document.getElementById('sessionsTableBody').innerHTML =
+                    '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: var(--danger);">Error: ' + error.message + '</td></tr>';
+                document.getElementById('sessionsPageInfo').textContent = 'Search error';
+                document.getElementById('sessionsPrevBtn').style.display = 'none';
+                document.getElementById('sessionsNextBtn').style.display = 'none';
+            } finally {
+                document.getElementById('sessionsLoading').style.display = 'none';
+                document.getElementById('sessionsTable').style.display = 'table';
+                document.getElementById('sessionsPagination').style.display = 'flex';
+            }
+        }
+
+        function clearSearch() {
+            document.getElementById('sessionSearchForm').reset();
+            loadPaymentSessions('last');
+        }
+
+        function renderPaymentSessions(sessions) {
+            const tbody = document.getElementById('sessionsTableBody');
+            tbody.innerHTML = '';
+
+            if (!sessions || sessions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">No payment sessions found</td></tr>';
+                return;
+            }
+
+            sessions.forEach(session => {
+                const row = document.createElement('tr');
+
+                // Session ID (truncated)
+                const sessionIdCell = document.createElement('td');
+                sessionIdCell.textContent = session.sessionId.substring(0, 8) + '...';
+                sessionIdCell.title = session.sessionId;
+                row.appendChild(sessionIdCell);
+
+                // API Key (masked)
+                const apiKeyCell = document.createElement('td');
+                apiKeyCell.textContent = maskApiKey(session.apiKey);
+                apiKeyCell.title = session.apiKey;
+                row.appendChild(apiKeyCell);
+
+                // Plan Name
+                const planCell = document.createElement('td');
+                planCell.textContent = session.planName || '-';
+                row.appendChild(planCell);
+
+                // Amount
+                const amountCell = document.createElement('td');
+                amountCell.textContent = formatAmount(session.amount);
+                row.appendChild(amountCell);
+
+                // Status badge
+                const statusCell = document.createElement('td');
+                const statusBadge = document.createElement('span');
+                statusBadge.className = `badge badge-${getStatusColor(session.status)}`;
+                statusBadge.textContent = session.status;
+                statusCell.appendChild(statusBadge);
+                row.appendChild(statusCell);
+
+                // New Key (boolean)
+                const newKeyCell = document.createElement('td');
+                newKeyCell.textContent = session.shouldCreateKey ? 'Yes' : 'No';
+                row.appendChild(newKeyCell);
+
+                // Created At
+                const createdCell = document.createElement('td');
+                createdCell.textContent = formatDate(session.createdAt);
+                row.appendChild(createdCell);
+
+                // Completed At
+                const completedCell = document.createElement('td');
+                completedCell.textContent = session.completedAt ? formatDate(session.completedAt) : '-';
+                row.appendChild(completedCell);
+
+                // Token Data (clickable icons)
+                const tokenCell = document.createElement('td');
+                tokenCell.style.display = 'flex';
+                tokenCell.style.gap = '0.5rem';
+
+                if (session.tokenReceived) {
+                    const tokenBtn = document.createElement('button');
+                    tokenBtn.className = 'btn btn-secondary';
+                    tokenBtn.textContent = '📥 Received';
+                    tokenBtn.onclick = () => showJsonModal('Token Received', session.tokenReceived);
+                    tokenCell.appendChild(tokenBtn);
+                }
+
+                if (session.resultingToken) {
+                    const resultBtn = document.createElement('button');
+                    resultBtn.className = 'btn btn-secondary';
+                    resultBtn.textContent = '📤 Request';
+                    resultBtn.onclick = () => showJsonModal('Completion Request', session.resultingToken);
+                    tokenCell.appendChild(resultBtn);
+                }
+
+                if (!session.tokenReceived && !session.resultingToken) {
+                    tokenCell.textContent = '-';
+                }
+
+                row.appendChild(tokenCell);
+                tbody.appendChild(row);
+            });
+        }
+
+        function updateSessionsPagination(data) {
+            const pageInfo = document.getElementById('sessionsPageInfo');
+            const prevBtn = document.getElementById('sessionsPrevBtn');
+            const nextBtn = document.getElementById('sessionsNextBtn');
+
+            // Guard against invalid pageSize
+            const pageSize = data.pageSize > 0 ? data.pageSize : 10;
+            const totalPages = Math.max(1, Math.ceil(data.totalCount / pageSize));
+
+            if (data.totalCount === 0) {
+                pageInfo.textContent = 'No payment sessions';
+            } else {
+                pageInfo.textContent = `Page ${data.page} of ${totalPages} (${data.totalCount} total session${data.totalCount !== 1 ? 's' : ''})`;
+            }
+
+            prevBtn.disabled = data.page <= 1;
+            prevBtn.style.display = 'block';
+
+            nextBtn.disabled = !data.hasMore;
+            nextBtn.style.display = 'block';
+        }
+
+        function previousSessionsPage() {
+            if (currentSessionsPage > 1) {
+                loadPaymentSessions(currentSessionsPage - 1, true);
+            }
+        }
+
+        function nextSessionsPage() {
+            if (currentSessionsData && currentSessionsData.hasMore) {
+                loadPaymentSessions(currentSessionsPage + 1, true);
+            }
+        }
+
+        function maskApiKey(apiKey) {
+            if (!apiKey || apiKey.length < 8) return apiKey;
+            return apiKey.substring(0, 6) + '***' + apiKey.substring(apiKey.length - 4);
+        }
+
+        function formatAmount(amount) {
+            // Format large numbers with separators
+            return amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        }
+
+        function getStatusColor(status) {
+            const statusMap = {
+                'pending': 'warning',
+                'completed': 'success',
+                'failed': 'error',
+                'expired': 'secondary',
+                'cancelled': 'secondary'
+            };
+            return statusMap[status ? status.toLowerCase() : status] || 'secondary';
+        }
+
+        function formatDate(timestamp) {
+            if (!timestamp) return '-';
+            return new Date(timestamp).toLocaleString(undefined, {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        function showJsonModal(title, jsonData) {
+            document.getElementById('jsonModalTitle').textContent = title;
+            document.getElementById('jsonDataContent').value = JSON.stringify(JSON.parse(jsonData), null, 2);
+            document.getElementById('jsonModal').classList.add('show');
+        }
+
+        async function copyJsonToClipboard(event) {
+            const content = document.getElementById('jsonDataContent');
+            const btn = event.target;
+            const originalText = btn.textContent;
+
+            try {
+                await navigator.clipboard.writeText(content.value);
+                // Visual feedback on success
+                btn.textContent = '✓ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy to clipboard:', err);
+                // Visual feedback on error
+                btn.textContent = '✗ Failed';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            }
+        }
     </script>
 </body>
 </html>
