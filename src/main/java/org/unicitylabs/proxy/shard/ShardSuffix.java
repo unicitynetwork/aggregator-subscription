@@ -63,6 +63,9 @@ public class ShardSuffix {
     @Override
     public String toString() {
         return String.format("ShardSuffix{value=%s, bits=%d, suffix=%s, url='%s'}",
-            suffixValue, bitLength, suffixBits.toString(2), targetUrl);
+            suffixValue,
+            bitLength,
+            suffixBits != null ? suffixBits.toString(2): "/none/",
+            targetUrl);
     }
 }
