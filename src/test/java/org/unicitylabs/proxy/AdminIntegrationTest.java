@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
+import org.unicitylabs.proxy.repository.ShardConfigRepository;
+import org.unicitylabs.proxy.shard.ShardConfig;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -42,6 +44,75 @@ public class AdminIntegrationTest extends AbstractIntegrationTest {
         var plans = jsonNode.get("plans");
         assertTrue(plans.isArray(), "Plans should be an array");
         assertFalse(plans.isEmpty(), "Plans array should not be empty");
+    }
+
+    @Test
+    @DisplayName("Test upload shard config with invalid URL returns error")
+    void testUploadShardConfigWithInvalidUrl() throws Exception {
+        String token = loginAsAdmin();
+
+        String invalidShardConfig = """
+            {
+                "version": 1,
+                "shards": [
+                    {
+                        "id": 1,
+                        "url": "not a valid url at all"
+                    }
+                ]
+            }
+            """;
+
+        HttpResponse<String> response = uploadShardConfig(token, invalidShardConfig);
+
+        assertEquals(400, response.statusCode());
+        assertEquals("{\"error\":\"Invalid configuration: Shard URL is malformed: 'not a valid url at all'\"}", response.body());
+    }
+
+    @Test
+    @DisplayName("Test upload shard config with valid URL succeeds")
+    void testUploadShardConfigWithValidUrl() throws Exception {
+        String token = loginAsAdmin();
+
+        String validShardConfig = """
+            {
+                "version": 1,
+                "shards": [
+                    {
+                        "id": 1,
+                        "url": "http://test123.example.com:8080"
+                    }
+                ]
+            }
+            """;
+
+        HttpResponse<String> response = uploadShardConfig(token, validShardConfig);
+
+        assertEquals(200, response.statusCode());
+        var jsonNode = objectMapper.readTree(response.body());
+        assertTrue(jsonNode.has("message"), "Response should include message");
+        assertEquals("Shard configuration uploaded successfully", jsonNode.get("message").asText());
+
+        var config = new ShardConfigRepository().getLatestConfig();
+        assertEquals("http://test123.example.com:8080", config.config().getShards().get(0).url());
+    }
+
+    private HttpResponse<String> uploadShardConfig(String token, String shardConfigJson) throws Exception {
+        String uploadPayload = objectMapper.writeValueAsString(
+            new java.util.HashMap<String, String>() {{
+                put("configJson", shardConfigJson);
+            }}
+        );
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl() + "/admin/api/shard-config"))
+            .header("Authorization", "Bearer " + token)
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(uploadPayload))
+            .timeout(Duration.ofSeconds(5))
+            .build();
+
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private String loginAsAdmin() throws Exception {

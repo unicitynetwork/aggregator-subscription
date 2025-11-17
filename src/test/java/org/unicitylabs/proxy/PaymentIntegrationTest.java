@@ -77,13 +77,13 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Override
-    protected void updateConfigForTests(ProxyConfig config) {
-        super.updateConfigForTests(config);
+    protected void setUpConfigForTests(ProxyConfig config) {
+        super.setUpConfigForTests(config);
 
-        // Using a real aggregator here because our mock server is not capable of aggregating
-        // transactions
         config.setPort(443);
-        config.setTargetUrl(getRealAggregatorUrl());
+
+        // Using a real aggregator here because our mock server is not capable of aggregating transactions
+        setUpSingleShardAggregatorUrl(getRealAggregatorUrl());
     }
 
     @BeforeEach
@@ -110,14 +110,14 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     void testCompletePaymentWithNewKeyCreation() throws Exception {
         // Initiate payment without providing an API key - one will be created on successful payment
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(PLAN_PREMIUM.id().intValue());
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSessionWithoutKey(PLAN_ENTERPRISE.id().intValue());
 
         var paymentResult = signAndSubmitPaymentWithDetails(paymentSession, tokenId);
         var paymentResponse = paymentResult.response();
         String createdApiKey = paymentResponse.getApiKey();
         assertTrue(createdApiKey.startsWith("sk_"), "API key should have correct format");
 
-        String requestIdHex = HexConverter.encode(canonicalRequestId(paymentResult.transferCommitment().getRequestId().toBitString().toBigInteger()));
+        String requestIdHex = canonicalRequestId(paymentResult.transferCommitment().getRequestId());
 
         assertRequestIdStoredInDatabase(paymentSession.getSessionId(), requestIdHex);
         assertRequestIdAggregatedOnBlockchain(paymentResult.transferCommitment());
@@ -133,7 +133,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test payment flow with existing API key")
     void testPaymentWithExistingKey() throws Exception {
         // Use the pre-created TEST_API_KEY
-        initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
+        initiatePaymentSession(PLAN_ENTERPRISE.id().intValue(), TEST_API_KEY);
 
         // Test that the API key is now authorized
         final StateTransitionClient proxyConnectionWithApiKey = new StateTransitionClient(
@@ -152,7 +152,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
         // Renew with another payment
         byte[] tokenId = randomBytes(32);
-        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(PLAN_PREMIUM.id().intValue(), TEST_API_KEY);
+        PaymentModels.InitiatePaymentResponse paymentSession = initiatePaymentSession(PLAN_ENTERPRISE.id().intValue(), TEST_API_KEY);
         signAndSubmitPayment(paymentSession, tokenId);
         assertApiKeyAuthorizedForMinting(proxyConnectionWithApiKey);
     }
@@ -788,7 +788,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getMessage()).contains("Overpayment not accepted");
         assertThat(response.getMessage()).contains("exact amount");
 
-        String requestIdHex = HexConverter.encode(canonicalRequestId(result.transferCommitment().getRequestId().toBitString().toBigInteger()));
+        String requestIdHex = canonicalRequestId(result.transferCommitment().getRequestId());
         assertRequestIdStoredInDatabase(session.getSessionId(), requestIdHex);
         assertRequestIdNotAggregatedOnBlockchain(result.transferCommitment().getRequestId());
     }

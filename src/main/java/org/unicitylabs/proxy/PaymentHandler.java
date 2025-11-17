@@ -16,6 +16,7 @@ import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.shard.ShardRouter;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -31,8 +32,8 @@ public class PaymentHandler extends Handler.Abstract {
     private final ObjectMapper objectMapper;
     private final BigInteger minimumPaymentAmount;
 
-    public PaymentHandler(ProxyConfig config, byte[] serverSecret) {
-        this.paymentService = new PaymentService(config, serverSecret);
+    public PaymentHandler(ProxyConfig config, byte[] serverSecret, ShardRouter shardRouter) {
+        this.paymentService = new PaymentService(config, shardRouter, serverSecret);
         this.apiKeyRepository = new ApiKeyRepository();
         this.pricingPlanRepository = new PricingPlanRepository();
         this.objectMapper = ObjectMapperUtils.createObjectMapper();
@@ -41,6 +42,11 @@ public class PaymentHandler extends Handler.Abstract {
 
     public PaymentService getPaymentService() {
         return paymentService;
+    }
+
+    public void updateShardRouter(ShardRouter newRouter) {
+        paymentService.updateShardRouter(newRouter);
+        logger.info("PaymentHandler updated with new shard router");
     }
 
     @Override
