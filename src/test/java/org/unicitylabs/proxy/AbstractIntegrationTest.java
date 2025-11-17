@@ -1,6 +1,8 @@
 package org.unicitylabs.proxy;
 
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
+import org.unicitylabs.proxy.shard.ShardConfig;
+import org.unicitylabs.proxy.shard.ShardInfo;
 import org.unicitylabs.proxy.testparameterization.AuthMode;
 import io.github.bucket4j.TimeMeter;
 import org.eclipse.jetty.http.HttpHeader;
@@ -50,13 +52,13 @@ public abstract class AbstractIntegrationTest {
             new PricingPlanRepository.PricingPlan(4L, "enterprise", 50, 1000000, new BigInteger("50000000"));
 
     protected static final PricingPlanRepository.PricingPlan PLAN_TEST_BASIC =
-            new PricingPlanRepository.PricingPlan(5L, "test-basic", 5, 50000, BigInteger.ONE);
+            new PricingPlanRepository.PricingPlan(5L, "test-basic", 5, 50000, BigInteger.valueOf(10000));
 
     protected static final PricingPlanRepository.PricingPlan PLAN_TEST_STANDARD =
-            new PricingPlanRepository.PricingPlan(6L, "test-standard", 10, 100000, BigInteger.valueOf(2));
+            new PricingPlanRepository.PricingPlan(6L, "test-standard", 10, 100000, BigInteger.valueOf(20000));
 
     protected static final PricingPlanRepository.PricingPlan PLAN_TEST_PREMIUM =
-            new PricingPlanRepository.PricingPlan(7L, "test-premium", 20, 500000, BigInteger.valueOf(3));
+            new PricingPlanRepository.PricingPlan(7L, "test-premium", 20, 500000, BigInteger.valueOf(30000));
 
     protected static final List<PricingPlanRepository.PricingPlan> ALL_PLANS = List.of(
             PLAN_BASIC, PLAN_STANDARD, PLAN_PREMIUM, PLAN_ENTERPRISE,
@@ -68,7 +70,7 @@ public abstract class AbstractIntegrationTest {
             "jsonrpc": "2.0",
             "method": "submit_commitment",
             "params": {
-                "requestId": "test123"
+                "requestId": "1234"
             },
             "id": 1
         }
@@ -79,7 +81,7 @@ public abstract class AbstractIntegrationTest {
             "jsonrpc": "2.0",
             "method": "get_inclusion_proof",
             "params": {
-                "requestId": "test123"
+                "requestId": "1234"
             },
             "id": 1
         }
@@ -90,7 +92,7 @@ public abstract class AbstractIntegrationTest {
             "jsonrpc": "2.0",
             "method": "submit_commitment",
             "params": {
-                "requestId": "test123",
+                "requestId": "1234",
                 "data": "PLACEHOLDER"
             },
             "id": 1
@@ -115,6 +117,7 @@ public abstract class AbstractIntegrationTest {
     protected volatile int mockResponseStatus;
     protected volatile String mockResponseBody;
     protected volatile boolean mockShouldReturnError;
+    protected ProxyConfig config;
 
     @BeforeAll
     static void setUpDatabase() {
@@ -144,8 +147,8 @@ public abstract class AbstractIntegrationTest {
         mockServer = createMockServer();
         mockServer.start();
 
-        ProxyConfig config = new ProxyConfig();
-        updateConfigForTests(config);
+        config = new ProxyConfig();
+        setUpConfigForTests(config);
 
         proxyServer = new ProxyServer(config, SERVER_SECRET);
         proxyServer.start();
@@ -156,7 +159,7 @@ public abstract class AbstractIntegrationTest {
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
 
-        await().atMost(5, TimeUnit.SECONDS)
+        await().atMost(10, TimeUnit.SECONDS)
                 .until(() -> isServerReady(proxyPort));
 
         testTimeMeter = new TestTimeMeter();
@@ -186,10 +189,11 @@ public abstract class AbstractIntegrationTest {
         pricingPlanRepository.updateSequenceToMax();
     }
 
-    protected void updateConfigForTests(ProxyConfig config) {
+    protected void setUpConfigForTests(ProxyConfig config) {
         int mockServerPort = ((ServerConnector) mockServer.getConnectors()[0]).getLocalPort();
         config.setPort(0); // Use random port
-        config.setTargetUrl("http://localhost:" + mockServerPort);
+
+        setUpSingleShardAggregatorUrl("http://localhost:" + mockServerPort);
 
         // Use local test token types file instead of fetching from GitHub
         try {
@@ -199,6 +203,17 @@ public abstract class AbstractIntegrationTest {
         } catch (Exception e) {
             throw new RuntimeException("Failed to load test token types file", e);
         }
+    }
+
+    protected void setUpSingleShardAggregatorUrl(String aggregatorUrl) {
+        // Use suffix "1" (0 bits) to match all requests - no actual sharding in tests
+        insertShardConfig(new ShardConfig(1, List.of(
+            new ShardInfo(1, aggregatorUrl)
+        )));
+    }
+
+    protected void insertShardConfig(ShardConfig shardConfig) {
+        new org.unicitylabs.proxy.repository.ShardConfigRepository().saveConfig(shardConfig, "test");
     }
 
     @AfterEach
@@ -226,7 +241,11 @@ public abstract class AbstractIntegrationTest {
         }
     }
 
-    private Server createMockServer() {
+    protected Server createMockServer() {
+        return createMockServer("1");
+    }
+
+    protected Server createMockServer(String shardId) {
         Server server = new Server(0); // Random port
         server.setHandler(new Handler.Abstract() {
             @Override
@@ -234,8 +253,9 @@ public abstract class AbstractIntegrationTest {
                 String path = Request.getPathInContext(request);
                 String method = request.getMethod();
 
-                // Add custom header to all responses
+                // Add custom headers to all responses
                 response.getHeaders().put("X-Mock-Server", "true");
+                response.getHeaders().put("X-Shard-ID", shardId);
 
                 // Check if we should return a configured error response
                 if (mockShouldReturnError) {

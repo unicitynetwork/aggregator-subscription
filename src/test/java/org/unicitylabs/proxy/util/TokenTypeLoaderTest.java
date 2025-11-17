@@ -25,9 +25,7 @@ public class TokenTypeLoaderTest {
     @Test
     void testLoadNonFungibleTokenTypeWithInvalidName() {
         // Try to load a non-existent token type
-        Exception exception = assertThrows(IllegalArgumentException.class, () -> {
-            TokenTypeLoader.loadNonFungibleTokenType(DEFAULT_TESTNET_URL, "nonexistent-token");
-        });
+        Exception exception = assertThrows(IllegalArgumentException.class, () -> TokenTypeLoader.loadNonFungibleTokenType(DEFAULT_TESTNET_URL, "nonexistent-token"));
 
         assertThat(exception.getMessage())
             .contains("not found")
@@ -36,9 +34,7 @@ public class TokenTypeLoaderTest {
 
     @Test
     void testLoadNonFungibleTokenTypeFromInvalidUrl() {
-        Exception exception = assertThrows(Exception.class, () -> {
-            TokenTypeLoader.loadNonFungibleTokenType("https://invalid-url-that-does-not-exist.com/file.json", "unicity");
-        });
+        Exception exception = assertThrows(Exception.class, () -> TokenTypeLoader.loadNonFungibleTokenType("https://invalid-url-that-does-not-exist.com/file.json", "unicity"));
 
         assertThat(exception).isNotNull();
     }

@@ -319,20 +319,38 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Should forward custom headers bidirectionally for non-authenticated requests")
     void testBidirectionalHeaderForwardingWithoutAuth() throws Exception {
         assumeTrue(authMode == UNAUTHORIZED, "Testing header forwarding for non-authenticated requests");
-        
+
         HttpRequest request = getRequestBuilder("/test", authMode)
             .header("X-Request-Id", "test-456")
             .header("X-Trace-Id", "trace-789")
             .GET()
             .build();
-        
+
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        
+
         assertThat(response.statusCode()).isEqualTo(OK_200);
-        
+
         assertThat(response.headers().firstValue("X-Mock-Server")).isPresent()
             .hasValue("true");
-        
+
         assertThat(response.headers().firstValue(RequestHandler.HEADER_X_RATE_LIMIT_REMAINING)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should not require authentication for malformed JSON targeting protected endpoint")
+    void testMalformedJsonForProtectedEndpointDoesNotRequireAuth() throws Exception {
+        String malformedJson = "{\"jsonrpc\":\"2.0\",\"method\":\"submit_commitment\",\"params\":{\"requestId\":\"1234\"},"; // Missing closing brace
+
+        HttpRequest request = getRequestBuilder("/", authMode)
+            .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
+            .POST(ofString(malformedJson))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        // Should be treated as non-JSON-RPC request (no auth required)
+        // The mock server will respond with OK since it receives the request
+        assertThat(response.statusCode()).isEqualTo(OK_200);
+        assertThat(response.body()).isEqualTo("OK");
     }
 }
