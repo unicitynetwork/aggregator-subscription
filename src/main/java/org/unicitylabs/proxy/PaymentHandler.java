@@ -7,7 +7,6 @@ import org.unicitylabs.proxy.model.PaymentModels;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
 import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
-import org.unicitylabs.proxy.service.ApiKeyService;
 import org.unicitylabs.proxy.service.PaymentService;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.io.Content;
@@ -17,31 +16,37 @@ import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.shard.ShardRouter;
 
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class PaymentHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(PaymentHandler.class);
 
     private final PaymentService paymentService;
-    private final ApiKeyService apiKeyService;
     private final ApiKeyRepository apiKeyRepository;
     private final PricingPlanRepository pricingPlanRepository;
     private final ObjectMapper objectMapper;
+    private final BigInteger minimumPaymentAmount;
 
-    public PaymentHandler(ProxyConfig config, byte[] serverSecret) {
-        this.paymentService = new PaymentService(config, serverSecret);
-        this.apiKeyService = new ApiKeyService();
+    public PaymentHandler(ProxyConfig config, byte[] serverSecret, ShardRouter shardRouter) {
+        this.paymentService = new PaymentService(config, shardRouter, serverSecret);
         this.apiKeyRepository = new ApiKeyRepository();
         this.pricingPlanRepository = new PricingPlanRepository();
         this.objectMapper = ObjectMapperUtils.createObjectMapper();
+        this.minimumPaymentAmount = config.getMinimumPaymentAmount();
     }
 
     public PaymentService getPaymentService() {
         return paymentService;
+    }
+
+    public void updateShardRouter(ShardRouter newRouter) {
+        paymentService.updateShardRouter(newRouter);
+        logger.info("PaymentHandler updated with new shard router");
     }
 
     @Override
@@ -206,9 +211,9 @@ public class PaymentHandler extends Handler.Abstract {
                             plan.name(),
                             plan.requestsPerSecond(),
                             plan.requestsPerDay(),
-                            plan.price()
+                            plan.price().max(minimumPaymentAmount)
                     ))
-                    .collect(Collectors.toList());
+                    .toList();
             Map<String, Object> responseBody = Map.of("availablePlans", availablePlans);
             sendJsonResponse(response, callback, HttpStatus.OK_200, responseBody);
         } catch (Exception e) {
@@ -252,12 +257,7 @@ public class PaymentHandler extends Handler.Abstract {
             if (keyInfo.pricingPlanId() != null) {
                 var pricingPlan = pricingPlanRepository.findById(keyInfo.pricingPlanId());
 
-                ObjectNode planNode = objectMapper.createObjectNode();
-                planNode.put("id", pricingPlan.id());
-                planNode.put("name", pricingPlan.name());
-                planNode.put("requestsPerSecond", pricingPlan.requestsPerSecond());
-                planNode.put("requestsPerDay", pricingPlan.requestsPerDay());
-                planNode.put("price", pricingPlan.price().toString());
+                var planNode = AdminHandler.createPricingPlanNode(pricingPlan, objectMapper);
                 responseJson.set("pricingPlan", planNode);
             } else {
                 responseJson.putNull("pricingPlan");

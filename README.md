@@ -186,7 +186,65 @@ Note that currently, the payment actives the key for 1 month. If the user pays a
 
 There is an administrative interface, by default available at http://localhost:8080/admin. The password is set either by the `ADMIN_PASSWORD` environment variable or as a configuration setting.
 
-The interface allows to modify API keys and pricing plans.
+The interface allows to modify API keys, pricing plans and shard configuration.
+
+## Sharding
+
+The subscription proxy routes JSON-RPC messages to aggregators in the correct shards. For that purpose, every JSON-RPC message must contain exactly one of the following parameters:
+
+* `requestId`: this is a standard Request ID parameter that is used for aggregator's JSON-RPC endpoints like `submit_commitment`. It contains the Unicity aggregation tree's Request ID in hex, without the "0x" prefix. The subscription proxy automatically routes the request to the correct shard according to the shard configuration.
+* `shardId`: this specifies a Shard ID, a non-negative integer which is assigned also in the shard configuration.
+
+The administrative interface allows modifying the shard configuration as a JSON file. When the configuration is updated in the UI, the changes are propagated to all instances of the subscription proxy within seconds. A sample shard configuration is as follows:
+
+```json
+{
+  "version": 1,
+  "shards": [
+    {
+      "id": 2,
+      "url": "http://host.docker.internal:3001"
+    },
+    {
+      "id": 3,
+      "url": "http://host.docker.internal:3002"
+    }
+  ]
+}
+```
+
+The above shard configuration declares 2 shards. Specifically:
+
+* Each shard has an identifier declared (2 and 3, respectively). This identifier is used in 2 ways:
+    * For JSON-RPC requests that contain a `shardId` parameter, that parameter value is matched exactly against a shard identifier in the configuration, naturally indicating a shard that the request must be proxied to.
+    * For JSON-RPC requests that contain a `requestId` parameter, the shard identifier here is matched in the following way. The Shard ID works as a binary suffix for Request ID values -- that is, the Request ID must "end with" (its least significant bits should equal) the shard identifier of given shard, except for the first bit of the shard identifier that is always set to '1'. The reason that the Shard ID is prefixed by a binary digit '1' is to allow for encoding leading zeroes. Shard ID values are written in decimal. For example, to match Request IDs that end with two binary zeroes (00), the Shard ID would be 100 in binary, which is 4 in decimal, thus the Shard ID would be written as 4. Note that if there is only one shard, its identifier must be 1 which represents an empty Request ID suffix (as there are no bits left in the binary digit after removing the first binary digit). For more examples of Shard IDs, refer to the example tables below.
+* Each shard has a corresponding aggregator URL specified. All requests that are matched against the given shard are proxied to that URL.
+
+All requests that are not detected as JSON-RPC requests are proxied to a random shard's URL for load balancing purposes. If needed, cookies can be used to create a "sticky shard" (the names of the cookies are `UNICITY_SHARD_ID` and `UNICITY_REQUEST_ID`; their values are formatted the same way as the JSON-RPC parameters `requestId` and `shardId`).
+
+The following examples demonstrate the Shard ID numbering scheme.
+
+If there is only one shard in the system, its ID must be "1":
+
+Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
+---------|----------|----------------|--------------------------------
+1        | 1        | (empty)        | All IDs (single shard)
+
+If there are 2 shards, they must have the following IDs:
+
+Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
+---------|----------|----------------|--------------------------------
+2        | 10       | 0              | ...0
+3        | 11       | 1              | ...1
+
+As a final example, a configuration with 4 shards must have the following IDs:
+
+Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
+---------|----------|----------------|--------------------------------
+4        | 100      | 00             | ...00
+5        | 101      | 01             | ...01
+6        | 110      | 10             | ...10
+7        | 111      | 11             | ...11
 
 ## Configuration settings
 
@@ -219,7 +277,7 @@ DB_URL=jdbc:postgresql://localhost:5432/aggregator \
   DB_USER=postgres \
   DB_PASSWORD=postgres \
   SERVER_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  ./gradlew run -Pargs="--target https://goggregator-test.unicity.network"
+  ./gradlew run"
 ```
 
 ### Docker Compose with Load Balancing
@@ -295,9 +353,9 @@ LOG_LEVEL=INFO
 
 ## Development
 
+Run tests, including integration tests using a local aggregator at http://localhost:3000.
 ```bash
-# Run tests
-./gradlew test
+export AGGREGATOR_URL="http://localhost:3000" && ./gradlew clean test
 
 ```
 To run within an IDE, use the main class ```org.unicitylabs.proxy.Main```.

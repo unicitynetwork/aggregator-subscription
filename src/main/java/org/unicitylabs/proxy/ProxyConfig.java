@@ -9,10 +9,7 @@ import java.util.stream.Collectors;
 public class ProxyConfig {
     @Parameter(names = {"--port", "-p"}, description = "Proxy server port")
     private int port = 8080;
-    
-    @Parameter(names = {"--target", "-t"}, description = "Target server URL")
-    private String targetUrl = "http://localhost:3000";
-    
+
     @Parameter(names = {"--worker-threads"}, description = "Number of worker threads")
     private int workerThreads = 0;
     
@@ -55,14 +52,6 @@ public class ProxyConfig {
     
     public void setPort(int port) {
         this.port = port;
-    }
-
-    public String getTargetUrl() {
-        return targetUrl;
-    }
-    
-    public void setTargetUrl(String targetUrl) {
-        this.targetUrl = targetUrl;
     }
 
     public int getWorkerThreads() {
@@ -137,9 +126,9 @@ public class ProxyConfig {
     @Override
     public String toString() {
         return String.format(
-            "ProxyConfig{port=%d, targetUrl='%s', workerThreads=%d, " +
+            "ProxyConfig{port=%d, workerThreads=%d, " +
             "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, protectedMethods='%s'}",
-            port, targetUrl, workerThreads,
+            port, workerThreads,
             connectTimeout, readTimeout, idleTimeout, protectedMethods
         );
     }

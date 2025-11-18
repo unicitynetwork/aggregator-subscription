@@ -1,6 +1,7 @@
 package org.unicitylabs.proxy;
 
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
+import org.unicitylabs.proxy.shard.ShardRouter;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.net.URI;
+import org.eclipse.jetty.http.HttpCookie;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
 import java.net.http.HttpClient;
@@ -21,6 +23,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.Set;
 import java.util.Arrays;
@@ -36,9 +40,30 @@ import static org.eclipse.jetty.http.HttpHeader.*;
 import static org.eclipse.jetty.http.HttpMethod.*;
 import static org.eclipse.jetty.http.MimeTypes.Type.TEXT_PLAIN;
 
+record RoutingParams(String requestId, String shardId) {
+    boolean hasBoth() {
+        return hasRequestId() && hasShardId();
+    }
+
+    boolean hasAny() {
+        return hasRequestId() || hasShardId();
+    }
+
+    boolean hasRequestId() {
+        return requestId != null && !requestId.isEmpty();
+    }
+
+    boolean hasShardId() {
+        return shardId != null && !shardId.isEmpty();
+    }
+}
+
 public class RequestHandler extends Handler.Abstract {
     public static final int MAX_PAYLOAD_SIZE_BYTES = 10 * (int) ONE_MB;
     public static final int MAX_HEADER_COUNT = 200;
+
+    private static final String COOKIE_SHARD_ID = "UNICITY_SHARD_ID";
+    private static final String COOKIE_REQUEST_ID = "UNICITY_REQUEST_ID";
 
     private static final Logger logger = LoggerFactory.getLogger(RequestHandler.class);
 
@@ -49,7 +74,7 @@ public class RequestHandler extends Handler.Abstract {
     static final String HEADER_X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
 
     private final HttpClient httpClient;
-    private final String targetUrl;
+    private volatile ShardRouter shardRouter;
     private final Duration readTimeout;
     private final boolean useVirtualThreads;
     private final CachedApiKeyManager apiKeyManager;
@@ -58,8 +83,8 @@ public class RequestHandler extends Handler.Abstract {
     private final Set<String> protectedMethods;
     private final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
 
-    public RequestHandler(ProxyConfig config) {
-        this.targetUrl = config.getTargetUrl();
+    public RequestHandler(ProxyConfig config, ShardRouter shardRouter) {
+        this.shardRouter = shardRouter;
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
         this.apiKeyManager = CachedApiKeyManager.getInstance();
@@ -85,8 +110,8 @@ public class RequestHandler extends Handler.Abstract {
         }
         
         this.httpClient = httpClientBuilder.build();
-        
-        logger.info("Request handler initialized with target: {}", targetUrl);
+
+        logger.info("Request handler initialized with {} shard targets", shardRouter.getAllTargets().size());
     }
     
     @Override
@@ -111,7 +136,9 @@ public class RequestHandler extends Handler.Abstract {
             requestBody = null;
         }
 
-        if (requiresAuthentication(request.getMethod(), requestBody)) {
+        JsonNode root = attemptParsingRequestBodyAsJson(method, requestBody);
+
+        if (requiresAuthentication(request.getMethod(), root)) {
             if (!performAuthenticationAndRateLimiting(request, response, callback, method, path)) {
                 return true;
             }
@@ -122,12 +149,26 @@ public class RequestHandler extends Handler.Abstract {
         }
 
         if (useVirtualThreads) {
-            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, response, callback));
+            JsonNode finalRoot = root;
+            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, finalRoot, response, callback));
         } else {
-            handleRequestAsync(request, requestBody, response, callback);
+            handleRequestAsync(request, requestBody, root, response, callback);
         }
         
         return true;
+    }
+
+    private JsonNode attemptParsingRequestBodyAsJson(String method, byte[] requestBody) {
+        JsonNode root = null;
+        if ("POST".equals(method) && requestBody != null) {
+            try {
+               root = objectMapper.readTree(requestBody);
+            } catch (IOException e) {
+              // Non-JSON or invalid JSON content, will be treated as non-JSON-RPC request
+              logger.debug("Could not extract JSON method from request body", e);
+            }
+        }
+        return root;
     }
 
     private boolean performValidationOnRequestSizeLimits(Request request, Response response, Callback callback) {
@@ -173,10 +214,10 @@ public class RequestHandler extends Handler.Abstract {
         return true;
     }
 
-    private boolean requiresAuthentication(String method, byte[] requestBody) {
+    private boolean requiresAuthentication(String method, JsonNode root) {
         boolean requiresAuth = false;
-        if ("POST".equals(method) && requestBody != null) {
-            String jsonRpcMethod = extractJsonRpcMethodFromBody(requestBody);
+        if ("POST".equals(method) && root != null) {
+            String jsonRpcMethod = extractJsonRpcMethodFromBody(root);
             if (jsonRpcMethod != null && protectedMethods.contains(jsonRpcMethod)) {
                 requiresAuth = true;
             }
@@ -184,9 +225,9 @@ public class RequestHandler extends Handler.Abstract {
         return requiresAuth;
     }
 
-    private void handleRequestAsync(Request request, byte[] cachedBody, Response response, Callback callback) {
+    private void handleRequestAsync(Request request, byte[] cachedBody, JsonNode root, Response response, Callback callback) {
         try {
-            proxyRequest(request, cachedBody, response, callback);
+            proxyRequest(request, cachedBody, root, response, callback);
         } catch (Exception e) {
             logger.error("Error handling request", e);
             response.setStatus(HttpStatus.BAD_GATEWAY_502);
@@ -194,12 +235,25 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
     
-    private void proxyRequest(Request request, byte[] cachedBody, Response response, Callback callback) {
+    private void proxyRequest(Request request, byte[] cachedBody, JsonNode root, Response response, Callback callback) {
         try {
             String method = request.getMethod();
             String path = Request.getPathInContext(request);
             String queryString = request.getHttpURI().getQuery();
             String fullPath = queryString != null ? path + "?" + queryString : path;
+
+            // Determine target URL based on routing parameters
+            String targetUrl;
+            try {
+                targetUrl = determineTargetUrl(request, root);
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid routing parameters: {}", e.getMessage());
+                response.setStatus(HttpStatus.BAD_REQUEST_400);
+                String errorBody = String.format("{\"error\":\"%s\"}", e.getMessage());
+                response.write(true, ByteBuffer.wrap(errorBody.getBytes()), callback);
+                return;
+            }
+
             String targetUri = targetUrl + fullPath;
 
             if (logger.isDebugEnabled()) {
@@ -328,10 +382,15 @@ public class RequestHandler extends Handler.Abstract {
     public CachedApiKeyManager getApiKeyManager() {
         return apiKeyManager;
     }
-    
+
+    public void updateShardRouter(ShardRouter newRouter) {
+        this.shardRouter = newRouter;
+        logger.info("RequestHandler updated with new shard router ({} targets)", newRouter.getAllTargets().size());
+    }
+
     private static Set<String> parseConnectionTokens(HttpField connectionField) {
         String connectionHeader = connectionField != null ? connectionField.getValue() : null;
-        if (connectionHeader == null || connectionHeader .isEmpty()) {
+        if (connectionHeader == null || connectionHeader.isEmpty()) {
             return Set.of();
         }
         return Arrays.stream(connectionHeader.split(","))
@@ -392,13 +451,8 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private String extractJsonRpcMethodFromBody(byte[] body) {
+    private String extractJsonRpcMethodFromBody(JsonNode root) {
         try {
-            if (body.length == 0) {
-                return null;
-            }
-
-            JsonNode root = objectMapper.readTree(body);
             if (root.has("method")) {
                 return root.get("method").asText();
             }
@@ -406,5 +460,109 @@ public class RequestHandler extends Handler.Abstract {
             logger.debug("Could not extract JSON-RPC method from request body", e);
         }
         return null;
+    }
+
+    private RoutingParams extractRoutingParams(JsonNode root) {
+        String requestId = null;
+        String shardId = null;
+
+        try {
+            if (root.has("params")) {
+                JsonNode params = root.get("params");
+
+                if (params.has("requestId")) {
+                    String value = params.get("requestId").asText();
+                    if (value != null && !value.isEmpty()) {
+                        requestId = value;
+                    }
+                }
+
+                if (params.has("shardId")) {
+                    String value = params.get("shardId").asText();
+                    if (value != null && !value.isEmpty()) {
+                        shardId = value;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Could not extract routing params from request body", e);
+        }
+
+        return new RoutingParams(requestId, shardId);
+    }
+
+    private boolean isJsonRpcRequest(JsonNode root) {
+        return root != null && root.has("method");
+    }
+
+    private RoutingParams extractRoutingParamsFromCookies(Request request) {
+        String requestId = null;
+        String shardId = null;
+
+        List<HttpCookie> cookies = Request.getCookies(request);
+        if (cookies != null) {
+            for (HttpCookie cookie : cookies) {
+                if (COOKIE_REQUEST_ID.equals(cookie.getName())) {
+                    requestId = cookie.getValue();
+                } else if (COOKIE_SHARD_ID.equals(cookie.getName())) {
+                    shardId = cookie.getValue();
+                }
+            }
+        }
+
+        return new RoutingParams(requestId, shardId);
+    }
+
+    private String routeWithParams(RoutingParams params, boolean isJsonRpc) throws IllegalArgumentException {
+        // Check for conflicting parameters
+        if (params.hasBoth()) {
+            throw new IllegalArgumentException("Cannot specify both requestId and shardId");
+        }
+
+        // Route by shard ID if present
+        if (params.hasShardId()) {
+            int shardId;
+            try {
+                shardId = Integer.parseInt(params.shardId());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid Shard ID format: " + params.shardId(), e);
+            }
+
+            Optional<String> target = shardRouter.routeByShardId(shardId);
+            if (target.isEmpty()) {
+                throw new IllegalArgumentException("Shard ID not found: " + params.shardId());
+            }
+            if (logger.isTraceEnabled()) {
+                logger.trace("Routing request with shard ID {} to {}", params.shardId(), target.get());
+            }
+            return target.get();
+        }
+
+        // Route by request ID if present
+        if (params.hasRequestId()) {
+            String target = shardRouter.routeByRequestId(params.requestId());
+            if (logger.isTraceEnabled()) {
+                logger.trace("Routing request with ID {} to {}", params.requestId(), target);
+            }
+            return target;
+        }
+
+        // No routing params
+        if (isJsonRpc) {
+            throw new IllegalArgumentException("JSON-RPC requests must include either requestId or shardId");
+        } else {
+            // Non-JSON-RPC requests use random routing
+            return shardRouter.getRandomTarget();
+        }
+    }
+
+    private String determineTargetUrl(Request request, JsonNode root) throws IllegalArgumentException {
+        boolean isJsonRpc = isJsonRpcRequest(root);
+
+        RoutingParams params = isJsonRpc
+            ? extractRoutingParams(root)
+            : extractRoutingParamsFromCookies(request);
+
+        return routeWithParams(params, isJsonRpc);
     }
 }

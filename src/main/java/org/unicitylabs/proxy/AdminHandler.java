@@ -1,13 +1,21 @@
 package org.unicitylabs.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.ValueInstantiationException;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.eclipse.jetty.util.Fields;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
+import org.unicitylabs.proxy.repository.ShardConfigRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
+import org.unicitylabs.proxy.shard.DefaultShardRouter;
+import org.unicitylabs.proxy.shard.ShardConfig;
+import org.unicitylabs.proxy.shard.ShardConfigValidator;
+import org.unicitylabs.proxy.shard.ShardRouter;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MimeTypes;
@@ -31,14 +39,19 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class AdminHandler extends Handler.Abstract {
+    public static final int PAYMENT_SESSIONS_PER_PAGE = 10;
+
     private static final Logger logger = LoggerFactory.getLogger(AdminHandler.class);
     private static final ObjectMapper mapper = ObjectMapperUtils.createObjectMapper();
 
     private final String adminPassword;
     private final ApiKeyRepository apiKeyRepository;
     private final PricingPlanRepository pricingPlanRepository;
+    private final ShardConfigRepository shardConfigRepository;
+    private final PaymentRepository paymentRepository;
     private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
+    private final BigInteger minimumPaymentAmount;
 
     // Simple session management
     private final ConcurrentHashMap<String, SessionInfo> sessions = new ConcurrentHashMap<>();
@@ -50,12 +63,15 @@ public class AdminHandler extends Handler.Abstract {
             }
     }
 
-    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager) {
+    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager, BigInteger minimumPaymentAmount) {
         this.adminPassword = adminPassword;
         this.apiKeyRepository = new ApiKeyRepository();
         this.pricingPlanRepository = new PricingPlanRepository();
+        this.shardConfigRepository = new ShardConfigRepository();
+        this.paymentRepository = new PaymentRepository();
         this.apiKeyManager = apiKeyManager;
         this.rateLimiterManager = rateLimiterManager;
+        this.minimumPaymentAmount = minimumPaymentAmount;
         logger.info("Admin handler initialized");
     }
 
@@ -116,6 +132,16 @@ public class AdminHandler extends Handler.Abstract {
                 handleGetStats(response, callback);
             } else if ("/admin/api/utilization".equals(path) && "GET".equals(method)) {
                 handleGetUtilization(response, callback);
+            } else if ("/admin/api/shard-config".equals(path) && "GET".equals(method)) {
+                handleGetShardConfig(response, callback);
+            } else if ("/admin/api/shard-config".equals(path) && "POST".equals(method)) {
+                handleUploadShardConfig(request, response, callback);
+            } else if ("/admin/api/payment-sessions".equals(path) && "GET".equals(method)) {
+                handleGetPaymentSessions(request, response, callback);
+            } else if ("/admin/api/payment-sessions/search".equals(path) && "GET".equals(method)) {
+                handleSearchPaymentSessions(request, response, callback);
+            } else if ("/admin/api/stats/payments".equals(path) && "GET".equals(method)) {
+                handleGetPaymentStats(response, callback);
             } else {
                 sendNotFound(response, callback);
             }
@@ -289,20 +315,29 @@ public class AdminHandler extends Handler.Abstract {
             ArrayNode plansArray = mapper.createArrayNode();
 
             for (var plan : plans) {
-                ObjectNode planNode = mapper.createObjectNode();
-                planNode.put("id", plan.id());
-                planNode.put("name", plan.name());
-                planNode.put("requestsPerSecond", plan.requestsPerSecond());
-                planNode.put("requestsPerDay", plan.requestsPerDay());
-                planNode.put("price", plan.price().toString());
+                var planNode = createPricingPlanNode(plan, mapper);
                 plansArray.add(planNode);
             }
 
-            sendJsonResponse(response, callback, plansArray.toString(), HttpStatus.OK_200);
+            ObjectNode responseNode = mapper.createObjectNode();
+            responseNode.set("plans", plansArray);
+            responseNode.put("minimumPaymentAmount", minimumPaymentAmount.toString());
+
+            sendJsonResponse(response, callback, responseNode.toString(), HttpStatus.OK_200);
         } catch (Exception e) {
             logger.error("Failed to get pricing plans", e);
             sendServerError(response, callback);
         }
+    }
+
+    static ObjectNode createPricingPlanNode(PricingPlanRepository.PricingPlan plan, ObjectMapper mapper) {
+        ObjectNode planNode = mapper.createObjectNode();
+        planNode.put("id", plan.id());
+        planNode.put("name", plan.name());
+        planNode.put("requestsPerSecond", plan.requestsPerSecond());
+        planNode.put("requestsPerDay", plan.requestsPerDay());
+        planNode.put("price", plan.price().toString());
+        return planNode;
     }
 
     private void handleCreatePricingPlan(Request request, Response response, Callback callback) {
@@ -459,12 +494,181 @@ public class AdminHandler extends Handler.Abstract {
         }
     }
 
+    private void handleGetShardConfig(Response response, Callback callback) {
+        try {
+            var configRecord = shardConfigRepository.getLatestConfig();
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            responseJson.put("configJson", mapper.writeValueAsString(configRecord.config()));
+            responseJson.put("createdAt", configRecord.createdAt().toString());
+            responseJson.put("createdBy", configRecord.createdBy());
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            logger.error("Failed to get shard configuration", e);
+            sendServerError(response, callback);
+        }
+    }
+
+    private void handleUploadShardConfig(Request request, Response response, Callback callback) {
+        try {
+            String body = Content.Source.asString(request);
+            ObjectNode uploadRequest = (ObjectNode) mapper.readTree(body);
+
+            String configJson = uploadRequest.get("configJson").asText();
+
+            // Parse the configuration
+            ShardConfig shardConfig = mapper.readValue(configJson, ShardConfig.class);
+
+            // Validate the configuration
+            ShardRouter shardRouter = new DefaultShardRouter(shardConfig);
+            try {
+                ShardConfigValidator.validate(shardRouter, shardConfig);
+            } catch (IllegalArgumentException e) {
+                // Validation failed - return error without saving
+                logger.warn("Shard configuration validation failed: {}", e.getMessage());
+                ObjectNode error = mapper.createObjectNode();
+                error.put("error", "Configuration validation failed: " + e.getMessage());
+                sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);
+                return;
+            }
+
+            // Save to database only if validation succeeds
+            shardConfigRepository.saveConfig(shardConfig, "admin");
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            responseJson.put("message", "Shard configuration uploaded successfully");
+            responseJson.put("note", "Configuration will be applied within seconds");
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            if (e instanceof ValueInstantiationException instantiationException) {
+                if (instantiationException.getCause() instanceof Exception causeException) {
+                    e = causeException;
+                }
+            }
+            logger.error("Failed to upload shard configuration", e);
+            ObjectNode error = mapper.createObjectNode();
+            error.put("error", "Invalid configuration: " + e.getMessage());
+            sendJsonResponse(response, callback, error.toString(), HttpStatus.BAD_REQUEST_400);
+        }
+    }
+
+    private void handleGetPaymentSessions(Request request, Response response, Callback callback) {
+        try {
+            String pageStr = getFirstQueryParam(request, "page");
+            int page = pageStr != null ? Integer.parseInt(pageStr) : 1;
+            int limit = PAYMENT_SESSIONS_PER_PAGE; // Fixed limit to prevent DoS
+
+            PaymentRepository.PaymentSessionsPage result = paymentRepository.listSessions(page, limit);
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            ArrayNode sessionsArray = mapper.createArrayNode();
+
+            for (PaymentRepository.PaymentSessionListItem session : result.sessions()) {
+                ObjectNode sessionNode = mapper.createObjectNode();
+                sessionNode.put("sessionId", session.sessionId().toString());
+                sessionNode.put("apiKey", session.apiKey());
+                sessionNode.put("planName", session.planName());
+                sessionNode.put("amount", session.amountRequired().toString());
+                sessionNode.put("status", session.status());
+                sessionNode.put("shouldCreateKey", session.shouldCreateKey());
+                sessionNode.put("createdAt", session.createdAt().toString());
+                sessionNode.put("completedAt", session.completedAt() != null ? session.completedAt().toString() : null);
+                sessionNode.put("tokenReceived", session.tokenReceived());
+                sessionNode.put("resultingToken", session.completionRequestJson());
+                sessionsArray.add(sessionNode);
+            }
+
+            responseJson.set("sessions", sessionsArray);
+            responseJson.put("totalCount", result.totalCount());
+            responseJson.put("page", result.page());
+            responseJson.put("pageSize", result.pageSize());
+            responseJson.put("hasMore", result.hasMore());
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            logger.error("Error listing payment sessions", e);
+            sendServerError(response, callback);
+        }
+    }
+
+    private void handleSearchPaymentSessions(Request request, Response response, Callback callback) {
+        try {
+            String apiKey = getFirstQueryParam(request, "apiKey");
+            String sessionId = getFirstQueryParam(request, "sessionId");
+            String createdAfterStr = getFirstQueryParam(request, "createdAfter");
+            int limit = PAYMENT_SESSIONS_PER_PAGE; // Fixed limit to prevent DoS
+
+            java.time.Instant createdAfter = createdAfterStr != null ?
+                java.time.Instant.parse(createdAfterStr) : null;
+
+            java.util.List<PaymentRepository.PaymentSessionListItem> sessions =
+                paymentRepository.searchSessions(apiKey, sessionId, createdAfter, limit);
+
+            ArrayNode sessionsArray = mapper.createArrayNode();
+            for (PaymentRepository.PaymentSessionListItem session : sessions) {
+                ObjectNode sessionNode = mapper.createObjectNode();
+                sessionNode.put("sessionId", session.sessionId().toString());
+                sessionNode.put("apiKey", session.apiKey());
+                sessionNode.put("planName", session.planName());
+                sessionNode.put("amount", session.amountRequired().toString());
+                sessionNode.put("status", session.status());
+                sessionNode.put("shouldCreateKey", session.shouldCreateKey());
+                sessionNode.put("createdAt", session.createdAt().toString());
+                sessionNode.put("completedAt", session.completedAt() != null ? session.completedAt().toString() : null);
+                sessionNode.put("tokenReceived", session.tokenReceived());
+                sessionNode.put("resultingToken", session.completionRequestJson());
+                sessionsArray.add(sessionNode);
+            }
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            responseJson.set("sessions", sessionsArray);
+            responseJson.put("count", sessions.size());
+            responseJson.put("hasMore", sessions.size() >= limit);
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            logger.error("Error searching payment sessions", e);
+            sendServerError(response, callback);
+        }
+    }
+
+    private void handleGetPaymentStats(Response response, Callback callback) {
+        try {
+            PaymentRepository.PaymentStats stats = paymentRepository.getPaymentStats();
+
+            ObjectNode responseJson = mapper.createObjectNode();
+            responseJson.put("completedAllTime", stats.completedAllTime().toString());
+            responseJson.put("completedThisYear", stats.completedThisYear().toString());
+            responseJson.put("completedThisMonth", stats.completedThisMonth().toString());
+            responseJson.put("completedToday", stats.completedToday().toString());
+            responseJson.put("transactionsAllTime", stats.transactionsAllTime());
+            responseJson.put("transactionsThisYear", stats.transactionsThisYear());
+            responseJson.put("transactionsThisMonth", stats.transactionsThisMonth());
+            responseJson.put("transactionsToday", stats.transactionsToday());
+
+            sendJsonResponse(response, callback, responseJson.toString(), HttpStatus.OK_200);
+        } catch (Exception e) {
+            logger.error("Error fetching payment statistics", e);
+            sendServerError(response, callback);
+        }
+    }
+
     private String extractToken(Request request) {
         String authHeader = request.getHeaders().get(HttpHeader.AUTHORIZATION);
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             return authHeader.substring(7);
         }
         return null;
+    }
+
+    private String getFirstQueryParam(Request request, String paramName) {
+        Fields.Field field = Request.extractQueryParameters(request).get(paramName);
+        if (field == null) {
+            return null;
+        }
+        return field.getValue();
     }
 
     private boolean isValidSession(String token) {
