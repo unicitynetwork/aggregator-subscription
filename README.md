@@ -282,7 +282,11 @@ DB_URL=jdbc:postgresql://localhost:5432/aggregator \
 
 ### Docker Compose with Load Balancing
 
-The project includes a sample Docker Compose configuration with HAProxy load balancing across 3 proxy nodes:
+The project includes a sample Docker Compose configuration with HAProxy load balancing across 3 proxy nodes.
+
+The `.env.sample` file contains the environment variables to declare.
+
+The following is a quick way to start and use the Docker containers.
 
 ```bash
 # Build images
