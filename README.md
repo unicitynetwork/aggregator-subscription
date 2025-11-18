@@ -282,7 +282,32 @@ DB_URL=jdbc:postgresql://localhost:5432/aggregator \
 
 ### Docker Compose with Load Balancing
 
-The project includes a Docker Compose configuration with HAProxy load balancing across 3 proxy nodes.
+The project includes a sample Docker Compose configuration with HAProxy load balancing across 3 proxy nodes:
+
+```bash
+# Build images
+docker compose build --no-cache
+
+# Start all services (1 HAProxy + 3 proxy nodes + 1 database)
+docker compose up -d
+
+# View logs from all services
+docker compose logs -f
+
+# View logs from a specific node
+docker compose logs -f proxy-1
+
+# Check service status
+docker compose ps
+```
+
+By default, the service assumes a single shard and a single aggregator available at http://localhost:3000. To change this sharding configuration you can use the Admin UI.
+
+Here are the key URLs:
+
+- Admin UI: http://localhost:8080/admin.
+- HAProxy stats page: http://localhost:8404/stats.
+- Incoming requests are proxied from here: http://localhost:8080/.
 
 #### Architecture
 
@@ -301,25 +326,6 @@ The project includes a Docker Compose configuration with HAProxy load balancing 
   - Separate log volumes for each node
 
 - **PostgreSQL**: Single shared database instance
-
-#### Starting the Load-Balanced Setup
-
-```bash
-# Start all services (1 HAProxy + 3 proxy nodes + 1 database)
-docker-compose up -d
-
-# View logs from all services
-docker-compose logs -f
-
-# View logs from a specific node
-docker-compose logs -f proxy-1
-
-# Check service status
-docker-compose ps
-
-# Access HAProxy stats page
-# Default: http://localhost:8404/stats
-```
 
 #### Configuration
 
