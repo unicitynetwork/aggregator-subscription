@@ -20,16 +20,19 @@ RUN gradle build fatJar --no-daemon -x test
 # Runtime stage
 FROM eclipse-temurin:21-jre-alpine
 
-RUN apk add --no-cache bash
+# Install bash and wget (wget needed for health check)
+RUN apk add --no-cache bash wget
 
 WORKDIR /app
 
 # Copy the fat JAR
 COPY --from=builder /app/build/libs/*-all.jar app.jar
 
-# Create a non-root user
+# Create a non-root user and log directory
 RUN addgroup -g 1001 -S appuser && \
-    adduser -u 1001 -S appuser -G appuser
+    adduser -u 1001 -S appuser -G appuser && \
+    mkdir -p /var/log/aggregator && \
+    chown -R appuser:appuser /var/log/aggregator
 
 USER appuser
 
