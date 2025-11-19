@@ -22,6 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
     container_name: aggregator-proxy
     environment:
       # Proxy configuration - container always listens on 8080 internally
