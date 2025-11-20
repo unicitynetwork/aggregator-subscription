@@ -12,6 +12,12 @@ import java.util.List;
 public class PricingPlanRepository {
     private static final Logger logger = LoggerFactory.getLogger(PricingPlanRepository.class);
 
+    private final DatabaseConfig databaseConfig;
+
+    public PricingPlanRepository(DatabaseConfig databaseConfig) {
+        this.databaseConfig = databaseConfig;
+    }
+
     private static final String FIND_ALL_SQL = """
         SELECT id, name, requests_per_second, requests_per_day, price
         FROM pricing_plans
@@ -61,7 +67,7 @@ public class PricingPlanRepository {
 
     public List<PricingPlan> findAll() {
         List<PricingPlan> plans = new ArrayList<>();
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(FIND_ALL_SQL);
              ResultSet rs = stmt.executeQuery()) {
 
@@ -81,7 +87,7 @@ public class PricingPlanRepository {
     }
 
     public long create(String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(CREATE_SQL, Statement.RETURN_GENERATED_KEYS)) {
 
             stmt.setString(1, name);
@@ -104,7 +110,7 @@ public class PricingPlanRepository {
     }
 
     public long count() {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(COUNT_SQL);
              ResultSet rs = stmt.executeQuery()) {
 
@@ -118,7 +124,7 @@ public class PricingPlanRepository {
     }
 
     public PricingPlan findById(Long id) {
-        try (Connection conn = DatabaseConfig.getConnection()) {
+        try (Connection conn = databaseConfig.getConnection()) {
             return findById(conn, id);
         } catch (SQLException e) {
             throw new RuntimeException("Error finding pricing plan by id: " + id, e);
@@ -144,7 +150,7 @@ public class PricingPlanRepository {
     }
 
     public void update(Long id, String name, int requestsPerSecond, int requestsPerDay, BigInteger price) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_SQL)) {
 
             stmt.setString(1, name);
@@ -162,7 +168,7 @@ public class PricingPlanRepository {
     }
 
     public int countKeysUsingPlan(long planId) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(COUNT_KEYS_USING_PLAN_SQL)) {
 
             stmt.setLong(1, planId);
@@ -178,7 +184,7 @@ public class PricingPlanRepository {
     }
 
     public int countPaymentSessionsUsingPlan(long planId) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(COUNT_SESSIONS_USING_PLAN_SQL)) {
 
             stmt.setLong(1, planId);
@@ -194,7 +200,7 @@ public class PricingPlanRepository {
     }
 
     public boolean delete(long id) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_SQL)) {
 
             stmt.setLong(1, id);
@@ -207,7 +213,7 @@ public class PricingPlanRepository {
     }
 
     public void insertWithId(PricingPlan plan) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(INSERT_WITH_ID_SQL)) {
 
             stmt.setLong(1, plan.id());
@@ -224,7 +230,7 @@ public class PricingPlanRepository {
     }
 
     public void updateSequenceToMax() {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_SEQUENCE_SQL)) {
 
             stmt.executeQuery();

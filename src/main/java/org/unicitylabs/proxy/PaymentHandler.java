@@ -32,10 +32,10 @@ public class PaymentHandler extends Handler.Abstract {
     private final ObjectMapper objectMapper;
     private final BigInteger minimumPaymentAmount;
 
-    public PaymentHandler(ProxyConfig config, byte[] serverSecret, ShardRouter shardRouter) {
-        this.paymentService = new PaymentService(config, shardRouter, serverSecret);
-        this.apiKeyRepository = new ApiKeyRepository();
-        this.pricingPlanRepository = new PricingPlanRepository();
+    public PaymentHandler(ProxyConfig config, byte[] serverSecret, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
+        this.paymentService = new PaymentService(config, shardRouter, serverSecret, databaseConfig);
+        this.apiKeyRepository = new ApiKeyRepository(databaseConfig);
+        this.pricingPlanRepository = new PricingPlanRepository(databaseConfig);
         this.objectMapper = ObjectMapperUtils.createObjectMapper();
         this.minimumPaymentAmount = config.getMinimumPaymentAmount();
     }

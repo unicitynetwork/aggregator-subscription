@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.util.EnvironmentProvider;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -12,9 +13,15 @@ import java.sql.SQLException;
 
 public class DatabaseConfig {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseConfig.class);
-    private static HikariDataSource dataSource;
-    
-    public static void initialize(String jdbcUrl, String username, String password) {
+
+    private final EnvironmentProvider environmentProvider;
+    private HikariDataSource dataSource;
+
+    public DatabaseConfig(EnvironmentProvider environmentProvider) {
+        this.environmentProvider = environmentProvider;
+    }
+
+    public void initialize(String jdbcUrl, String username, String password) {
         if (dataSource != null) {
             dataSource.close();
         }
@@ -56,8 +63,8 @@ public class DatabaseConfig {
     /**
      * Read an integer environment variable with a default value.
      */
-    private static int getEnvAsInt(String key, int defaultValue) {
-        String value = System.getenv(key);
+    private int getEnvAsInt(String key, int defaultValue) {
+        String value = environmentProvider.getEnv(key);
         if (value == null || value.trim().isEmpty()) {
             return defaultValue;
         }
@@ -68,8 +75,8 @@ public class DatabaseConfig {
             return defaultValue;
         }
     }
-    
-    private static void runMigrations() {
+
+    private void runMigrations() {
         try {
             Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)
@@ -84,26 +91,26 @@ public class DatabaseConfig {
             throw new RuntimeException("Database migration failed", e);
         }
     }
-    
-    public static DataSource getDataSource() {
+
+    public DataSource getDataSource() {
         if (dataSource == null) {
             throw new IllegalStateException("Database not initialized. Call initialize() first.");
         }
         return dataSource;
     }
-    
-    public static Connection getConnection() throws SQLException {
+
+    public Connection getConnection() throws SQLException {
         return getDataSource().getConnection();
     }
-    
-    public static void shutdown() {
+
+    public void shutdown() {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             logger.info("Database connection pool closed");
         }
     }
-    
-    public static boolean isInitialized() {
+
+    public boolean isInitialized() {
         return dataSource != null && !dataSource.isClosed();
     }
 }

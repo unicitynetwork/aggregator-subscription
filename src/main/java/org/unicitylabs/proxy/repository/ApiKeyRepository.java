@@ -22,7 +22,12 @@ import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 public class ApiKeyRepository {
     private static final Logger logger = LoggerFactory.getLogger(ApiKeyRepository.class);
 
+    private final DatabaseConfig databaseConfig;
     private TimeMeter timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
+
+    public ApiKeyRepository(DatabaseConfig databaseConfig) {
+        this.databaseConfig = databaseConfig;
+    }
     
     private static final String FIND_BY_KEY_SQL = """
         SELECT ak.api_key, ak.status, ak.pricing_plan_id, ak.active_until, pp.requests_per_second, pp.requests_per_day
@@ -70,9 +75,6 @@ public class ApiKeyRepository {
 
     private static final String DELETE_BY_PLAN_ID_SQL = "DELETE FROM api_keys WHERE pricing_plan_id = ?";
 
-    public ApiKeyRepository() {
-    }
-
     public void setTimeMeter(TimeMeter timeMeter) {
         this.timeMeter = timeMeter;
     }
@@ -101,7 +103,7 @@ public class ApiKeyRepository {
     }
 
     public Optional<ApiKeyInfo> findByKeyIfNotRevoked(String apiKey) {
-        try (Connection conn = DatabaseConfig.getConnection()) {
+        try (Connection conn = databaseConfig.getConnection()) {
             return findByKeyIfNotRevoked(conn, apiKey);
         } catch (SQLException e) {
             throw new RuntimeException(e);
@@ -138,7 +140,7 @@ public class ApiKeyRepository {
     }
 
     public void insert(String apiKey, long pricingPlanId, Instant activeUntil) {
-        try (Connection conn = DatabaseConfig.getConnection()) {
+        try (Connection conn = databaseConfig.getConnection()) {
             insert(conn, apiKey, pricingPlanId, activeUntil);
         } catch (SQLException e) {
             logger.error("Error saving API key: {}", apiKey, e);
@@ -161,7 +163,7 @@ public class ApiKeyRepository {
     }
 
     public void delete(String apiKey) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_SQL)) {
             
             stmt.setString(1, apiKey);
@@ -179,7 +181,7 @@ public class ApiKeyRepository {
     }
     
     public void deleteByPricingPlanId(long planId) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_BY_PLAN_ID_SQL)) {
             
             stmt.setLong(1, planId);
@@ -194,7 +196,7 @@ public class ApiKeyRepository {
     }
 
     public void updatePricingPlan(String apiKey, long newPricingPlanId) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_PLAN_SQL)) {
 
             stmt.setLong(1, newPricingPlanId);
@@ -240,7 +242,7 @@ public class ApiKeyRepository {
 
     public List<ApiKeyDetail> findAll() {
         List<ApiKeyDetail> keys = new ArrayList<>();
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(FIND_ALL_DETAILED_SQL);
              ResultSet rs = stmt.executeQuery()) {
 
@@ -265,7 +267,7 @@ public class ApiKeyRepository {
     }
 
     public void create(String apiKey, String description, Long pricingPlanId) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(CREATE_WITH_DESCRIPTION_SQL)) {
 
             stmt.setString(1, apiKey);
@@ -282,7 +284,7 @@ public class ApiKeyRepository {
     }
 
     public void updateStatus(Long id, ApiKeyStatus status) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_STATUS_SQL)) {
 
             stmt.setString(1, status.getValue());
@@ -298,7 +300,7 @@ public class ApiKeyRepository {
     }
 
     public void updatePricingPlan(Long id, Long pricingPlanId) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_PLAN_BY_ID_SQL)) {
 
             stmt.setLong(1, pricingPlanId);
@@ -314,7 +316,7 @@ public class ApiKeyRepository {
     }
 
     public long count() {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(COUNT_SQL);
              ResultSet rs = stmt.executeQuery()) {
 
@@ -328,7 +330,7 @@ public class ApiKeyRepository {
     }
 
     public long countActive() {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(COUNT_ACTIVE_SQL);
              ResultSet rs = stmt.executeQuery()) {
 
@@ -342,7 +344,7 @@ public class ApiKeyRepository {
     }
 
     public void updateDescription(Long id, String description) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(UPDATE_DESCRIPTION_SQL)) {
             stmt.setString(1, description);
             stmt.setLong(2, id);
@@ -365,7 +367,7 @@ public class ApiKeyRepository {
             VALUES (?, '', NULL, 'active'::api_key_status)
             """;
 
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, apiKey);
@@ -385,7 +387,7 @@ public class ApiKeyRepository {
             WHERE api_key = ?
             """;
 
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, apiKey);

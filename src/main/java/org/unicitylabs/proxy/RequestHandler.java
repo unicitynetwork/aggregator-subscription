@@ -83,13 +83,13 @@ public class RequestHandler extends Handler.Abstract {
     private final Set<String> protectedMethods;
     private final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
 
-    public RequestHandler(ProxyConfig config, ShardRouter shardRouter) {
+    public RequestHandler(ProxyConfig config, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
         this.shardRouter = shardRouter;
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
         this.apiKeyManager = CachedApiKeyManager.getInstance();
         this.rateLimiterManager = new RateLimiterManager(apiKeyManager);
-        this.webUIHandler = new WebUIHandler();
+        this.webUIHandler = new WebUIHandler(databaseConfig);
         this.protectedMethods = config.getProtectedMethods();
 
         var httpClientBuilder = HttpClient.newBuilder()
@@ -564,5 +564,9 @@ public class RequestHandler extends Handler.Abstract {
             : extractRoutingParamsFromCookies(request);
 
         return routeWithParams(params, isJsonRpc);
+    }
+
+    ShardRouter getShardRouterForTesting() {
+        return shardRouter;
     }
 }

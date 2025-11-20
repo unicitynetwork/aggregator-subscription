@@ -1,6 +1,7 @@
 package org.unicitylabs.proxy;
 
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.repository.DatabaseConfig;
 import io.github.bucket4j.TimeMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,37 +29,43 @@ public class CachedApiKeyManager {
 
     private static volatile CachedApiKeyManager instance;
 
-    private CachedApiKeyManager() {
-        this.repository = new ApiKeyRepository();
+    private CachedApiKeyManager(DatabaseConfig databaseConfig) {
+        this.repository = new ApiKeyRepository(databaseConfig);
         this.repository.setTimeMeter(timeMeter);
         this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "api-key-cache-cleaner");
             thread.setDaemon(true);
             return thread;
         });
-        
+
         cleanupExecutor.scheduleAtFixedRate(
             this::cleanupExpiredEntries,
             CLEANUP_INTERVAL_MS,
             CLEANUP_INTERVAL_MS,
             TimeUnit.MILLISECONDS
         );
-        
-        logger.info("CachedApiKeyManager initialized with {}ms TTL and {}ms cleanup interval", 
+
+        logger.info("CachedApiKeyManager initialized with {}ms TTL and {}ms cleanup interval",
             CACHE_TTL_MS, CLEANUP_INTERVAL_MS);
     }
-    
+
+    public static void initialize(DatabaseConfig databaseConfig) {
+        synchronized (CachedApiKeyManager.class) {
+            instance = new CachedApiKeyManager(databaseConfig);
+        }
+    }
+
     public static CachedApiKeyManager getInstance() {
         if (instance == null) {
-            synchronized (CachedApiKeyManager.class) {
-                if (instance == null) {
-                    instance = new CachedApiKeyManager();
-                }
-            }
+            throw new IllegalStateException("CachedApiKeyManager not initialized. Call initialize(DatabaseConfig) first.");
         }
         return instance;
     }
-    
+
+    public static boolean hasInstanceSet() {
+        return instance != null;
+    }
+
     public boolean isValidApiKey(String apiKey) {
         ApiKeyInfo info = getApiKeyInfo(apiKey);
         return info != null;

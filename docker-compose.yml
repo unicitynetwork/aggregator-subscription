@@ -26,6 +26,14 @@ x-proxy-service: &proxy-service
     HIKARI_LEAK_DETECTION_THRESHOLD: ${HIKARI_LEAK_DETECTION_THRESHOLD:-60000}
     # Log configuration
     LOG_DIR: /var/log/aggregator
+    # Shard configuration - optional URI to load shard config from (file:// or http://)
+    # If set, overrides database config on startup. Maps to /etc/aggregator/config inside container.
+    SHARD_CONFIG_URI: ${SHARD_CONFIG_URI:-}
+  volumes:
+    # Mount host config directory read-only for shard configuration files
+    # Use: echo '{"version":1,"shards":[...]}' > ./config/shard-config.json
+    # Then: SHARD_CONFIG_URI=file:///etc/aggregator/config/shard-config.json
+    - ${SHARD_CONFIG_DIR:-./config}:/etc/aggregator/config:ro
   depends_on:
     postgres:
       condition: service_healthy

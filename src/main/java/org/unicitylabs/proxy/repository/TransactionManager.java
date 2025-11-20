@@ -19,6 +19,12 @@ import java.util.function.Function;
 public class TransactionManager {
     private static final Logger logger = LoggerFactory.getLogger(TransactionManager.class);
 
+    private final DatabaseConfig databaseConfig;
+
+    public TransactionManager(DatabaseConfig databaseConfig) {
+        this.databaseConfig = databaseConfig;
+    }
+
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
 
     /**
@@ -52,7 +58,7 @@ public class TransactionManager {
     public <T> T executeInTransaction(Function<Connection, T> operation, int timeoutSeconds) {
         long startTime = System.currentTimeMillis();
 
-        try (Connection conn = DatabaseConfig.getConnection()) {
+        try (Connection conn = databaseConfig.getConnection()) {
             // Configure connection for transaction
             conn.setAutoCommit(false);
             conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);

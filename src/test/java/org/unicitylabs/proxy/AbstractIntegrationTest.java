@@ -4,6 +4,7 @@ import org.unicitylabs.proxy.repository.PricingPlanRepository;
 import org.unicitylabs.proxy.shard.ShardConfig;
 import org.unicitylabs.proxy.shard.ShardInfo;
 import org.unicitylabs.proxy.testparameterization.AuthMode;
+import org.unicitylabs.proxy.util.EnvironmentProvider;
 import io.github.bucket4j.TimeMeter;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.Content;
@@ -147,10 +148,10 @@ public abstract class AbstractIntegrationTest {
         mockServer = createMockServer();
         mockServer.start();
 
-        config = new ProxyConfig();
+        config = new ProxyConfig(EnvironmentProvider.SystemEnvironmentProvider.getInstance());
         setUpConfigForTests(config);
 
-        proxyServer = new ProxyServer(config, SERVER_SECRET);
+        proxyServer = new ProxyServer(config, SERVER_SECRET, EnvironmentProvider.SystemEnvironmentProvider.getInstance(), TestDatabaseSetup.getDatabaseConfig());
         proxyServer.start();
 
         proxyPort = ((ServerConnector) proxyServer.getServer().getConnectors()[0]).getLocalPort();
@@ -174,7 +175,7 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected void recreatePricingPlans() {
-        PricingPlanRepository pricingPlanRepository = new PricingPlanRepository();
+        PricingPlanRepository pricingPlanRepository = new PricingPlanRepository(TestDatabaseSetup.getDatabaseConfig());
 
         for (var plan : ALL_PLANS) {
             var existing = pricingPlanRepository.findById(plan.id());
@@ -213,7 +214,7 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected void insertShardConfig(ShardConfig shardConfig) {
-        new org.unicitylabs.proxy.repository.ShardConfigRepository().saveConfig(shardConfig, "test");
+        new org.unicitylabs.proxy.repository.ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig()).saveConfig(shardConfig, "test");
     }
 
     @AfterEach

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.unicitylabs.proxy.AbstractIntegrationTest;
 import org.unicitylabs.proxy.ProxyConfig;
+import org.unicitylabs.proxy.TestDatabaseSetup;
 
 import java.io.IOException;
 import java.net.URI;
@@ -111,7 +112,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
         insertShardConfig(shardConfig);
 
         // Load config from database
-        var shardConfigRepository = new org.unicitylabs.proxy.repository.ShardConfigRepository();
+        var shardConfigRepository = new org.unicitylabs.proxy.repository.ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig());
         var configRecord = shardConfigRepository.getLatestConfig();
         ShardConfig config = configRecord.config();
 
