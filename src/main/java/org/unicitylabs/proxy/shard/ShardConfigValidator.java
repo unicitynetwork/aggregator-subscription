@@ -1,5 +1,7 @@
 package org.unicitylabs.proxy.shard;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.*;
 
 public class ShardConfigValidator {
@@ -27,6 +29,41 @@ public class ShardConfigValidator {
             if (!seenIds.add(shard.id())) {
                 throw new IllegalArgumentException("Duplicate shard ID: " + shard.id());
             }
+
+            validateShardUrl(shard.url(), shard.id());
+        }
+    }
+
+    private static void validateShardUrl(String url, int shardId) {
+        if (url == null || url.isEmpty()) {
+            throw new IllegalArgumentException("Shard " + shardId + " has empty or null URL");
+        }
+
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Shard " + shardId + " has malformed URL: " + url + " - " + e.getMessage());
+        }
+
+        // Ensure no query parameters
+        if (uri.getQuery() != null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must not contain query parameters: " + url);
+        }
+
+        // Ensure no fragment
+        if (uri.getFragment() != null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must not contain fragment: " + url);
+        }
+
+        // Ensure scheme is present
+        if (uri.getScheme() == null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must have a scheme (http or https): " + url);
+        }
+
+        // Ensure host is present
+        if (uri.getHost() == null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must have a host: " + url);
         }
     }
 
