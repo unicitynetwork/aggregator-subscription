@@ -47,7 +47,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         setUpConfigForTests(config);
         byte[] serverSecret = new byte[32];
 
-        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig());
+        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
 
         // Verify config was saved to database
         ShardConfigRepository repo = new ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig());
@@ -77,7 +77,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         byte[] serverSecret = new byte[32];
 
         RuntimeException exception = assertThrows(RuntimeException.class, () -> {
-            new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig());
+            new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
         });
 
         assertTrue(exception.getMessage().contains("Failed to load shard configuration from " + ProxyServer.SHARD_CONFIG_URI));
@@ -107,7 +107,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         byte[] serverSecret = new byte[32];
 
         RuntimeException exception = assertThrows(RuntimeException.class, () -> {
-            new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig());
+            new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
         });
 
         assertTrue(exception.getMessage().contains("Failed to load shard configuration from " + ProxyServer.SHARD_CONFIG_URI));
@@ -124,7 +124,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         byte[] serverSecret = new byte[32];
 
         RuntimeException exception = assertThrows(RuntimeException.class, () -> {
-            new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig());
+            new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
         });
 
         assertTrue(exception.getMessage().contains("Failed to load shard configuration from " + ProxyServer.SHARD_CONFIG_URI));
@@ -146,7 +146,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
 
         byte[] serverSecret = new byte[32];
 
-        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig());
+        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
 
         assertEquals("http://localhost:8001", server.getShardRouterForTesting().routeByShardId(1).get());
 
@@ -168,7 +168,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         )));
         byte[] serverSecret = new byte[32];
 
-        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig());
+        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
 
         assertEquals("http://localhost:8123", server.getShardRouterForTesting().routeByShardId(1).get());
 
@@ -204,7 +204,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         setUpConfigForTests(config);
         byte[] serverSecret = new byte[32];
 
-        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig());
+        ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
 
         // Verify new config was saved as latest
         ShardConfigRepository repo = new ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig());

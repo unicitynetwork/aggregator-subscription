@@ -155,7 +155,7 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected void setUpNewProxyServer() throws Exception {
-        proxyServer = new ProxyServer(config, SERVER_SECRET, EnvironmentProvider.SystemEnvironmentProvider.getInstance(), TestDatabaseSetup.getDatabaseConfig());
+        proxyServer = new ProxyServer(config, SERVER_SECRET, EnvironmentProvider.SystemEnvironmentProvider.getInstance(), TestDatabaseSetup.getDatabaseConfig(), false);
         proxyServer.start();
 
         proxyPort = ((ServerConnector) proxyServer.getServer().getConnectors()[0]).getLocalPort();

@@ -28,10 +28,16 @@ public class ProxyServer {
     private final RequestHandler requestHandler;
     private final ShardConfigRepository shardConfigRepository;
     private final ScheduledExecutorService configPoller;
+    private final boolean validateShardConnectivity;
 
     private volatile int lastConfigId;
 
     public ProxyServer(ProxyConfig config, byte[] serverSecret, EnvironmentProvider environmentProvider, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
+        this(config, serverSecret, environmentProvider, databaseConfig, true);
+    }
+
+    public ProxyServer(ProxyConfig config, byte[] serverSecret, EnvironmentProvider environmentProvider, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig, boolean validateShardConnectivity) {
+        this.validateShardConnectivity = validateShardConnectivity;
 
         CachedApiKeyManager.initialize(databaseConfig);
 
@@ -58,7 +64,8 @@ public class ProxyServer {
             requestHandler.getApiKeyManager(),
             this.rateLimiterManager,
             config.getMinimumPaymentAmount(),
-            databaseConfig
+            databaseConfig,
+            validateShardConnectivity
         );
 
         this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter, databaseConfig);
@@ -118,7 +125,7 @@ public class ProxyServer {
         try {
             ShardConfigRepository.ShardConfigRecord configRecord = shardConfigRepository.getLatestConfig();
             ShardRouter tempRouter = new DefaultShardRouter(configRecord.config());
-            ShardConfigValidator.validate(tempRouter, configRecord.config());
+            ShardConfigValidator.validate(tempRouter, configRecord.config(), validateShardConnectivity);
             this.lastConfigId = configRecord.id();
             shardRouter = tempRouter;
             logger.info("Shard configuration loaded and validated successfully (id: {}, created at: {})",
@@ -143,7 +150,7 @@ public class ProxyServer {
             String jsonContent = ResourceLoader.loadContent(configUri);
             ShardConfig shardConfig = shardConfigRepository.parseShardConfig(jsonContent);
             ShardRouter tempRouter = new DefaultShardRouter(shardConfig);
-            ShardConfigValidator.validate(tempRouter, shardConfig);
+            ShardConfigValidator.validate(tempRouter, shardConfig, validateShardConnectivity);
 
             // Save to database as new config
             int insertedId = shardConfigRepository.saveConfig(shardConfig, "environment");
@@ -170,7 +177,7 @@ public class ProxyServer {
 
                     try {
                         ShardRouter newRouter = new DefaultShardRouter(latestRecord.config());
-                        ShardConfigValidator.validate(newRouter, latestRecord.config());
+                        ShardConfigValidator.validate(newRouter, latestRecord.config(), validateShardConnectivity);
 
                         requestHandler.updateShardRouter(newRouter);
                         paymentHandler.updateShardRouter(newRouter);

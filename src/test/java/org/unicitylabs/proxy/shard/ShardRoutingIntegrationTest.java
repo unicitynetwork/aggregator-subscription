@@ -136,7 +136,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
 
         // Validation should throw
         assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, incompleteConfig)
+            ShardConfigValidator.validate(router, incompleteConfig, false)
         );
     }
 

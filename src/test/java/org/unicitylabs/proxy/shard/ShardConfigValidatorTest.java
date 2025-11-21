@@ -48,7 +48,7 @@ public class ShardConfigValidatorTest {
 
         ShardRouter router = new DefaultShardRouter(config);
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, config)
+            ShardConfigValidator.validate(router, config, false)
         );
 
         assertEquals("Incomplete routing tree: missing left child for request IDs with binary suffix: 00", exception.getMessage());
@@ -65,7 +65,7 @@ public class ShardConfigValidatorTest {
 
         ShardRouter router = new DefaultShardRouter(config);
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
-                ShardConfigValidator.validate(router, config)
+                ShardConfigValidator.validate(router, config, false)
         );
 
         assertEquals("Incomplete routing tree: missing right child for request IDs with binary suffix: 11", exception.getMessage());
@@ -80,7 +80,7 @@ public class ShardConfigValidatorTest {
 
         ShardRouter router = new DefaultShardRouter(config);
         var exception = assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, config)
+            ShardConfigValidator.validate(router, config, false)
         );
         assertEquals("Incomplete routing tree: missing right child for request IDs with binary suffix: 1", exception.getMessage());
     }
@@ -96,7 +96,7 @@ public class ShardConfigValidatorTest {
         router.getRootNode().setTargetUrl(null);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
-                ShardConfigValidator.validate(router, config)
+                ShardConfigValidator.validate(router, config, false)
         );
 
         assertEquals("Leaf node has no target URL at depth 0 (path: root)", exception.getMessage());
@@ -152,7 +152,7 @@ public class ShardConfigValidatorTest {
 
         ShardRouter router = new DefaultShardRouter(config);
         var exception = assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, config)
+            ShardConfigValidator.validate(router, config, false)
         );
         assertTrue(exception.getMessage().contains("must not contain query parameters"));
     }
@@ -166,7 +166,7 @@ public class ShardConfigValidatorTest {
 
         ShardRouter router = new DefaultShardRouter(config);
         var exception = assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, config)
+            ShardConfigValidator.validate(router, config, false)
         );
         assertTrue(exception.getMessage().contains("must not contain fragment"));
     }
@@ -180,7 +180,7 @@ public class ShardConfigValidatorTest {
 
         ShardRouter router = new DefaultShardRouter(config);
         var exception = assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, config)
+            ShardConfigValidator.validate(router, config, false)
         );
         assertTrue(exception.getMessage().contains("must have a scheme"));
     }
@@ -194,7 +194,7 @@ public class ShardConfigValidatorTest {
 
         ShardRouter router = new DefaultShardRouter(config);
         var exception = assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, config)
+            ShardConfigValidator.validate(router, config, false)
         );
         assertTrue(exception.getMessage().contains("must have a host"));
     }
@@ -226,6 +226,6 @@ public class ShardConfigValidatorTest {
 
     private void assertShardConfigValid(ShardConfig config) {
         ShardRouter router = new DefaultShardRouter(config);
-        assertDoesNotThrow(() -> ShardConfigValidator.validate(router, config));
+        assertDoesNotThrow(() -> ShardConfigValidator.validate(router, config, false));
     }
 }

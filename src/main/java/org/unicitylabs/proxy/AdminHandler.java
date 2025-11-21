@@ -55,6 +55,7 @@ public class AdminHandler extends Handler.Abstract {
     private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
     private final BigInteger minimumPaymentAmount;
+    private final boolean validateShardConnectivity;
 
     // Simple session management
     private final ConcurrentHashMap<String, SessionInfo> sessions = new ConcurrentHashMap<>();
@@ -66,7 +67,7 @@ public class AdminHandler extends Handler.Abstract {
             }
     }
 
-    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager, BigInteger minimumPaymentAmount, DatabaseConfig databaseConfig) {
+    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager, BigInteger minimumPaymentAmount, DatabaseConfig databaseConfig, boolean validateShardConnectivity) {
         this.adminPassword = adminPassword;
         this.apiKeyRepository = new ApiKeyRepository(databaseConfig);
         this.pricingPlanRepository = new PricingPlanRepository(databaseConfig);
@@ -75,6 +76,7 @@ public class AdminHandler extends Handler.Abstract {
         this.apiKeyManager = apiKeyManager;
         this.rateLimiterManager = rateLimiterManager;
         this.minimumPaymentAmount = minimumPaymentAmount;
+        this.validateShardConnectivity = validateShardConnectivity;
         logger.info("Admin handler initialized");
     }
 
@@ -525,7 +527,7 @@ public class AdminHandler extends Handler.Abstract {
             // Validate the configuration
             ShardRouter shardRouter = new DefaultShardRouter(shardConfig);
             try {
-                ShardConfigValidator.validate(shardRouter, shardConfig);
+                ShardConfigValidator.validate(shardRouter, shardConfig, validateShardConnectivity);
             } catch (IllegalArgumentException e) {
                 // Validation failed - return error without saving
                 logger.warn("Shard configuration validation failed: {}", e.getMessage());
