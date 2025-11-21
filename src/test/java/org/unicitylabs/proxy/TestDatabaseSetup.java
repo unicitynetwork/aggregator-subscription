@@ -6,6 +6,7 @@ import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.util.EnvironmentProvider;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import org.unicitylabs.proxy.util.TestEnvironmentProvider;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,7 +27,7 @@ public class TestDatabaseSetup {
             postgres.start();
 
             // Initialize database with test container connection details
-            databaseConfig = new DatabaseConfig(EnvironmentProvider.SystemEnvironmentProvider.getInstance());
+            databaseConfig = new DatabaseConfig(new TestEnvironmentProvider());
             databaseConfig.initialize(
                 postgres.getJdbcUrl(),
                 postgres.getUsername(),

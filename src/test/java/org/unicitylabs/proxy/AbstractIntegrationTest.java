@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.unicitylabs.proxy.util.TestEnvironmentProvider;
 import org.unicitylabs.sdk.bft.RootTrustBase;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 
@@ -148,14 +149,14 @@ public abstract class AbstractIntegrationTest {
         mockServer = createMockServer();
         mockServer.start();
 
-        config = new ProxyConfig(EnvironmentProvider.SystemEnvironmentProvider.getInstance());
+        config = new ProxyConfig(new TestEnvironmentProvider());
         setUpConfigForTests(config);
 
         setUpNewProxyServer();
     }
 
     protected void setUpNewProxyServer() throws Exception {
-        proxyServer = new ProxyServer(config, SERVER_SECRET, EnvironmentProvider.SystemEnvironmentProvider.getInstance(), TestDatabaseSetup.getDatabaseConfig(), false);
+        proxyServer = new ProxyServer(config, SERVER_SECRET, new TestEnvironmentProvider(), TestDatabaseSetup.getDatabaseConfig(), false);
         proxyServer.start();
 
         proxyPort = ((ServerConnector) proxyServer.getServer().getConnectors()[0]).getLocalPort();

@@ -14,7 +14,7 @@ public class TestEnvironmentProvider implements EnvironmentProvider {
      * Create a test environment provider initialized with system environment variables.
      */
     public TestEnvironmentProvider() {
-        this.environment = new HashMap<>(System.getenv());
+        this.environment = new HashMap<>();
     }
 
     /**
