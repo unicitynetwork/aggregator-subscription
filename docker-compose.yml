@@ -29,11 +29,6 @@ x-proxy-service: &proxy-service
     # Shard configuration - optional URI to load shard config from (file:// or http://)
     # If set, overrides database config on startup. Maps to /etc/aggregator/config inside container.
     SHARD_CONFIG_URI: ${SHARD_CONFIG_URI:-}
-  volumes:
-    # Mount host config directory read-only for shard configuration files
-    # Use: echo '{"version":1,"shards":[...]}' > ./config/shard-config.json
-    # Then: SHARD_CONFIG_URI=file:///etc/aggregator/config/shard-config.json
-    - ${SHARD_CONFIG_DIR:-./config}:/etc/aggregator/config:ro
   depends_on:
     postgres:
       condition: service_healthy
@@ -99,6 +94,7 @@ services:
     <<: *proxy-service
     container_name: aggregator-proxy-1
     volumes:
+      - ${SHARD_CONFIG_DIR:-./config}:/etc/aggregator/config:ro
       - proxy-1-logs:/var/log/aggregator
 
   # Proxy node 2
@@ -106,6 +102,7 @@ services:
     <<: *proxy-service
     container_name: aggregator-proxy-2
     volumes:
+      - ${SHARD_CONFIG_DIR:-./config}:/etc/aggregator/config:ro
       - proxy-2-logs:/var/log/aggregator
 
   # Proxy node 3
@@ -113,6 +110,7 @@ services:
     <<: *proxy-service
     container_name: aggregator-proxy-3
     volumes:
+      - ${SHARD_CONFIG_DIR:-./config}:/etc/aggregator/config:ro
       - proxy-3-logs:/var/log/aggregator
 
 volumes:
