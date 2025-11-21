@@ -1,6 +1,7 @@
 package org.unicitylabs.proxy;
 
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.repository.DatabaseConfig;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
@@ -13,7 +14,11 @@ import java.util.UUID;
 
 public class WebUIHandler extends Handler.Abstract {
 
-    private final ApiKeyRepository repository = new ApiKeyRepository();
+    private final ApiKeyRepository repository;
+
+    public WebUIHandler(DatabaseConfig databaseConfig) {
+        this.repository = new ApiKeyRepository(databaseConfig);
+    }
     
     @Override
     public boolean handle(Request request, Response response, Callback callback) {

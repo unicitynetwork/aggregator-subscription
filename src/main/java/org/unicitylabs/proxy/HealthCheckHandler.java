@@ -22,6 +22,12 @@ public class HealthCheckHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(HealthCheckHandler.class);
     private static final ObjectMapper mapper = ObjectMapperUtils.createObjectMapper();
 
+    private final DatabaseConfig databaseConfig;
+
+    public HealthCheckHandler(DatabaseConfig databaseConfig) {
+        this.databaseConfig = databaseConfig;
+    }
+
     @Override
     public boolean handle(Request request, Response response, Callback callback) {
         String path = request.getHttpURI().getPath();
@@ -31,13 +37,13 @@ public class HealthCheckHandler extends Handler.Abstract {
         }
 
         try {
-            if (!DatabaseConfig.isInitialized()) {
+            if (!databaseConfig.isInitialized()) {
                 sendUnhealthy(response, callback, "Database not initialized");
                 return true;
             }
 
             // Check 2: Verify we can obtain a connection from the pool
-            try (Connection conn = DatabaseConfig.getConnection()) {
+            try (Connection conn = databaseConfig.getConnection()) {
                 // Check 3: Verify connection is valid
                 if (!conn.isValid(2)) {
                     sendUnhealthy(response, callback, "Database connection invalid");

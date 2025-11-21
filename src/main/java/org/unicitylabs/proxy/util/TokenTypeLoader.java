@@ -9,20 +9,12 @@ import org.unicitylabs.sdk.token.TokenType;
 import org.unicitylabs.sdk.util.HexConverter;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.List;
 
 public class TokenTypeLoader {
     private static final String NON_FUNGIBLE = "non-fungible";
 
     private static final Logger logger = LoggerFactory.getLogger(TokenTypeLoader.class);
-    private static final HttpClient httpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(10))
-        .build();
     private static final ObjectMapper objectMapper = UnicityObjectMapper.JSON;
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -75,7 +67,7 @@ public class TokenTypeLoader {
     public static TokenType loadNonFungibleTokenType(String url, String tokenTypeName) throws IOException {
         logger.info("Loading token type '{}' from URL: {}", tokenTypeName, url);
 
-        String jsonContent = loadJsonContent(url);
+        String jsonContent = ResourceLoader.loadContent(url);
         List<TokenTypeEntry> entries = objectMapper.readValue(
             jsonContent,
             objectMapper.getTypeFactory().constructCollectionType(List.class, TokenTypeEntry.class)
@@ -91,41 +83,5 @@ public class TokenTypeLoader {
 
         logger.info("Found token type '{}' with ID: {}", tokenTypeName, entry.getId());
         return new TokenType(HexConverter.decode(entry.getId()));
-    }
-
-    /**
-     * Load JSON content from a URL (HTTP/HTTPS) or file path.
-     */
-    private static String loadJsonContent(String urlString) throws IOException {
-        URI uri = URI.create(urlString);
-
-        if ("file".equalsIgnoreCase(uri.getScheme())) {
-            try {
-                return new String(java.nio.file.Files.readAllBytes(
-                    java.nio.file.Paths.get(uri)
-                ));
-            } catch (Exception e) {
-                throw new IOException("Failed to read file: " + urlString, e);
-            }
-        } else {
-            try {
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(uri)
-                    .GET()
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
-
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-                if (response.statusCode() != 200) {
-                    throw new IOException("Failed to fetch token type IDs: HTTP " + response.statusCode());
-                }
-
-                return response.body();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("Request interrupted", e);
-            }
-        }
     }
 }

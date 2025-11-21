@@ -14,11 +14,10 @@ public class TestPricingPlans {
     public static long PREMIUM_PLAN_ID;
 
     private static final List<Long> createdPlanIds = new ArrayList<>();
-    private static final PricingPlanRepository repository = new PricingPlanRepository();
-    private static final ApiKeyRepository apiKeyRepository = new ApiKeyRepository();
-    private static final PaymentRepository paymentRepository = new PaymentRepository();
 
     public static void createTestPlans() {
+        PricingPlanRepository repository = new PricingPlanRepository(TestDatabaseSetup.getDatabaseConfig());
+
         BASIC_PLAN_ID = repository.create("test-basic", 5, 50000, BigInteger.ONE);
         createdPlanIds.add(BASIC_PLAN_ID);
         
@@ -35,6 +34,10 @@ public class TestPricingPlans {
     }
 
     public static void deleteTestPlansAndTheirApiKeys(List<Long> createdPlanIds) {
+        PricingPlanRepository repository = new PricingPlanRepository(TestDatabaseSetup.getDatabaseConfig());
+        ApiKeyRepository apiKeyRepository = new ApiKeyRepository(TestDatabaseSetup.getDatabaseConfig());
+        PaymentRepository paymentRepository = new PaymentRepository(TestDatabaseSetup.getDatabaseConfig());
+
         for (Long planId : createdPlanIds) {
             apiKeyRepository.deleteByPricingPlanId(planId);
         }

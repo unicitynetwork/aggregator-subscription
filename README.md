@@ -250,6 +250,96 @@ Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
 
 The command line parameter `--help` prints out various configuration options.
 
+### Environment Variables
+
+The application supports the following environment variables for configuration:
+
+#### Required Variables
+
+- **`SERVER_SECRET`**: Server secret for cryptographic operations (must be a hex string with even length, typically 64 characters for 32 bytes)
+  - Example: `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`
+
+#### Database Configuration
+
+- **`DB_URL`**: JDBC URL for the PostgreSQL database
+  - Default: `jdbc:postgresql://localhost:5432/aggregator`
+  - Docker default: `jdbc:postgresql://postgres:5432/aggregator`
+
+- **`DB_USER`**: Database username
+  - Default: `aggregator`
+
+- **`DB_PASSWORD`**: Database password
+  - Default: `aggregator` (development only, must be changed in production)
+
+#### Admin Interface
+
+- **`ADMIN_PASSWORD`**: Password for accessing the administrative interface at `/admin`
+  - No default value - must be set explicitly
+
+#### Shard Configuration
+
+- **`SHARD_CONFIG_URI`**: Optional URI to load shard configuration from (supports `file://` and `http://`/`https://` schemes)
+  - If set to a non-empty value, the configuration is loaded from this location on startup instead of from the database
+  - The loaded configuration is validated and then inserted into the database as a new row with `created_by='environment'`
+  - On subsequent startups with this variable still set, it will re-insert the configuration, overriding any manual changes made via Admin UI
+  - If validation fails, the server will fail fast and refuse to start
+  - If not set or empty, configuration is loaded from the database as normal
+  - Example (file): `file:///etc/aggregator/config/shard-config.json`
+  - Example (URL): `https://config.example.com/shard-config.json`
+
+- **`SHARD_CONFIG_DIR`**: Directory on the host machine to mount for config files (Docker only)
+  - Default: `./config`
+  - Maps to `/etc/aggregator/config` inside the container (read-only)
+
+#### Connection Pool (HikariCP)
+
+- **`HIKARI_MAX_POOL_SIZE`**: Maximum number of connections in the pool
+  - Default: `50`
+
+- **`HIKARI_MIN_IDLE`**: Minimum number of idle connections maintained in the pool
+  - Default: `10`
+
+- **`HIKARI_CONNECTION_TIMEOUT`**: Maximum time (in milliseconds) to wait for a connection from the pool
+  - Default: `30000` (30 seconds)
+
+- **`HIKARI_IDLE_TIMEOUT`**: Maximum time (in milliseconds) that a connection can sit idle in the pool
+  - Default: `600000` (10 minutes)
+
+- **`HIKARI_MAX_LIFETIME`**: Maximum lifetime (in milliseconds) of a connection in the pool
+  - Default: `1800000` (30 minutes)
+
+- **`HIKARI_VALIDATION_TIMEOUT`**: Maximum time (in milliseconds) for connection validation queries
+  - Default: `5000` (5 seconds)
+
+- **`HIKARI_LEAK_DETECTION_THRESHOLD`**: Time (in milliseconds) before a connection leak warning is logged
+  - Default: `60000` (60 seconds)
+  - Set to `0` to disable leak detection
+
+#### Logging
+
+- **`LOG_LEVEL`**: Logging level for the application (used by logback.xml)
+  - Default: `INFO`
+  - Options: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`
+
+- **`LOG_DIR`**: Directory for log files (Docker only)
+  - Default: `/var/log/aggregator`
+
+#### Docker/Proxy Configuration
+
+- **`PROXY_ARGS`**: Command-line arguments passed to the proxy application
+  - Docker default: `--port 8080`
+
+- **`PROXY_PORT`**: External port for HAProxy frontend (Docker Compose only)
+  - Default: `8080`
+
+- **`HAPROXY_STATS_PORT`**: Port for HAProxy statistics page (Docker Compose only)
+  - Default: `8404`
+
+- **`HAPROXY_STATS_PASSWORD`**: Password for HAProxy statistics page (Docker Compose only)
+
+- **`POSTGRES_PORT`**: External port for PostgreSQL database (Docker Compose only)
+  - Default: `5432`
+
 ## Prerequisites
 
 - Java 21 or later

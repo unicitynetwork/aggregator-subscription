@@ -32,7 +32,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
     void setUp() throws Exception {
         super.setUp();
 
-        ApiKeyRepository repository = new ApiKeyRepository();
+        ApiKeyRepository repository = new ApiKeyRepository(TestDatabaseSetup.getDatabaseConfig());
         repository.setTimeMeter(testTimeMeter);
 
         // Set expiry to 30 days from the test time
@@ -235,7 +235,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
         assertThat(blockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
 
         // Update the key's plan in the database to Premium (20 requests/sec)
-        new ApiKeyRepository().updatePricingPlan(BASIC_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID);
+        new ApiKeyRepository(TestDatabaseSetup.getDatabaseConfig()).updatePricingPlan(BASIC_API_KEY, TestPricingPlans.PREMIUM_PLAN_ID);
         // Advance time by more than the cache TTL (1 minute) to force a refresh
         testTimeMeter.addTime(SECONDS.toMillis(61));
 

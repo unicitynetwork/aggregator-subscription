@@ -1,5 +1,6 @@
 package org.unicitylabs.proxy.repository;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +13,8 @@ public class ShardConfigRepository {
     private static final Logger logger = LoggerFactory.getLogger(ShardConfigRepository.class);
     private static final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
 
+    private final DatabaseConfig databaseConfig;
+
     private static final String GET_LATEST_SQL = """
         SELECT id, config_json, created_at, created_by
         FROM shard_config
@@ -22,19 +25,24 @@ public class ShardConfigRepository {
     private static final String INSERT_SQL = """
         INSERT INTO shard_config (config_json, created_by)
         VALUES (?::jsonb, ?)
+        RETURNING id
         """;
 
     public record ShardConfigRecord(int id, ShardConfig config, Timestamp createdAt, String createdBy) {
     }
 
+    public ShardConfigRepository(DatabaseConfig databaseConfig) {
+        this.databaseConfig = databaseConfig;
+    }
+
     public ShardConfigRecord getLatestConfig() {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(GET_LATEST_SQL);
              ResultSet rs = stmt.executeQuery()) {
 
             if (rs.next()) {
                 String configJson = rs.getString("config_json");
-                ShardConfig config = objectMapper.readValue(configJson, ShardConfig.class);
+                ShardConfig config = parseShardConfig(configJson);
 
                 return new ShardConfigRecord(
                     rs.getInt("id"),
@@ -52,20 +60,27 @@ public class ShardConfigRepository {
         }
     }
 
-    public void saveConfig(ShardConfig config, String createdBy) {
-        try (Connection conn = DatabaseConfig.getConnection();
+    public ShardConfig parseShardConfig(String configJson) throws JsonProcessingException {
+        return objectMapper.readValue(configJson, ShardConfig.class);
+    }
+
+    public int saveConfig(ShardConfig config, String createdBy) {
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(INSERT_SQL)) {
 
             String configJson = objectMapper.writeValueAsString(config);
             stmt.setString(1, configJson);
             stmt.setString(2, createdBy);
 
-            int rowsAffected = stmt.executeUpdate();
-            if (rowsAffected == 0) {
-                throw new RuntimeException("Failed to insert shard configuration");
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    int insertedId = rs.getInt("id");
+                    logger.info("Saved new shard configuration by: {} with id: {}", createdBy, insertedId);
+                    return insertedId;
+                } else {
+                    throw new RuntimeException("Failed to insert shard configuration");
+                }
             }
-
-            logger.info("Saved new shard configuration by: {}", createdBy);
         } catch (SQLException e) {
             throw new RuntimeException("Error saving shard configuration to database", e);
         } catch (Exception e) {

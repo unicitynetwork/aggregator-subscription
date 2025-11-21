@@ -88,9 +88,9 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUpTestData() {
-        apiKeyRepository = new ApiKeyRepository();
+        apiKeyRepository = new ApiKeyRepository(TestDatabaseSetup.getDatabaseConfig());
         apiKeyRepository.setTimeMeter(testTimeMeter);
-        paymentRepository = new PaymentRepository();
+        paymentRepository = new PaymentRepository(TestDatabaseSetup.getDatabaseConfig());
 
         recreatePricingPlans();
 
@@ -409,7 +409,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test GET payment plans endpoint with plan price below minimum")
     void testGetPaymentPlansWithBelowMinimumPrice() throws Exception {
         // Create a plan with price below minimum payment amount (1000)
-        var pricingPlanRepository = new org.unicitylabs.proxy.repository.PricingPlanRepository();
+        var pricingPlanRepository = new org.unicitylabs.proxy.repository.PricingPlanRepository(TestDatabaseSetup.getDatabaseConfig());
         long planId = pricingPlanRepository.create("test-below-minimum", 1, 1000, BigInteger.valueOf(500));
 
         try {
@@ -448,7 +448,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Test initPayment with plan price below minimum enforces minimum payment")
     void testInitPaymentWithBelowMinimumPlanPrice() throws Exception {
         // Create a plan with price below minimum payment amount (1000)
-        var pricingPlanRepository = new org.unicitylabs.proxy.repository.PricingPlanRepository();
+        var pricingPlanRepository = new org.unicitylabs.proxy.repository.PricingPlanRepository(TestDatabaseSetup.getDatabaseConfig());
         long planId = pricingPlanRepository.create("test-init-below-minimum", 1, 1000, BigInteger.valueOf(100));
 
         try {
@@ -861,7 +861,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void assertRequestIdStoredInDatabase(UUID sessionId, String expectedRequestId) throws Exception {
-        try (java.sql.Connection conn = org.unicitylabs.proxy.repository.DatabaseConfig.getConnection()) {
+        try (java.sql.Connection conn = TestDatabaseSetup.getDatabaseConfig().getConnection()) {
             var session = paymentRepository.findById(conn, sessionId);
             assertTrue(session.isPresent(), "Payment session should exist");
             String storedRequestId = session.get().requestId();
