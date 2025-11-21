@@ -325,4 +325,37 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
         String shardId = getShardIdFromResponse(response);
         assertTrue(asList("4", "5", "6", "7").contains(shardId));
     }
+
+    @Test
+    @DisplayName("Test shard URL with trailing slash and subpath joins correctly without double slashes")
+    void testShardUrlWithTrailingSlashAndSubpath() throws Exception {
+        Server mockServerWithSubpath = createMockServer("1");
+        mockServerWithSubpath.start();
+
+        try {
+            int mockPort = ((ServerConnector) mockServerWithSubpath.getConnectors()[0]).getLocalPort();
+
+            insertShardConfig(new ShardConfig(1, List.of(
+                new ShardInfo(1, "http://localhost:" + mockPort + "/api/v1/")
+            )));
+
+            setUpNewProxyServer();
+
+            HttpResponse<String> response = postJson("""
+                {
+                    "jsonrpc": "2.0",
+                    "method": "get_inclusion_proof",
+                    "params": {
+                        "shardId": 1
+                    },
+                    "id": 1
+                }
+                """);
+
+            assertEquals(200, response.statusCode());
+            assertEquals("/api/v1/", response.headers().firstValue("X-Received-Path").orElse(null), "Path should be correctly joined without double slashes");
+        } finally {
+            mockServerWithSubpath.stop();
+        }
+    }
 }

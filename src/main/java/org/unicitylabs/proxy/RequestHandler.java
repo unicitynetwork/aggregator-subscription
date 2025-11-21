@@ -254,7 +254,7 @@ public class RequestHandler extends Handler.Abstract {
                 return;
             }
 
-            String targetUri = targetUrl + fullPath;
+            String targetUri = joinUrlPath(targetUrl, fullPath);
 
             if (logger.isDebugEnabled()) {
                 logger.debug("Proxying {} {} to {}", method, fullPath, targetUri);
@@ -568,5 +568,11 @@ public class RequestHandler extends Handler.Abstract {
 
     ShardRouter getShardRouterForTesting() {
         return shardRouter;
+    }
+
+    static String joinUrlPath(String baseUrl, String path) {
+        String cleanBase = baseUrl.replaceAll("/+$", "");
+        String cleanPath = path.replaceAll("^/+", "");
+        return URI.create(cleanBase + "/" + cleanPath).toString();
     }
 }

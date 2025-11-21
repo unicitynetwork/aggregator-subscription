@@ -151,6 +151,10 @@ public abstract class AbstractIntegrationTest {
         config = new ProxyConfig(EnvironmentProvider.SystemEnvironmentProvider.getInstance());
         setUpConfigForTests(config);
 
+        setUpNewProxyServer();
+    }
+
+    protected void setUpNewProxyServer() throws Exception {
         proxyServer = new ProxyServer(config, SERVER_SECRET, EnvironmentProvider.SystemEnvironmentProvider.getInstance(), TestDatabaseSetup.getDatabaseConfig());
         proxyServer.start();
 
@@ -257,6 +261,7 @@ public abstract class AbstractIntegrationTest {
                 // Add custom headers to all responses
                 response.getHeaders().put("X-Mock-Server", "true");
                 response.getHeaders().put("X-Shard-ID", shardId);
+                response.getHeaders().put("X-Received-Path", path);
 
                 // Check if we should return a configured error response
                 if (mockShouldReturnError) {
