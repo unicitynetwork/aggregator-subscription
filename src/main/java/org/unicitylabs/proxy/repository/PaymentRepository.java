@@ -21,6 +21,12 @@ import java.util.UUID;
 public class PaymentRepository {
     private static final Logger logger = LoggerFactory.getLogger(PaymentRepository.class);
 
+    private final DatabaseConfig databaseConfig;
+
+    public PaymentRepository(DatabaseConfig databaseConfig) {
+        this.databaseConfig = databaseConfig;
+    }
+
     private static final String CREATE_SESSION_SQL = """
         INSERT INTO payment_sessions (
             id, api_key, payment_address, receiver_nonce,
@@ -170,7 +176,7 @@ public class PaymentRepository {
      * @return the number of deleted sessions
      */
     public int deletePaymentSessionsByApiKey(String apiKey) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_BY_API_KEY_SQL)) {
 
             stmt.setString(1, apiKey);
@@ -189,7 +195,7 @@ public class PaymentRepository {
      * @return the number of deleted sessions
      */
     public int deletePaymentSessionsByPricingPlan(long pricingPlanId) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(DELETE_BY_PRICING_PLAN)) {
 
             stmt.setLong(1, pricingPlanId);
@@ -410,7 +416,7 @@ public class PaymentRepository {
     }
 
     public PaymentSessionsPage listSessions(int page, int pageSize) {
-        try (Connection conn = DatabaseConfig.getConnection()) {
+        try (Connection conn = databaseConfig.getConnection()) {
             // Get total count
             int totalCount = 0;
             try (PreparedStatement stmt = conn.prepareStatement(COUNT_SESSIONS_SQL);
@@ -446,7 +452,7 @@ public class PaymentRepository {
     public java.util.List<PaymentSessionListItem> searchSessions(
         String apiKey, String sessionId, Instant createdAfter, int limit
     ) {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(SEARCH_SESSIONS_SQL)) {
 
             stmt.setString(1, apiKey);
@@ -498,7 +504,7 @@ public class PaymentRepository {
         """;
 
     public PaymentStats getPaymentStats() {
-        try (Connection conn = DatabaseConfig.getConnection();
+        try (Connection conn = databaseConfig.getConnection();
              PreparedStatement stmt = conn.prepareStatement(PAYMENT_STATS_SQL);
              ResultSet rs = stmt.executeQuery()) {
 

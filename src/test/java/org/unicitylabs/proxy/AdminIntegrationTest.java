@@ -93,7 +93,7 @@ public class AdminIntegrationTest extends AbstractIntegrationTest {
         assertTrue(jsonNode.has("message"), "Response should include message");
         assertEquals("Shard configuration uploaded successfully", jsonNode.get("message").asText());
 
-        var config = new ShardConfigRepository().getLatestConfig();
+        var config = new ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig()).getLatestConfig();
         assertEquals("http://test123.example.com:8080", config.config().getShards().get(0).url());
     }
 

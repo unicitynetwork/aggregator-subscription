@@ -1,12 +1,16 @@
 package org.unicitylabs.proxy;
 
 import com.beust.jcommander.Parameter;
+import org.unicitylabs.proxy.util.EnvironmentProvider;
 
 import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ProxyConfig {
+    public static final String ADMIN_PASSWORD = "ADMIN_PASSWORD";
+
+    private final EnvironmentProvider environmentProvider;
     @Parameter(names = {"--port", "-p"}, description = "Proxy server port")
     private int port = 8080;
 
@@ -46,6 +50,10 @@ public class ProxyConfig {
     @Parameter(names = {"--help", "-h"}, help = true, description = "Show help")
     private boolean help = false;
 
+    public ProxyConfig(EnvironmentProvider environmentProvider) {
+        this.environmentProvider = environmentProvider;
+    }
+
     public int getPort() {
         return port;
     }
@@ -76,12 +84,11 @@ public class ProxyConfig {
 
     public String getAdminPassword() {
         // Check environment variable first, then command line parameter
-        String envPassword = System.getenv("ADMIN_PASSWORD");
-        if (envPassword != null && !envPassword.isEmpty()) {
+        String envPassword = environmentProvider.getEnv(ADMIN_PASSWORD);
+        if (envPassword != null && !envPassword.isBlank()) {
             return envPassword;
         }
-        // If no env var and no command line param, use default
-        return adminPassword != null ? adminPassword : "admin";
+        throw new IllegalArgumentException("Missing administrator password");
     }
 
     public boolean isHelp() {
@@ -91,7 +98,7 @@ public class ProxyConfig {
     public Set<String> getProtectedMethods() {
         return Arrays.stream(protectedMethods.split(","))
             .map(String::trim)
-            .filter(s -> !s.isEmpty())
+            .filter(s -> !s.isBlank())
             .collect(Collectors.toSet());
     }
 

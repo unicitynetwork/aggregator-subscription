@@ -32,10 +32,10 @@ public class PaymentHandler extends Handler.Abstract {
     private final ObjectMapper objectMapper;
     private final BigInteger minimumPaymentAmount;
 
-    public PaymentHandler(ProxyConfig config, byte[] serverSecret, ShardRouter shardRouter) {
-        this.paymentService = new PaymentService(config, shardRouter, serverSecret);
-        this.apiKeyRepository = new ApiKeyRepository();
-        this.pricingPlanRepository = new PricingPlanRepository();
+    public PaymentHandler(ProxyConfig config, byte[] serverSecret, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
+        this.paymentService = new PaymentService(config, shardRouter, serverSecret, databaseConfig);
+        this.apiKeyRepository = new ApiKeyRepository(databaseConfig);
+        this.pricingPlanRepository = new PricingPlanRepository(databaseConfig);
         this.objectMapper = ObjectMapperUtils.createObjectMapper();
         this.minimumPaymentAmount = config.getMinimumPaymentAmount();
     }
@@ -181,21 +181,21 @@ public class PaymentHandler extends Handler.Abstract {
             return false;
         }
 
-        if (completeRequest.getSalt() == null || completeRequest.getSalt().isEmpty()) {
+        if (completeRequest.getSalt() == null || completeRequest.getSalt().isBlank()) {
             sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
                 "Bad Request", "Salt is required");
             return false;
         }
 
         if (completeRequest.getTransferCommitmentJson() == null ||
-            completeRequest.getTransferCommitmentJson().isEmpty()) {
+            completeRequest.getTransferCommitmentJson().isBlank()) {
             sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
                 "Bad Request", "Transfer commitment is required");
             return false;
         }
 
         if (completeRequest.getSourceTokenJson() == null ||
-            completeRequest.getSourceTokenJson().isEmpty()) {
+            completeRequest.getSourceTokenJson().isBlank()) {
             sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
                 "Bad Request", "Source token is required");
             return false;
@@ -227,7 +227,7 @@ public class PaymentHandler extends Handler.Abstract {
         String path = request.getHttpURI().getPath();
         String apiKey = path.substring("/api/payment/key/".length());
 
-        if (apiKey.isEmpty()) {
+        if (apiKey.isBlank()) {
             sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
                 "Bad Request", "API key is required");
             return;

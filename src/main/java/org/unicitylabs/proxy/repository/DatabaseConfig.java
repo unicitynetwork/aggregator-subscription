@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.util.EnvironmentProvider;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -12,9 +13,16 @@ import java.sql.SQLException;
 
 public class DatabaseConfig {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseConfig.class);
-    private static volatile HikariDataSource dataSource;
 
-    public static synchronized void initialize(String jdbcUrl, String username, String password) {
+    private final EnvironmentProvider environmentProvider;
+
+    private volatile HikariDataSource dataSource;
+
+    public DatabaseConfig(EnvironmentProvider environmentProvider) {
+        this.environmentProvider = environmentProvider;
+    }
+
+    public synchronized void initialize(String jdbcUrl, String username, String password) {
         if (dataSource != null) {
             dataSource.close();
         }
@@ -56,9 +64,9 @@ public class DatabaseConfig {
     /**
      * Read an integer environment variable with a default value.
      */
-    private static int getEnvAsInt(String key, int defaultValue) {
-        String value = System.getenv(key);
-        if (value == null || value.trim().isEmpty()) {
+    private int getEnvAsInt(String key, int defaultValue) {
+        String value = environmentProvider.getEnv(key);
+        if (value == null || value.isBlank()) {
             return defaultValue;
         }
         try {
@@ -69,7 +77,7 @@ public class DatabaseConfig {
         }
     }
 
-    private static void runMigrations() {
+    private void runMigrations() {
         try {
             Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)
@@ -85,25 +93,25 @@ public class DatabaseConfig {
         }
     }
 
-    public static DataSource getDataSource() {
+    public DataSource getDataSource() {
         if (dataSource == null) {
             throw new IllegalStateException("Database not initialized. Call initialize() first.");
         }
         return dataSource;
     }
 
-    public static Connection getConnection() throws SQLException {
+    public Connection getConnection() throws SQLException {
         return getDataSource().getConnection();
     }
 
-    public static synchronized void shutdown() {
+    public synchronized void shutdown() {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             logger.info("Database connection pool closed");
         }
     }
 
-    public static boolean isInitialized() {
+    public boolean isInitialized() {
         return dataSource != null && !dataSource.isClosed();
     }
 }

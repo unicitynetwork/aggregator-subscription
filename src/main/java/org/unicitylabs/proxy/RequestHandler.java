@@ -50,11 +50,11 @@ record RoutingParams(String requestId, String shardId) {
     }
 
     boolean hasRequestId() {
-        return requestId != null && !requestId.isEmpty();
+        return requestId != null && !requestId.isBlank();
     }
 
     boolean hasShardId() {
-        return shardId != null && !shardId.isEmpty();
+        return shardId != null && !shardId.isBlank();
     }
 }
 
@@ -83,13 +83,13 @@ public class RequestHandler extends Handler.Abstract {
     private final Set<String> protectedMethods;
     private final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
 
-    public RequestHandler(ProxyConfig config, ShardRouter shardRouter) {
+    public RequestHandler(ProxyConfig config, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
         this.shardRouter = shardRouter;
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
         this.apiKeyManager = CachedApiKeyManager.getInstance();
         this.rateLimiterManager = new RateLimiterManager(apiKeyManager);
-        this.webUIHandler = new WebUIHandler();
+        this.webUIHandler = new WebUIHandler(databaseConfig);
         this.protectedMethods = config.getProtectedMethods();
 
         var httpClientBuilder = HttpClient.newBuilder()
@@ -254,7 +254,7 @@ public class RequestHandler extends Handler.Abstract {
                 return;
             }
 
-            String targetUri = targetUrl + fullPath;
+            String targetUri = joinUrlPath(targetUrl, fullPath);
 
             if (logger.isDebugEnabled()) {
                 logger.debug("Proxying {} {} to {}", method, fullPath, targetUri);
@@ -390,12 +390,12 @@ public class RequestHandler extends Handler.Abstract {
 
     private static Set<String> parseConnectionTokens(HttpField connectionField) {
         String connectionHeader = connectionField != null ? connectionField.getValue() : null;
-        if (connectionHeader == null || connectionHeader.isEmpty()) {
+        if (connectionHeader == null || connectionHeader.isBlank()) {
             return Set.of();
         }
         return Arrays.stream(connectionHeader.split(","))
             .map(String::trim)
-            .filter(s -> !s.isEmpty())
+            .filter(s -> !s.isBlank())
             .map(s -> s.toLowerCase(Locale.ROOT))
             .collect(Collectors.toUnmodifiableSet());
     }
@@ -472,14 +472,14 @@ public class RequestHandler extends Handler.Abstract {
 
                 if (params.has("requestId")) {
                     String value = params.get("requestId").asText();
-                    if (value != null && !value.isEmpty()) {
+                    if (value != null && !value.isBlank()) {
                         requestId = value;
                     }
                 }
 
                 if (params.has("shardId")) {
                     String value = params.get("shardId").asText();
-                    if (value != null && !value.isEmpty()) {
+                    if (value != null && !value.isBlank()) {
                         shardId = value;
                     }
                 }
@@ -564,5 +564,15 @@ public class RequestHandler extends Handler.Abstract {
             : extractRoutingParamsFromCookies(request);
 
         return routeWithParams(params, isJsonRpc);
+    }
+
+    ShardRouter getShardRouterForTesting() {
+        return shardRouter;
+    }
+
+    static String joinUrlPath(String baseUrl, String path) {
+        String cleanBase = baseUrl.replaceAll("/+$", "");
+        String cleanPath = path.replaceAll("^/+", "");
+        return URI.create(cleanBase + "/" + cleanPath).toString();
     }
 }
