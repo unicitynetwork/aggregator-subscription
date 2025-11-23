@@ -3,6 +3,8 @@ package org.unicitylabs.proxy.util;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.unicitylabs.proxy.ProxyConfig.ADMIN_PASSWORD;
+
 /**
  * Test implementation of EnvironmentProvider that uses an in-memory map.
  * Initializes with system environment variables and allows overriding for tests.
@@ -14,7 +16,9 @@ public class TestEnvironmentProvider implements EnvironmentProvider {
      * Create a test environment provider initialized with system environment variables.
      */
     public TestEnvironmentProvider() {
-        this.environment = new HashMap<>();
+        this.environment = new HashMap<>(Map.of(
+                ADMIN_PASSWORD, "admin"
+        ));
     }
 
     /**
