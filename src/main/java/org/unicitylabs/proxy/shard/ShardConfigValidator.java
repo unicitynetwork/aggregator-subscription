@@ -60,7 +60,7 @@ public class ShardConfigValidator {
     }
 
     private static void validateShardUrl(String url, int shardId) {
-        if (url == null || url.isEmpty()) {
+        if (url == null || url.isBlank()) {
             throw new IllegalArgumentException("Shard " + shardId + " has empty or null URL");
         }
 
@@ -111,15 +111,15 @@ public class ShardConfigValidator {
         if (node == null) {
             throw new IllegalArgumentException(
                 String.format("Routing tree has null node at depth %d (path: %s)",
-                    depth, pathBits.isEmpty() ? "root" : pathBits)
+                    depth, pathBits.isBlank() ? "root" : pathBits)
             );
         }
 
         if (node.isLeaf()) {
-            if (node.getTargetUrl() == null || node.getTargetUrl().isEmpty()) {
+            if (node.getTargetUrl() == null || node.getTargetUrl().isBlank()) {
                 throw new IllegalArgumentException(
                     String.format("Leaf node has no target URL at depth %d (path: %s)",
-                        depth, pathBits.isEmpty() ? "root" : pathBits)
+                        depth, pathBits.isBlank() ? "root" : pathBits)
                 );
             }
         } else {

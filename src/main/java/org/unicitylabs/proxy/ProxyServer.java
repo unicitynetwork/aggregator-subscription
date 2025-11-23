@@ -112,7 +112,7 @@ public class ProxyServer {
     private ShardRouter loadInitialShardConfiguration(ProxyConfig config, EnvironmentProvider environmentProvider) {
         String configUri = environmentProvider.getEnv(SHARD_CONFIG_URI);
 
-        if (configUri != null && !configUri.trim().isEmpty()) {
+        if (configUri != null && !configUri.trim().isBlank()) {
             return loadShardConfigFromUri(configUri.trim());
         } else {
             return loadShardConfigFromDatabase(config);

@@ -85,7 +85,7 @@ public class ProxyConfig {
     public String getAdminPassword() {
         // Check environment variable first, then command line parameter
         String envPassword = environmentProvider.getEnv(ADMIN_PASSWORD);
-        if (envPassword != null && !envPassword.isEmpty()) {
+        if (envPassword != null && !envPassword.isBlank()) {
             return envPassword;
         }
         throw new IllegalArgumentException("Missing administrator password");
@@ -98,7 +98,7 @@ public class ProxyConfig {
     public Set<String> getProtectedMethods() {
         return Arrays.stream(protectedMethods.split(","))
             .map(String::trim)
-            .filter(s -> !s.isEmpty())
+            .filter(s -> !s.isBlank())
             .collect(Collectors.toSet());
     }
 

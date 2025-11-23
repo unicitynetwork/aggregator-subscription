@@ -66,7 +66,7 @@ public class DatabaseConfig {
      */
     private int getEnvAsInt(String key, int defaultValue) {
         String value = environmentProvider.getEnv(key);
-        if (value == null || value.trim().isEmpty()) {
+        if (value == null || value.isBlank()) {
             return defaultValue;
         }
         try {

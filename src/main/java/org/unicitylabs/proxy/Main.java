@@ -79,13 +79,13 @@ public class Main {
         String dbUser = environmentProvider.getEnv(DB_USER);
         String dbPassword = environmentProvider.getEnv(DB_PASSWORD);
 
-        if (jdbcUrl == null || jdbcUrl.isEmpty()) {
+        if (jdbcUrl == null || jdbcUrl.isBlank()) {
             jdbcUrl = "jdbc:postgresql://localhost:5432/aggregator";
         }
-        if (dbUser == null || dbUser.isEmpty()) {
+        if (dbUser == null || dbUser.isBlank()) {
             dbUser = "aggregator";
         }
-        if (dbPassword == null || dbPassword.isEmpty()) {
+        if (dbPassword == null || dbPassword.isBlank()) {
             dbPassword = "aggregator";
         }
 
