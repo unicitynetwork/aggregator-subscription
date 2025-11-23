@@ -3,6 +3,7 @@ x-proxy-service: &proxy-service
   build:
     context: .
     dockerfile: Dockerfile
+    network: host
   environment:
     # Proxy configuration - container always listens on 8080 internally
     PROXY_ARGS: "--port 8080 "
@@ -53,8 +54,8 @@ services:
       POSTGRES_DB: aggregator
       POSTGRES_USER: aggregator
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+#    ports:
+#      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
