@@ -12,9 +12,9 @@ import java.sql.SQLException;
 
 public class DatabaseConfig {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseConfig.class);
-    private static HikariDataSource dataSource;
-    
-    public static void initialize(String jdbcUrl, String username, String password) {
+    private static volatile HikariDataSource dataSource;
+
+    public static synchronized void initialize(String jdbcUrl, String username, String password) {
         if (dataSource != null) {
             dataSource.close();
         }
@@ -26,8 +26,8 @@ public class DatabaseConfig {
         config.setDriverClassName("org.postgresql.Driver");
 
         // Connection pool sizing - configurable via environment variables
-        config.setMaximumPoolSize(getEnvAsInt("HIKARI_MAX_POOL_SIZE", 50));
-        config.setMinimumIdle(getEnvAsInt("HIKARI_MIN_IDLE", 10));
+        config.setMaximumPoolSize(getEnvAsInt("HIKARI_MAX_POOL_SIZE", 20));
+        config.setMinimumIdle(getEnvAsInt("HIKARI_MIN_IDLE", 20));
 
         // Timeout settings
         config.setConnectionTimeout(getEnvAsInt("HIKARI_CONNECTION_TIMEOUT", 30000));
@@ -68,7 +68,7 @@ public class DatabaseConfig {
             return defaultValue;
         }
     }
-    
+
     private static void runMigrations() {
         try {
             Flyway flyway = Flyway.configure()
@@ -84,25 +84,25 @@ public class DatabaseConfig {
             throw new RuntimeException("Database migration failed", e);
         }
     }
-    
+
     public static DataSource getDataSource() {
         if (dataSource == null) {
             throw new IllegalStateException("Database not initialized. Call initialize() first.");
         }
         return dataSource;
     }
-    
+
     public static Connection getConnection() throws SQLException {
         return getDataSource().getConnection();
     }
-    
-    public static void shutdown() {
+
+    public static synchronized void shutdown() {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             logger.info("Database connection pool closed");
         }
     }
-    
+
     public static boolean isInitialized() {
         return dataSource != null && !dataSource.isClosed();
     }
