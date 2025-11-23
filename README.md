@@ -360,10 +360,8 @@ The application supports the following environment variables for configuration:
 - **`SERVER_SECRET`**: Server secret for cryptographic operations (must be a hex string with even length, typically 64 characters for 32 bytes)
   - Example: `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`
 - **`ADMIN_PASSWORD`**: Password for accessing the administrative interface at `/admin`
-    - No default value - must be set explicitly
 - **`HAPROXY_STATS_PASSWORD`**: Password for HAProxy statistics page (Docker Compose only)
-- **`DB_PASSWORD`** and **`POSTGRES_PASSWORD`** (both need to match): Database password
-    - Default: `aggregator` (development only, must be changed in production)
+- **`DB_PASSWORD`**: Database password
 
 #### Database Configuration
 
