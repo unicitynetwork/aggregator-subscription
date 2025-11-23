@@ -43,7 +43,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         envProvider.setEnv(ProxyServer.SHARD_CONFIG_URI, "file://" + configFile.toAbsolutePath());
 
         // Create and start proxy server
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        ProxyConfig config = new ProxyConfig(envProvider);
         setUpConfigForTests(config);
         byte[] serverSecret = new byte[32];
 
@@ -72,7 +72,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         TestEnvironmentProvider envProvider = new TestEnvironmentProvider();
         envProvider.setEnv(ProxyServer.SHARD_CONFIG_URI, "file://" + configFile.toAbsolutePath());
 
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        ProxyConfig config = new ProxyConfig(envProvider);
         setUpConfigForTests(config);
         byte[] serverSecret = new byte[32];
 
@@ -102,7 +102,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         TestEnvironmentProvider envProvider = new TestEnvironmentProvider();
         envProvider.setEnv(ProxyServer.SHARD_CONFIG_URI, "file://" + configFile.toAbsolutePath());
 
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        ProxyConfig config = new ProxyConfig(envProvider);
         setUpConfigForTests(config);
         byte[] serverSecret = new byte[32];
 
@@ -119,7 +119,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         TestEnvironmentProvider envProvider = new TestEnvironmentProvider();
         envProvider.setEnv(ProxyServer.SHARD_CONFIG_URI, "file:///does/not/exist.json");
 
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        ProxyConfig config = new ProxyConfig(envProvider);
         setUpConfigForTests(config);
         byte[] serverSecret = new byte[32];
 
@@ -137,7 +137,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         TestEnvironmentProvider envProvider = new TestEnvironmentProvider();
         envProvider.removeEnv(ProxyServer.SHARD_CONFIG_URI);
 
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        ProxyConfig config = new ProxyConfig(envProvider);
         setUpConfigForTests(config);
 
         insertShardConfig(new ShardConfig(1, List.of(
@@ -160,7 +160,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         TestEnvironmentProvider envProvider = new TestEnvironmentProvider();
         envProvider.setEnv(ProxyServer.SHARD_CONFIG_URI, "");
 
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        ProxyConfig config = new ProxyConfig(envProvider);
         setUpConfigForTests(config);
 
         insertShardConfig(new ShardConfig(1, List.of(
@@ -200,7 +200,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
         TestEnvironmentProvider envProvider = new TestEnvironmentProvider();
         envProvider.setEnv(ProxyServer.SHARD_CONFIG_URI, "file://" + configFile.toAbsolutePath());
 
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        ProxyConfig config = new ProxyConfig(envProvider);
         setUpConfigForTests(config);
         byte[] serverSecret = new byte[32];
 
