@@ -15,13 +15,14 @@ public class DatabaseConfig {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseConfig.class);
 
     private final EnvironmentProvider environmentProvider;
-    private HikariDataSource dataSource;
+
+    private volatile HikariDataSource dataSource;
 
     public DatabaseConfig(EnvironmentProvider environmentProvider) {
         this.environmentProvider = environmentProvider;
     }
 
-    public void initialize(String jdbcUrl, String username, String password) {
+    public synchronized void initialize(String jdbcUrl, String username, String password) {
         if (dataSource != null) {
             dataSource.close();
         }
@@ -33,8 +34,8 @@ public class DatabaseConfig {
         config.setDriverClassName("org.postgresql.Driver");
 
         // Connection pool sizing - configurable via environment variables
-        config.setMaximumPoolSize(getEnvAsInt("HIKARI_MAX_POOL_SIZE", 50));
-        config.setMinimumIdle(getEnvAsInt("HIKARI_MIN_IDLE", 10));
+        config.setMaximumPoolSize(getEnvAsInt("HIKARI_MAX_POOL_SIZE", 20));
+        config.setMinimumIdle(getEnvAsInt("HIKARI_MIN_IDLE", 20));
 
         // Timeout settings
         config.setConnectionTimeout(getEnvAsInt("HIKARI_CONNECTION_TIMEOUT", 30000));
@@ -103,7 +104,7 @@ public class DatabaseConfig {
         return getDataSource().getConnection();
     }
 
-    public void shutdown() {
+    public synchronized void shutdown() {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             logger.info("Database connection pool closed");

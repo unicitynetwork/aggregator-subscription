@@ -288,7 +288,7 @@ public abstract class AbstractIntegrationTest {
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/api/data" -> {
-                        byte[] requestBody = Content.Source.asByteBuffer(request).array();
+                        byte[] requestBody = getBodyBytes(request);
                         response.setStatus(CREATED_201);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
@@ -325,7 +325,7 @@ public abstract class AbstractIntegrationTest {
                         response.write(true, ByteBuffer.wrap("Internal Server Error".getBytes()), callback);
                     }
                     case "/api/update" -> {
-                        byte[] requestBody = Content.Source.asByteBuffer(request).array();
+                        byte[] requestBody = getBodyBytes(request);
                         response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
@@ -356,6 +356,13 @@ public abstract class AbstractIntegrationTest {
         server.addConnector(connector);
 
         return server;
+    }
+
+    private byte @NotNull [] getBodyBytes(Request request) throws IOException {
+        ByteBuffer byteBuffer = Content.Source.asByteBuffer(request);
+        byte[] requestBody = new byte[byteBuffer.remaining()];
+        byteBuffer.get(requestBody);
+        return requestBody;
     }
 
     private boolean isServerReady(int port) {
