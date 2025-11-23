@@ -8,45 +8,40 @@ The proxy is designed to be a transparent layer that forwards all standard HTTP 
 
 ### Authentication and rate limiting
 
-Some aggregator endpoints require authentication. By default, only the `submit_commitment` JSON-RPC method requires authentication. To access authenticated endpoints, users need to pass along an active API key in the HTTP header "X-API-Key" as follows (the API key in the example is "supersecret"):
+Some aggregator endpoints require authentication, other endpoints can be accessed publicly for free. By default, only the `submit_commitment` JSON-RPC method requires authentication, as it is the only endpoint that writes to the blockchain. To access such authenticated endpoints, users need to pass along an active API key in the HTTP header "X-API-Key" as follows (the API key in the example is "supersecret"):
 
 ```http
 X-API-Key: supersecret
 ```
 
-Alternatively, the API key can be sent with the "Authentication" header using the "Bearer" authentication scheme, although this usage is discouraged and may be removed in the future:
+Alternatively, the API key can be sent with the "Authorization" header using the "Bearer" authentication scheme, although this usage is discouraged and may be removed in the future:
 
 ```http
 Authorization: Bearer supersecret
 ```
 
+If a correct API key is NOT used, the server responds with the HTTP status code 401 (Unauthorized) and does not forward the request. If requests for a given API key exceed the count defined in the pricing plan, the server responds with HTTP status code 429 (Too Many Requests) and does not forward the request.
+
 To be usable, the API key must meet the following criteria:
 
-* It must exist in the database;
-* Its status must be 'active';
 * It must have an associated pricing plan;
 * Its 'active_until' date for its payment plan must not have been exceeded;
+* It must be in 'active' status;
 * Its rate limits must not have been exceeded.
 
 Every pricing plan specifies the following two rate limits for each API key: 1) per second, and 2) per day. All authenticated endpoints share the counters, but multiple instances of the proxy do not.
 
-Note that for performance reasons the API key information in the database is also cached in the proxy for up to 60 seconds; this means that some changes in database may not be picked up immediately. However, when the changes are made through the user interface, the application usually automatically refreshes the cache as well, but the cache refreshing has not been implemented across multiple instances of the proxy.
-
-If the correct API key is NOT used, the server responds with the HTTP status code 401 (Unauthorized) and does not forward the request.
-
-If requests for a given API key exceed the count defined in the pricing plan, the server responds with HTTP status code 429 (Too Many Requests) and does not forward the request.
-
-The pricing plans as well as API key properties can be changed in the administrative interface.
+The pricing plans as well as API key properties can be changed in the administrative interface. For performance reasons the API key information is also cached in the proxy for up to 60 seconds; this means that some changes in database may not be picked up immediately.
 
 ### Payment flow
 
-API keys can be paid for using the Unicity token. Different payment plans can have different costs, which can be set using the Admin Interface.
+Users receive API keys and pay for them using the Unicity token. Different payment plans can have different costs, which can be set using the Admin Interface.
 
-When a user purchases a payment plan, it always lasts for 30 days from the time of payment completion, regardless of any previously active plan. The most recently paid plan becomes the active plan. If the previous plan was still active at the time of the new purchase, the user gets a discount on the new plan equivalent to the cost of the unused portion of the previous plan. This discount is calculated based on the fraction of the 30-day period that remains unused due to the plan change (measured from 15 minutes after payment initiation). The discount uses the current expiry time and current price of the previous pricing plan. (If pricing has increased over time, this approach benefits the customer by providing a larger discount.) If the calculated discount would reduce the payment below a minimum threshold (1000 units at the time of this writing) or make it negative, the user still pays the minimum amount.
+When a user purchases a payment plan, it always lasts for 30 days from the time of the completion of the payment, regardless of any previously active plan: the most recently paid plan becomes the active plan. If the previous plan was still active at the time of the new purchase, the user gets a discount on the new plan equivalent to the cost of the unused portion of the previous plan. This discount is calculated based on the fraction of the 30-day period that remains unused due to the plan change (measured from 15 minutes after payment flow initiation). The discount uses the current price of the previous pricing plan, rather than the price that the plan had when it was purchased. (If the price has increased over time, this approach benefits the customer by providing a larger discount.) If the calculated discount would reduce the payment below a minimum threshold (1000 units at the time of this writing) or make it negative, the user still pays the minimum amount. The minimum amount is also paid when the price of the plan itself is lower than the minimum amount.
 
 Note: The license duration is calculated as a fixed number of milliseconds (30 × 24 × 60 × 60 × 1000), which may not correspond to exactly 30 calendar days in all time zones due to daylight saving time transitions, leap seconds and so forth.
 
-The following shows the RESTful API for requesting for new API keys and paying for them, as well as paying for existing API keys. This interface is meant to be used by user-facing software such as cryptocurrency wallets.
+The following shows the RESTful API for requesting new API keys and paying for them, as well as paying for existing API keys. This interface is meant to be used by user-facing software such as cryptocurrency wallets.
 
 The user can take a look at the available pricing plans using following request.
 
@@ -94,7 +89,7 @@ The returned list above includes the current list of available pricing plans.
 
 Next, the user initiates payment for their API key. The user can either supply an existing API key in the `apiKey` field, or the user can leave the field empty, in which case a new API key will be created for the user. Additionally, the user specifies the chosen payment plan ID.
 
-If the user does not complete the payment flow in about 15 minutes then the flow expires automatically and if the user wishes to continue then the user must start the flow again from the payment initiation endpoint here. The endpoint must also be invoked again if the user wishes to change any of the parameters specified here.
+If the user does not complete the payment flow in 15 minutes then the flow expires automatically, after which the user must start the flow again from the payment initiation endpoint if they wish to complete the payment. The initiation endpoint must also be invoked again if the user wishes to change any of the parameters specified here.
 
 **Request:**
 
@@ -118,11 +113,11 @@ If the user does not complete the payment flow in about 15 minutes then the flow
 }
 ```
 
-In the response, the server has responded with the address where the payment should be sent, the price for the purchase and the accepted coin ID. The "expiresAt" field specifies the current payment session end time, not the subscription end time.
+In the response, the server has responded with the address where the payment should be sent, the price for the purchase and the accepted coin ID. If a discount applies, the returned price is the discounted value. The "expiresAt" field specifies the current payment session end time, not the subscription end time.
 
 After that, the user sends the transfer commitment data as a JSON object, as well as the token contents.
 
-In the same payment session, the user can only pay with one token which must contain exactly the right amount of the right coins and no other coins.
+In the same payment session, the user can only pay with one token, which must contain exactly the right amount of the right coins and no other coins.
 
 If the user invokes this endpoint twice in a row (for example, when the first invocation timed out), the user must use the same token the next time as well (otherwise, the user must invoke the payment initiation endpoint to restart the flow).
 
@@ -156,12 +151,11 @@ After the above success message, the key is ready to be used. The key is returne
 
 Note that if the payment fails, it may need to be manually completed (or refunded) by the server operator(s). For example, it may happen that network goes down in the middle of the payment, or the user could send the wrong amount of tokens.
 
-Information about they key can be accessed any time using the following endpoint:
+Information about the key can be accessed any time using the following endpoint:
 
 **Request:**
 
-`GET /api/payment/key/sk_a70c32027c2246aa8dcdac178e79df41
-`
+`GET /api/payment/key/sk_a70c32027c2246aa8dcdac178e79df41`
 
 **Response:**
 ```JSON
@@ -178,15 +172,102 @@ Information about they key can be accessed any time using the following endpoint
 }
 ```
 
-The endpoint also shows the time of expiry for the key.
+The endpoint also shows the time of expiry for the key in the "expiresAt" field.
 
-Note that currently, the payment actives the key for 1 month. If the user pays again during the time the key is active, the key expiration date is further advanced by 1 month.
+## Prerequisites
+
+- Java 21 or later
+- Gradle 8.x (wrapper included)
+- Aggregator service running (default: http://localhost:3000)
+
+## Quick Start
+
+### Build and Run
+
+```bash
+# Build the project
+./gradlew build
+
+# Start a local database instance in Docker
+docker run -d -p 5432:5432 \
+    -e POSTGRES_DB=aggregator \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=postgres \
+    --name postgres-aggregator \
+    postgres:15-alpine
+
+# Start proxying towards the test network aggregator
+DB_URL=jdbc:postgresql://localhost:5432/aggregator \
+  DB_USER=postgres \
+  DB_PASSWORD=postgres \
+  SERVER_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  ./gradlew run
+```
+
+To run tests, including integration tests using a local aggregator at http://localhost:3000:
+```bash
+AGGREGATOR_URL="http://localhost:3000" ./gradlew clean test
+```
+
+To run the project within an IDE, use the main class ```org.unicitylabs.proxy.Main```.
+
+### Docker Compose with Load Balancing
+
+The project includes a sample Docker Compose configuration with HAProxy load balancing across 3 proxy nodes.
+
+The `.env.sample` file contains the environment variables to declare.
+
+The following is a quick way to start and use the Docker containers.
+
+```bash
+# Build images
+docker compose build --no-cache
+
+# Start all services (1 HAProxy + 3 proxy nodes + 1 database)
+docker compose up -d
+
+# View logs from all services
+docker compose logs -f
+
+# View logs from a specific node
+docker compose logs -f proxy-1
+
+# Check service status
+docker compose ps
+```
+
+By default, the service assumes a single shard and a single aggregator available at http://localhost:3000. To change this sharding configuration you can use the Admin UI.
+
+Here are the key URLs:
+
+- Admin UI: http://localhost:8080/admin.
+- HAProxy stats page: http://localhost:8404/stats.
+- Incoming requests are proxied from here: http://localhost:8080/.
+
+#### Architecture
+
+- **HAProxy**: Load balancer distributing traffic across proxy nodes
+    - Round-robin load balancing for API requests
+    - Cookie-based sticky sessions for admin UI (preserves login state)
+    - Health checks on all backend nodes
+    - Exposed on port 8080 (configurable via `PROXY_PORT`)
+    - Stats page on port 8404 (configurable via `HAPROXY_STATS_PORT`)
+
+- **3 Proxy Nodes** (proxy-1, proxy-2, proxy-3):
+    - Each node runs the same proxy application
+    - Shared PostgreSQL database for API keys, pricing plans, and payments
+    - Independent in-memory rate limiting per node (total capacity = limit × 3)
+    - Independent API key caches (60s TTL)
+    - Separate log volumes for each node
+
+- **PostgreSQL**: Single shared database instance
+
 
 ## Administrative interface
 
-There is an administrative interface, by default available at http://localhost:8080/admin. The password is set either by the `ADMIN_PASSWORD` environment variable or as a configuration setting.
+There is an administrative interface, by default available at http://localhost:8080/admin. The password is set either by the `ADMIN_PASSWORD` environment variable or by a command line argument (the environment variable takes precedence).
 
-The interface allows to modify API keys, pricing plans and shard configuration.
+The interface allows to modify API keys, pricing plans and shard configuration. It also displays the main API key purchasing statistics.
 
 ## Sharding
 
@@ -246,6 +327,26 @@ Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
 6        | 110      | 10             | ...10
 7        | 111      | 11             | ...11
 
+### Running without shards
+
+For local development, it can be convenient to run the system without shards, deploying only a single aggregator. While technically, the subscription proxy does not support working without shards, this can be emulated by using a shard configuration that only contains one shard; this achieves the goal that all requests are routed to a single aggregator. Here is a sample such shard configuration:
+
+```bash
+% mkdir config
+
+% echo """{
+  "version": 1,
+  "shards": [
+    {
+      "id": 1,
+      "url": "http://host.docker.internal:3000"
+    }
+  ]
+}""" > config/x.json
+
+% export SHARD_CONFIG_URI="file:///etc/aggregator/config/x.json" && docker compose up -d
+```
+
 ## Configuration settings
 
 The command line parameter `--help` prints out various configuration options.
@@ -258,6 +359,11 @@ The application supports the following environment variables for configuration:
 
 - **`SERVER_SECRET`**: Server secret for cryptographic operations (must be a hex string with even length, typically 64 characters for 32 bytes)
   - Example: `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`
+- **`ADMIN_PASSWORD`**: Password for accessing the administrative interface at `/admin`
+    - No default value - must be set explicitly
+- **`HAPROXY_STATS_PASSWORD`**: Password for HAProxy statistics page (Docker Compose only)
+- **`DB_PASSWORD`** and **`POSTGRES_PASSWORD`** (both need to match): Database password
+    - Default: `aggregator` (development only, must be changed in production)
 
 #### Database Configuration
 
@@ -267,14 +373,6 @@ The application supports the following environment variables for configuration:
 
 - **`DB_USER`**: Database username
   - Default: `aggregator`
-
-- **`DB_PASSWORD`**: Database password
-  - Default: `aggregator` (development only, must be changed in production)
-
-#### Admin Interface
-
-- **`ADMIN_PASSWORD`**: Password for accessing the administrative interface at `/admin`
-  - No default value - must be set explicitly
 
 #### Shard Configuration
 
@@ -294,10 +392,10 @@ The application supports the following environment variables for configuration:
 #### Connection Pool (HikariCP)
 
 - **`HIKARI_MAX_POOL_SIZE`**: Maximum number of connections in the pool
-  - Default: `50`
+  - Default: `20`
 
 - **`HIKARI_MIN_IDLE`**: Minimum number of idle connections maintained in the pool
-  - Default: `10`
+  - Default: `20`
 
 - **`HIKARI_CONNECTION_TIMEOUT`**: Maximum time (in milliseconds) to wait for a connection from the pool
   - Default: `30000` (30 seconds)
@@ -329,133 +427,11 @@ The application supports the following environment variables for configuration:
 - **`PROXY_ARGS`**: Command-line arguments passed to the proxy application
   - Docker default: `--port 8080`
 
-- **`PROXY_PORT`**: External port for HAProxy frontend (Docker Compose only)
+- **`PROXY_PORT`**: External port for HAProxy (Docker Compose only). This is the port that users will connect to.
   - Default: `8080`
 
 - **`HAPROXY_STATS_PORT`**: Port for HAProxy statistics page (Docker Compose only)
   - Default: `8404`
 
-- **`HAPROXY_STATS_PASSWORD`**: Password for HAProxy statistics page (Docker Compose only)
-
 - **`POSTGRES_PORT`**: External port for PostgreSQL database (Docker Compose only)
   - Default: `5432`
-
-## Prerequisites
-
-- Java 21 or later
-- Gradle 8.x (wrapper included)
-- Aggregator service running (default: http://localhost:3000)
-
-## Quick Start
-
-### Build and Run
-
-```bash
-# Build the project
-./gradlew build
-
-# Start a local database instance in Docker
-docker run -d -p 5432:5432 \
-    -e POSTGRES_DB=aggregator \
-    -e POSTGRES_USER=postgres \
-    -e POSTGRES_PASSWORD=postgres \
-    --name postgres-aggregator \
-    postgres:15-alpine
-
-# Start proxying towards the test network aggregator
-DB_URL=jdbc:postgresql://localhost:5432/aggregator \
-  DB_USER=postgres \
-  DB_PASSWORD=postgres \
-  SERVER_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  ./gradlew run"
-```
-
-### Docker Compose with Load Balancing
-
-The project includes a sample Docker Compose configuration with HAProxy load balancing across 3 proxy nodes.
-
-The `.env.sample` file contains the environment variables to declare.
-
-The following is a quick way to start and use the Docker containers.
-
-```bash
-# Build images
-docker compose build --no-cache
-
-# Start all services (1 HAProxy + 3 proxy nodes + 1 database)
-docker compose up -d
-
-# View logs from all services
-docker compose logs -f
-
-# View logs from a specific node
-docker compose logs -f proxy-1
-
-# Check service status
-docker compose ps
-```
-
-By default, the service assumes a single shard and a single aggregator available at http://localhost:3000. To change this sharding configuration you can use the Admin UI.
-
-Here are the key URLs:
-
-- Admin UI: http://localhost:8080/admin.
-- HAProxy stats page: http://localhost:8404/stats.
-- Incoming requests are proxied from here: http://localhost:8080/.
-
-#### Architecture
-
-- **HAProxy**: Load balancer distributing traffic across proxy nodes
-  - Round-robin load balancing for API requests
-  - Cookie-based sticky sessions for admin UI (preserves login state)
-  - Health checks on all backend nodes
-  - Exposed on port 8080 (configurable via `PROXY_PORT`)
-  - Stats page on port 8404 (configurable via `HAPROXY_STATS_PORT`)
-
-- **3 Proxy Nodes** (proxy-1, proxy-2, proxy-3):
-  - Each node runs the same proxy application
-  - Shared PostgreSQL database for API keys, pricing plans, and payments
-  - Independent in-memory rate limiting per node (total capacity = limit × 3)
-  - Independent API key caches (60s TTL)
-  - Separate log volumes for each node
-
-- **PostgreSQL**: Single shared database instance
-
-#### Configuration
-
-Environment variables can be configured in a `.env` file:
-
-```bash
-# Proxy port (HAProxy frontend)
-PROXY_PORT=8080
-
-# HAProxy stats page port
-HAPROXY_STATS_PORT=8404
-
-# Target aggregator URL
-TARGET_URL=https://goggregator-test.unicity.network
-
-# Admin password for UI
-ADMIN_PASSWORD=your-secure-password
-
-# Server secret (hex string, even length)
-SERVER_SECRET=your-64-char-hex-string
-
-# Database password
-POSTGRES_PASSWORD=aggregator
-
-# Database port
-POSTGRES_PORT=5432
-
-# Logging
-LOG_LEVEL=INFO
-```
-
-## Development
-
-Run tests, including integration tests using a local aggregator at http://localhost:3000.
-```bash
-export AGGREGATOR_URL="http://localhost:3000" && ./gradlew clean test
-
-```
-To run within an IDE, use the main class ```org.unicitylabs.proxy.Main```.

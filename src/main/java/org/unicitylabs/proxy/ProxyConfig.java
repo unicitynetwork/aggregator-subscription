@@ -88,8 +88,7 @@ public class ProxyConfig {
         if (envPassword != null && !envPassword.isEmpty()) {
             return envPassword;
         }
-        // If no env var and no command line param, use default
-        return adminPassword != null ? adminPassword : "admin";
+        throw new IllegalArgumentException("Missing administrator password");
     }
 
     public boolean isHelp() {
