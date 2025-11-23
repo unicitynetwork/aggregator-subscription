@@ -53,9 +53,9 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
             .POST(ofString("{\"name\":\"test\",\"value\":123}"))
             .build();
-        
+
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        
+
         assertThat(response.statusCode()).isEqualTo(CREATED_201);
         assertThat(response.body()).contains("\"received\":" + "{\"name\":\"test\",\"value\":123}".length());
         assertThat(response.body()).contains("\"method\":\"POST\"");
