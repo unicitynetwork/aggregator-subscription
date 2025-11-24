@@ -334,7 +334,8 @@ For local development, it can be convenient to run the system without shards, de
 ```bash
 % mkdir config
 
-% echo """{
+% cat <<'EOF' > config/shardConfiguration.json
+{
   "version": 1,
   "shards": [
     {
@@ -342,9 +343,10 @@ For local development, it can be convenient to run the system without shards, de
       "url": "http://host.docker.internal:3000"
     }
   ]
-}""" > config/x.json
+}
+EOF
 
-% export SHARD_CONFIG_URI="file:///etc/aggregator/config/x.json" && docker compose up -d
+% export SHARD_CONFIG_URI="file:///etc/aggregator/config/shardConfiguration.json" && docker compose up -d
 ```
 
 ## Configuration settings
