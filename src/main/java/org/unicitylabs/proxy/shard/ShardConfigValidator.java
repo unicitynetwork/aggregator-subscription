@@ -1,14 +1,35 @@
 package org.unicitylabs.proxy.shard;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.unicitylabs.sdk.api.JsonRpcAggregatorClient;
+
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.*;
 
 public class ShardConfigValidator {
+    private static final Logger logger = LoggerFactory.getLogger(ShardConfigValidator.class);
+
+    /**
+     * Validates shard configuration with connectivity checks enabled.
+     */
     public static void validate(ShardRouter router, ShardConfig config) {
+        validate(router, config, true);
+    }
+
+    /**
+     * Validates shard configuration.
+     * @param router the shard router
+     * @param config the shard configuration
+     * @param validateConnectivity whether to validate connectivity by calling getBlockHeight on each shard
+     */
+    public static void validate(ShardRouter router, ShardConfig config, boolean validateConnectivity) {
         if (config.getShards() == null || config.getShards().isEmpty()) {
             throw new IllegalArgumentException("Shard configuration has no shards");
         }
 
-        validateUniqueShardIds(config.getShards());
+        validateUniqueShardIds(config.getShards(), validateConnectivity);
 
         if (router instanceof DefaultShardRouter defaultRouter) {
             validateTreeCompleteness(defaultRouter.getRootNode());
@@ -17,7 +38,7 @@ public class ShardConfigValidator {
         }
     }
 
-    private static void validateUniqueShardIds(List<ShardInfo> shards) {
+    private static void validateUniqueShardIds(List<ShardInfo> shards, boolean validateConnectivity) {
         if (shards == null) {
             return;
         }
@@ -27,6 +48,58 @@ public class ShardConfigValidator {
             if (!seenIds.add(shard.id())) {
                 throw new IllegalArgumentException("Duplicate shard ID: " + shard.id());
             }
+
+            validateShardUrl(shard.url(), shard.id());
+        }
+
+        if (validateConnectivity) {
+            for (ShardInfo shard : shards) {
+                validateShardConnectivity(shard.url(), shard.id());
+            }
+        }
+    }
+
+    private static void validateShardUrl(String url, int shardId) {
+        if (url == null || url.isBlank()) {
+            throw new IllegalArgumentException("Shard " + shardId + " has empty or null URL");
+        }
+
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Shard " + shardId + " has malformed URL: " + url + " - " + e.getMessage());
+        }
+
+        if (uri.getQuery() != null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must not contain query parameters: " + url);
+        }
+
+        if (uri.getFragment() != null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must not contain fragment: " + url);
+        }
+
+        if (uri.getScheme() == null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must have a scheme (http or https): " + url);
+        }
+
+        if (uri.getHost() == null) {
+            throw new IllegalArgumentException("Shard " + shardId + " URL must have a host: " + url);
+        }
+    }
+
+    private static void validateShardConnectivity(String url, int shardId) {
+        logger.debug("Validating connectivity to shard {} at {}", shardId, url);
+        try {
+            JsonRpcAggregatorClient client = new JsonRpcAggregatorClient(url);
+            long blockHeight = client.getBlockHeight().get();
+            logger.debug("Shard {} at {} is reachable (block height: {})", shardId, url, blockHeight);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                String.format("Shard %d at %s is not reachable or not a valid aggregator: %s",
+                    shardId, url, e.getMessage()),
+                e
+            );
         }
     }
 
@@ -38,15 +111,15 @@ public class ShardConfigValidator {
         if (node == null) {
             throw new IllegalArgumentException(
                 String.format("Routing tree has null node at depth %d (path: %s)",
-                    depth, pathBits.isEmpty() ? "root" : pathBits)
+                    depth, pathBits.isBlank() ? "root" : pathBits)
             );
         }
 
         if (node.isLeaf()) {
-            if (node.getTargetUrl() == null || node.getTargetUrl().isEmpty()) {
+            if (node.getTargetUrl() == null || node.getTargetUrl().isBlank()) {
                 throw new IllegalArgumentException(
                     String.format("Leaf node has no target URL at depth %d (path: %s)",
-                        depth, pathBits.isEmpty() ? "root" : pathBits)
+                        depth, pathBits.isBlank() ? "root" : pathBits)
                 );
             }
         } else {

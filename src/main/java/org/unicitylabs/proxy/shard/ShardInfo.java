@@ -18,7 +18,7 @@ public record ShardInfo(int id, String url) {
         if (id < 0) {
             throw new IllegalArgumentException("Shard ID cannot be negative");
         }
-        if (url == null || url.isEmpty()) {
+        if (url == null || url.isBlank()) {
             throw new IllegalArgumentException("Shard URL cannot be null or empty");
         }
         try {

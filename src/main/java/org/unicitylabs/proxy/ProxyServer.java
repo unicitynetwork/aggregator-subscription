@@ -6,19 +6,20 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.proxy.repository.ShardConfigRepository;
-import org.unicitylabs.proxy.shard.DefaultShardRouter;
-import org.unicitylabs.proxy.shard.FailsafeShardRouter;
-import org.unicitylabs.proxy.shard.ShardConfigValidator;
-import org.unicitylabs.proxy.shard.ShardRouter;
+import org.unicitylabs.proxy.shard.*;
+import org.unicitylabs.proxy.util.EnvironmentProvider;
+import org.unicitylabs.proxy.util.ResourceLoader;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class ProxyServer {
-    private static final Logger logger = LoggerFactory.getLogger(ProxyServer.class);
+    public static final String SHARD_CONFIG_URI = "SHARD_CONFIG_URI";
 
     public static final int SHARD_CONFIG_POLLING_INTERVAL_SECONDS = 2;
+
+    private static final Logger logger = LoggerFactory.getLogger(ProxyServer.class);
 
     private final ProxyConfig config;
     private final Server server;
@@ -27,12 +28,21 @@ public class ProxyServer {
     private final RequestHandler requestHandler;
     private final ShardConfigRepository shardConfigRepository;
     private final ScheduledExecutorService configPoller;
+    private final boolean validateShardConnectivity;
 
     private volatile int lastConfigId;
-    
-    public ProxyServer(ProxyConfig config, byte[] serverSecret) {
+
+    public ProxyServer(ProxyConfig config, byte[] serverSecret, EnvironmentProvider environmentProvider, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
+        this(config, serverSecret, environmentProvider, databaseConfig, true);
+    }
+
+    public ProxyServer(ProxyConfig config, byte[] serverSecret, EnvironmentProvider environmentProvider, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig, boolean validateShardConnectivity) {
+        this.validateShardConnectivity = validateShardConnectivity;
+
+        CachedApiKeyManager.initialize(databaseConfig);
+
         this.config = config;
-        this.shardConfigRepository = new ShardConfigRepository();
+        this.shardConfigRepository = new ShardConfigRepository(databaseConfig);
         this.configPoller = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "shard-config-poller");
             t.setDaemon(true);
@@ -44,44 +54,34 @@ public class ProxyServer {
         ServerConnector connector = getServerConnector(config);
         server.addConnector(connector);
 
-        // Load initial shard configuration from database
-        logger.info("Loading shard configuration from database");
-        ShardRouter shardRouter;
-        try {
-            ShardConfigRepository.ShardConfigRecord configRecord = shardConfigRepository.getLatestConfig();
-            ShardRouter tempRouter = new DefaultShardRouter(configRecord.config());
-            ShardConfigValidator.validate(tempRouter, configRecord.config());
-            this.lastConfigId = configRecord.id();
-            shardRouter = tempRouter;
-            logger.info("Shard configuration loaded and validated successfully (id: {}, created at: {})",
-                configRecord.id(), configRecord.createdAt());
-        } catch (Exception e) {
-            logger.error("Failed to load or validate shard configuration from database. " +
-                "Application will start with failsafe router. " +
-                "Admin UI is available to fix the configuration. Error: {}", e.getMessage(), e);
-            // Use failsafe router to allow app to start and Admin UI to be accessible
-            shardRouter = new FailsafeShardRouter();
-            this.lastConfigId = -1;
-            logger.warn("SHARD ROUTING IS UNAVAILABLE - Fix configuration via Admin UI at http://localhost:{}/admin",
-                config.getPort());
-        }
+        ShardRouter shardRouter = loadInitialShardConfiguration(config, environmentProvider);
 
-        this.requestHandler = new RequestHandler(config, shardRouter);
+        this.requestHandler = new RequestHandler(config, shardRouter, databaseConfig);
         this.rateLimiterManager = requestHandler.getRateLimiterManager();
 
         AdminHandler adminHandler = new AdminHandler(
             config.getAdminPassword(),
             requestHandler.getApiKeyManager(),
             this.rateLimiterManager,
-            config.getMinimumPaymentAmount()
+            config.getMinimumPaymentAmount(),
+            databaseConfig,
+            validateShardConnectivity
         );
 
-        this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter);
+        this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter, databaseConfig);
 
+        // Create health check handler
+        HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig);
+
+        // Create a combined handler that tries handlers in order: health, payment, admin, then proxy
         Handler.Abstract combinedHandler = new Handler.Abstract() {
             @Override
             public boolean handle(Request request, Response response, Callback callback) throws Exception {
-                // Try payment handler first (for /api/payment/* endpoints)
+                // Try health check first (for /health endpoint)
+                if (healthCheckHandler.handle(request, response, callback)) {
+                    return true;
+                }
+                // Try payment handler (for /api/payment/* endpoints)
                 if (paymentHandler.handle(request, response, callback)) {
                     return true;
                 }
@@ -109,6 +109,63 @@ public class ProxyServer {
         startConfigPolling();
     }
 
+    private ShardRouter loadInitialShardConfiguration(ProxyConfig config, EnvironmentProvider environmentProvider) {
+        String configUri = environmentProvider.getEnv(SHARD_CONFIG_URI);
+
+        if (configUri != null && !configUri.trim().isBlank()) {
+            return loadShardConfigFromUri(configUri.trim());
+        } else {
+            return loadShardConfigFromDatabase(config);
+        }
+    }
+
+    private ShardRouter loadShardConfigFromDatabase(ProxyConfig config) {
+        ShardRouter shardRouter;
+        logger.info("Loading shard configuration from database");
+        try {
+            ShardConfigRepository.ShardConfigRecord configRecord = shardConfigRepository.getLatestConfig();
+            ShardRouter tempRouter = new DefaultShardRouter(configRecord.config());
+            ShardConfigValidator.validate(tempRouter, configRecord.config(), validateShardConnectivity);
+            this.lastConfigId = configRecord.id();
+            shardRouter = tempRouter;
+            logger.info("Shard configuration loaded and validated successfully (id: {}, created at: {})",
+                configRecord.id(), configRecord.createdAt());
+        } catch (Exception e) {
+            logger.error("Failed to load or validate shard configuration from database. " +
+                "Application will start with failsafe router. " +
+                "Admin UI is available to fix the configuration. Error: {}", e.getMessage(), e);
+            // Use failsafe router to allow app to start and Admin UI to be accessible
+            shardRouter = new FailsafeShardRouter();
+            this.lastConfigId = -1;
+            logger.warn("SHARD ROUTING IS UNAVAILABLE - Fix configuration via Admin UI at http://localhost:{}/admin",
+                config.getPort());
+        }
+        return shardRouter;
+    }
+
+    private ShardRouter loadShardConfigFromUri(String configUri) {
+        ShardRouter shardRouter;
+        logger.info("Loading shard configuration from environment variable: {}", SHARD_CONFIG_URI);
+        try {
+            String jsonContent = ResourceLoader.loadContent(configUri);
+            ShardConfig shardConfig = shardConfigRepository.parseShardConfig(jsonContent);
+            ShardRouter tempRouter = new DefaultShardRouter(shardConfig);
+            ShardConfigValidator.validate(tempRouter, shardConfig, validateShardConnectivity);
+
+            // Save to database as new config
+            int insertedId = shardConfigRepository.saveConfig(shardConfig, "environment");
+            this.lastConfigId = insertedId;
+            shardRouter = tempRouter;
+
+            logger.info("Shard configuration loaded from {} and saved to database (id: {})", configUri, insertedId);
+        } catch (Exception e) {
+            logger.error("FATAL: Failed to load or validate shard configuration from environment variable {}. " +
+                "Failing fast. Error: {}", SHARD_CONFIG_URI, e.getMessage(), e);
+            throw new RuntimeException("Failed to load shard configuration from " + SHARD_CONFIG_URI, e);
+        }
+        return shardRouter;
+    }
+
     private void startConfigPolling() {
         configPoller.scheduleAtFixedRate(() -> {
             try {
@@ -120,7 +177,7 @@ public class ProxyServer {
 
                     try {
                         ShardRouter newRouter = new DefaultShardRouter(latestRecord.config());
-                        ShardConfigValidator.validate(newRouter, latestRecord.config());
+                        ShardConfigValidator.validate(newRouter, latestRecord.config(), validateShardConnectivity);
 
                         requestHandler.updateShardRouter(newRouter);
                         paymentHandler.updateShardRouter(newRouter);
@@ -222,5 +279,9 @@ public class ProxyServer {
 
     public PaymentHandler getPaymentHandler() {
         return paymentHandler;
+    }
+
+    public ShardRouter getShardRouterForTesting() {
+        return this.requestHandler.getShardRouterForTesting();
     }
 }

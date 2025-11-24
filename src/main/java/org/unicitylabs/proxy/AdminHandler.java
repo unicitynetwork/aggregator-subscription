@@ -8,6 +8,7 @@ import org.eclipse.jetty.util.Fields;
 import org.unicitylabs.proxy.model.ApiKeyStatus;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.repository.ApiKeyRepository;
+import org.unicitylabs.proxy.repository.DatabaseConfig;
 import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
 import org.unicitylabs.proxy.repository.ShardConfigRepository;
@@ -26,12 +27,14 @@ import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.util.CryptoUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -52,6 +55,7 @@ public class AdminHandler extends Handler.Abstract {
     private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
     private final BigInteger minimumPaymentAmount;
+    private final boolean validateShardConnectivity;
 
     // Simple session management
     private final ConcurrentHashMap<String, SessionInfo> sessions = new ConcurrentHashMap<>();
@@ -63,15 +67,16 @@ public class AdminHandler extends Handler.Abstract {
             }
     }
 
-    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager, BigInteger minimumPaymentAmount) {
+    public AdminHandler(String adminPassword, CachedApiKeyManager apiKeyManager, RateLimiterManager rateLimiterManager, BigInteger minimumPaymentAmount, DatabaseConfig databaseConfig, boolean validateShardConnectivity) {
         this.adminPassword = adminPassword;
-        this.apiKeyRepository = new ApiKeyRepository();
-        this.pricingPlanRepository = new PricingPlanRepository();
-        this.shardConfigRepository = new ShardConfigRepository();
-        this.paymentRepository = new PaymentRepository();
+        this.apiKeyRepository = new ApiKeyRepository(databaseConfig);
+        this.pricingPlanRepository = new PricingPlanRepository(databaseConfig);
+        this.shardConfigRepository = new ShardConfigRepository(databaseConfig);
+        this.paymentRepository = new PaymentRepository(databaseConfig);
         this.apiKeyManager = apiKeyManager;
         this.rateLimiterManager = rateLimiterManager;
         this.minimumPaymentAmount = minimumPaymentAmount;
+        this.validateShardConnectivity = validateShardConnectivity;
         logger.info("Admin handler initialized");
     }
 
@@ -177,8 +182,7 @@ public class AdminHandler extends Handler.Abstract {
             ObjectNode loginRequest = (ObjectNode) mapper.readTree(body);
             String password = loginRequest.get("password").asText();
 
-            if (adminPassword.equals(password)) {
-                // Generate session token
+            if (CryptoUtils.passwordsEqual(password, adminPassword)) {
                 String token = generateSessionToken();
                 SessionInfo session = new SessionInfo(token, Instant.now().plus(SESSION_DURATION_HOURS, ChronoUnit.HOURS));
                 sessions.put(token, session);
@@ -523,7 +527,7 @@ public class AdminHandler extends Handler.Abstract {
             // Validate the configuration
             ShardRouter shardRouter = new DefaultShardRouter(shardConfig);
             try {
-                ShardConfigValidator.validate(shardRouter, shardConfig);
+                ShardConfigValidator.validate(shardRouter, shardConfig, validateShardConnectivity);
             } catch (IllegalArgumentException e) {
                 // Validation failed - return error without saving
                 logger.warn("Shard configuration validation failed: {}", e.getMessage());

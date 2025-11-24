@@ -57,6 +57,7 @@ public class PaymentService {
 
     private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
 
+    private final DatabaseConfig databaseConfig;
     private final PaymentRepository paymentRepository;
     private final ApiKeyRepository apiKeyRepository;
     private final PricingPlanRepository pricingPlanRepository;
@@ -77,14 +78,15 @@ public class PaymentService {
 
     private final TokenType tokenType;
 
-    public PaymentService(ProxyConfig config, ShardRouter shardRouter, byte[] serverSecret) {
-        this.paymentRepository = new PaymentRepository();
-        this.apiKeyRepository = new ApiKeyRepository();
-        this.pricingPlanRepository = new PricingPlanRepository();
+    public PaymentService(ProxyConfig config, ShardRouter shardRouter, byte[] serverSecret, DatabaseConfig databaseConfig) {
+        this.databaseConfig = databaseConfig;
+        this.paymentRepository = new PaymentRepository(databaseConfig);
+        this.apiKeyRepository = new ApiKeyRepository(databaseConfig);
+        this.pricingPlanRepository = new PricingPlanRepository(databaseConfig);
         this.jsonMapper = UnicityObjectMapper.JSON;
         this.secureRandom = new SecureRandom();
         this.timeMeter = TimeMeter.SYSTEM_MILLISECONDS;
-        this.transactionManager = new TransactionManager();
+        this.transactionManager = new TransactionManager(databaseConfig);
 
         this.shardRouter = shardRouter;
 
@@ -456,7 +458,7 @@ public class PaymentService {
             // Even if later processing fails, we have this recorded
             // NOTE: This also prevents using the same requestId to pay for more than one session as
             //       there is a unique constraint in the database.
-            try (Connection conn = DatabaseConfig.getConnection()) {
+            try (Connection conn = databaseConfig.getConnection()) {
                 paymentRepository.storeCompletionRequest(
                         conn,
                         request.getSessionId(),

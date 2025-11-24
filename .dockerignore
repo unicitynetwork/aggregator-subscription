@@ -1,0 +1,67 @@
+# --- Git and Version Control ---
+.git
+.gitignore
+.gitattributes
+
+# --- Build Outputs (will be rebuilt inside container) ---
+build/
+.gradle/
+**/build/
+*.jar
+*.war
+*.class
+
+# --- IDE and Editor Files ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swo
+*~
+
+# --- Testing and Reports ---
+**/test-results/
+**/reports/
+
+# --- Docker Files (not needed inside image) ---
+Dockerfile
+.dockerignore
+docker-compose.yml
+.env
+.env.*
+
+# --- Documentation (not needed in runtime image) ---
+README.md
+README
+LICENSE
+CHANGELOG.md
+*.md
+
+# --- Logs and Temporary Files ---
+logs/
+*.log
+tmp/
+temp/
+
+# --- OS Generated Files ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- CI/CD Configuration ---
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# --- Other Development Files ---
+*.bak
+*.swp
+*.orig
+*.rej
+.editorconfig

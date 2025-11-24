@@ -4,6 +4,7 @@ import org.unicitylabs.proxy.repository.PricingPlanRepository;
 import org.unicitylabs.proxy.shard.ShardConfig;
 import org.unicitylabs.proxy.shard.ShardInfo;
 import org.unicitylabs.proxy.testparameterization.AuthMode;
+import org.unicitylabs.proxy.util.EnvironmentProvider;
 import io.github.bucket4j.TimeMeter;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.Content;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.unicitylabs.proxy.util.TestEnvironmentProvider;
 import org.unicitylabs.sdk.bft.RootTrustBase;
 import org.unicitylabs.sdk.serializer.UnicityObjectMapper;
 
@@ -147,10 +149,14 @@ public abstract class AbstractIntegrationTest {
         mockServer = createMockServer();
         mockServer.start();
 
-        config = new ProxyConfig();
+        config = new ProxyConfig(new TestEnvironmentProvider());
         setUpConfigForTests(config);
 
-        proxyServer = new ProxyServer(config, SERVER_SECRET);
+        setUpNewProxyServer();
+    }
+
+    protected void setUpNewProxyServer() throws Exception {
+        proxyServer = new ProxyServer(config, SERVER_SECRET, new TestEnvironmentProvider(), TestDatabaseSetup.getDatabaseConfig(), false);
         proxyServer.start();
 
         proxyPort = ((ServerConnector) proxyServer.getServer().getConnectors()[0]).getLocalPort();
@@ -174,7 +180,7 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected void recreatePricingPlans() {
-        PricingPlanRepository pricingPlanRepository = new PricingPlanRepository();
+        PricingPlanRepository pricingPlanRepository = new PricingPlanRepository(TestDatabaseSetup.getDatabaseConfig());
 
         for (var plan : ALL_PLANS) {
             var existing = pricingPlanRepository.findById(plan.id());
@@ -213,7 +219,7 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected void insertShardConfig(ShardConfig shardConfig) {
-        new org.unicitylabs.proxy.repository.ShardConfigRepository().saveConfig(shardConfig, "test");
+        new org.unicitylabs.proxy.repository.ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig()).saveConfig(shardConfig, "test");
     }
 
     @AfterEach
@@ -256,6 +262,7 @@ public abstract class AbstractIntegrationTest {
                 // Add custom headers to all responses
                 response.getHeaders().put("X-Mock-Server", "true");
                 response.getHeaders().put("X-Shard-ID", shardId);
+                response.getHeaders().put("X-Received-Path", path);
 
                 // Check if we should return a configured error response
                 if (mockShouldReturnError) {
@@ -281,7 +288,7 @@ public abstract class AbstractIntegrationTest {
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/api/data" -> {
-                        byte[] requestBody = Content.Source.asByteBuffer(request).array();
+                        byte[] requestBody = getBodyBytes(request);
                         response.setStatus(CREATED_201);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
@@ -318,7 +325,7 @@ public abstract class AbstractIntegrationTest {
                         response.write(true, ByteBuffer.wrap("Internal Server Error".getBytes()), callback);
                     }
                     case "/api/update" -> {
-                        byte[] requestBody = Content.Source.asByteBuffer(request).array();
+                        byte[] requestBody = getBodyBytes(request);
                         response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
                         String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
@@ -349,6 +356,13 @@ public abstract class AbstractIntegrationTest {
         server.addConnector(connector);
 
         return server;
+    }
+
+    private byte @NotNull [] getBodyBytes(Request request) throws IOException {
+        ByteBuffer byteBuffer = Content.Source.asByteBuffer(request);
+        byte[] requestBody = new byte[byteBuffer.remaining()];
+        byteBuffer.get(requestBody);
+        return requestBody;
     }
 
     private boolean isServerReady(int port) {

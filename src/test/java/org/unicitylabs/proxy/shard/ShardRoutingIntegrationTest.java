@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.unicitylabs.proxy.AbstractIntegrationTest;
 import org.unicitylabs.proxy.ProxyConfig;
+import org.unicitylabs.proxy.TestDatabaseSetup;
 
 import java.io.IOException;
 import java.net.URI;
@@ -111,7 +112,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
         insertShardConfig(shardConfig);
 
         // Load config from database
-        var shardConfigRepository = new org.unicitylabs.proxy.repository.ShardConfigRepository();
+        var shardConfigRepository = new org.unicitylabs.proxy.repository.ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig());
         var configRecord = shardConfigRepository.getLatestConfig();
         ShardConfig config = configRecord.config();
 
@@ -135,7 +136,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
 
         // Validation should throw
         assertThrows(IllegalArgumentException.class, () ->
-            ShardConfigValidator.validate(router, incompleteConfig)
+            ShardConfigValidator.validate(router, incompleteConfig, false)
         );
     }
 
@@ -323,5 +324,38 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
 
         String shardId = getShardIdFromResponse(response);
         assertTrue(asList("4", "5", "6", "7").contains(shardId));
+    }
+
+    @Test
+    @DisplayName("Test shard URL with trailing slash and subpath joins correctly without double slashes")
+    void testShardUrlWithTrailingSlashAndSubpath() throws Exception {
+        Server mockServerWithSubpath = createMockServer("1");
+        mockServerWithSubpath.start();
+
+        try {
+            int mockPort = ((ServerConnector) mockServerWithSubpath.getConnectors()[0]).getLocalPort();
+
+            insertShardConfig(new ShardConfig(1, List.of(
+                new ShardInfo(1, "http://localhost:" + mockPort + "/api/v1/")
+            )));
+
+            setUpNewProxyServer();
+
+            HttpResponse<String> response = postJson("""
+                {
+                    "jsonrpc": "2.0",
+                    "method": "get_inclusion_proof",
+                    "params": {
+                        "shardId": 1
+                    },
+                    "id": 1
+                }
+                """);
+
+            assertEquals(200, response.statusCode());
+            assertEquals("/api/v1/", response.headers().firstValue("X-Received-Path").orElse(null), "Path should be correctly joined without double slashes");
+        } finally {
+            mockServerWithSubpath.stop();
+        }
     }
 }
