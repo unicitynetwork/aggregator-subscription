@@ -27,7 +27,7 @@ build/
 # --- Docker Files (not needed inside image) ---
 Dockerfile
 .dockerignore
-docker-compose.yml
+docker-compose-ha.yml
 .env
 .env.*
 
