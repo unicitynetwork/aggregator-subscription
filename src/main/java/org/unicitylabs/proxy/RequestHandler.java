@@ -330,10 +330,12 @@ public class RequestHandler extends Handler.Abstract {
     private void forwardResponse(Response response, Callback callback, HttpResponse<byte[]> httpResponse) {
         try {
             response.setStatus(httpResponse.statusCode());
-            
+
             httpResponse.headers().map().forEach((name, values) -> {
+                // Skip hop-by-hop headers and CORS headers (proxy adds its own CORS headers)
                 if (!name.equalsIgnoreCase(CONNECTION.asString()) &&
-                    !name.equalsIgnoreCase(TRANSFER_ENCODING.asString())) {
+                    !name.equalsIgnoreCase(TRANSFER_ENCODING.asString()) &&
+                    !isCorsHeader(name)) {
                     for (String value : values) {
                         response.getHeaders().add(name, value);
                     }
@@ -350,11 +352,20 @@ public class RequestHandler extends Handler.Abstract {
             if (logger.isDebugEnabled()) {
                 logger.debug("Response forwarded: {} {}", httpResponse.statusCode(), httpResponse.uri());
             }
-            
+
         } catch (Exception e) {
             logger.error("Error forwarding response", e);
             handleError(response, callback, e);
         }
+    }
+
+    private boolean isCorsHeader(String name) {
+        return name.equalsIgnoreCase(CORS_ALLOW_ORIGIN) ||
+               name.equalsIgnoreCase(CORS_ALLOW_METHODS) ||
+               name.equalsIgnoreCase(CORS_ALLOW_HEADERS) ||
+               name.equalsIgnoreCase(CORS_MAX_AGE) ||
+               name.equalsIgnoreCase(CORS_EXPOSE_HEADERS) ||
+               name.equalsIgnoreCase("Access-Control-Allow-Credentials");
     }
     
     private void handleError(Response response, Callback callback, Throwable throwable) {
