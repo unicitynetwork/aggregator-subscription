@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: aggregator-postgres
+    environment:
+      POSTGRES_DB: aggregator
+      POSTGRES_USER: aggregator
+      POSTGRES_PASSWORD: aggregator
+    #    ports:
+    #      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggregator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aggregator-network
+
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+    container_name: aggregator-proxy
+    environment:
+      # Proxy configuration - container always listens on 8080 internally
+      PROXY_ARGS: "--port 8080"
+      # Admin dashboard configuration
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # Server secret for API operations (must be hex string with even length)
+      SERVER_SECRET: ${SERVER_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      # Logging configuration (used by logback.xml)
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Database configuration
+      DB_URL: jdbc:postgresql://postgres:5432/aggregator
+      DB_USER: aggregator
+      DB_PASSWORD: aggregator
+    ports:
+      # Map host port (configurable) to container port 8080 (fixed)
+      - "${PROXY_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aggregator-network
+      - aggregator-go_default
+    extra_hosts:
+      # Allow proxy to connect to host machine (for local aggregator)
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+networks:
+  aggregator-network:
+    driver: bridge
+  aggregator-go_default:
+    external: true
