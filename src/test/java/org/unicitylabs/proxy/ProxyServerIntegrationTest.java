@@ -353,4 +353,55 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.body()).isEqualTo("OK");
     }
+
+    @Test
+    @DisplayName("Should handle CORS preflight OPTIONS request")
+    void testCorsPreflightRequest() throws Exception {
+        assumeTrue(authMode == UNAUTHORIZED, "CORS preflight testing is not auth-dependent");
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl() + "/api/data"))
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+            .header("Origin", "https://example.com")
+            .header("Access-Control-Request-Method", "POST")
+            .header("Access-Control-Request-Headers", "Content-Type, Authorization")
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(NO_CONTENT_204);
+        assertThat(response.headers().firstValue("Access-Control-Allow-Origin"))
+            .isPresent()
+            .hasValue("https://example.com");
+        assertThat(response.headers().firstValue("Access-Control-Allow-Methods"))
+            .isPresent()
+            .hasValueSatisfying(value -> assertThat(value).contains("POST"));
+        assertThat(response.headers().firstValue("Access-Control-Allow-Headers"))
+            .isPresent()
+            .hasValueSatisfying(value -> {
+                assertThat(value).contains("Content-Type");
+                assertThat(value).contains("Authorization");
+            });
+        assertThat(response.headers().firstValue("Access-Control-Max-Age"))
+            .isPresent();
+    }
+
+    @Test
+    @DisplayName("Should include CORS headers in regular responses")
+    void testCorsHeadersInRegularResponse() throws Exception {
+        assumeTrue(authMode == UNAUTHORIZED, "CORS header testing is not auth-dependent");
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl() + "/test"))
+            .header("Origin", "https://unicitynetwork.github.io")
+            .GET()
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(OK_200);
+        assertThat(response.headers().firstValue("Access-Control-Allow-Origin"))
+            .isPresent()
+            .hasValue("https://unicitynetwork.github.io");
+    }
 }

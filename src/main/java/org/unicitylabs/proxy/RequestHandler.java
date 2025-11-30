@@ -67,6 +67,13 @@ public class RequestHandler extends Handler.Abstract {
 
     private static final Logger logger = LoggerFactory.getLogger(RequestHandler.class);
 
+    // CORS headers
+    private static final String CORS_ALLOW_ORIGIN = "Access-Control-Allow-Origin";
+    private static final String CORS_ALLOW_METHODS = "Access-Control-Allow-Methods";
+    private static final String CORS_ALLOW_HEADERS = "Access-Control-Allow-Headers";
+    private static final String CORS_MAX_AGE = "Access-Control-Max-Age";
+    private static final String CORS_EXPOSE_HEADERS = "Access-Control-Expose-Headers";
+
     private static final Pattern BEARER_RX = Pattern.compile(
             "^\\s*[Bb]earer[ \\t]+([A-Za-z0-9\\-._~+/]+=*)\\s*$");
     private static final String BEARER_AUTHORIZATION = "Bearer";
@@ -122,6 +129,16 @@ public class RequestHandler extends Handler.Abstract {
         // Log incoming request
         if (logger.isDebugEnabled()) {
             logger.debug("Incoming request: {} {} from {}", method, path, request.getConnectionMetaData().getRemoteSocketAddress());
+        }
+
+        // Add CORS headers to all responses
+        addCorsHeaders(request, response);
+
+        // Handle CORS preflight OPTIONS requests
+        if ("OPTIONS".equals(method)) {
+            response.setStatus(HttpStatus.NO_CONTENT_204);
+            callback.succeeded();
+            return true;
         }
 
         // Handle web UI routes
@@ -356,6 +373,28 @@ public class RequestHandler extends Handler.Abstract {
     private boolean hasBody(String method) {
         return POST.asString().equals(method) || PUT.asString().equals(method) ||
                PATCH.asString().equals(method) || DELETE.asString().equals(method);
+    }
+
+    private void addCorsHeaders(Request request, Response response) {
+        // Get the Origin header from the request
+        var originField = request.getHeaders().getField("Origin");
+        String origin = originField != null ? originField.getValue() : "*";
+
+        // Allow the requesting origin (or * if no Origin header)
+        response.getHeaders().put(CORS_ALLOW_ORIGIN, origin);
+
+        // Allow common HTTP methods
+        response.getHeaders().put(CORS_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS");
+
+        // Allow common headers including auth headers
+        response.getHeaders().put(CORS_ALLOW_HEADERS,
+            "Content-Type, Authorization, X-API-Key, X-Requested-With, Accept, Origin");
+
+        // Expose rate limit headers to JavaScript
+        response.getHeaders().put(CORS_EXPOSE_HEADERS, HEADER_X_RATE_LIMIT_REMAINING);
+
+        // Cache preflight response for 1 hour (3600 seconds)
+        response.getHeaders().put(CORS_MAX_AGE, "3600");
     }
     
     private boolean isRestrictedHeader(String name) {
