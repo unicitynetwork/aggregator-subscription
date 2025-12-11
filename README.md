@@ -349,6 +349,10 @@ EOF
 % export SHARD_CONFIG_URI="file:///etc/aggregator/config/shardConfiguration.json" && docker compose up -d
 ```
 
+### Retrieving the current shard configuration
+
+The current shard configuration can be retrieved via a public endpoint at `/config/shards`. This endpoint requires no authentication and returns the configuration as JSON. For example, on a local development machine: http://localhost:8080/config/shards.
+
 ## Configuration settings
 
 The command line parameter `--help` prints out various configuration options.
