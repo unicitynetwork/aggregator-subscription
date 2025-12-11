@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.repository.ShardConfigRepository;
+import org.unicitylabs.proxy.util.CorsUtils;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -30,9 +31,20 @@ public class ConfigHandler extends Handler.Abstract {
     @Override
     public boolean handle(Request request, Response response, Callback callback) {
         String path = request.getHttpURI().getPath();
+        String method = request.getMethod();
 
         if (!path.startsWith("/config/")) {
             return false;
+        }
+
+        // Add CORS headers to all responses
+        CorsUtils.addCorsHeaders(request, response);
+
+        // Handle CORS preflight OPTIONS requests
+        if ("OPTIONS".equals(method)) {
+            response.setStatus(HttpStatus.NO_CONTENT_204);
+            callback.succeeded();
+            return true;
         }
 
         if ("/config/shards".equals(path)) {
