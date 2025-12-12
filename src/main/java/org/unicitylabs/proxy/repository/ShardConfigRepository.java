@@ -87,4 +87,14 @@ public class ShardConfigRepository {
             throw new RuntimeException("Error serializing shard configuration to JSON", e);
         }
     }
+
+    public void deleteAllConfigs() {
+        try (Connection conn = databaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement("DELETE FROM shard_config")) {
+            stmt.executeUpdate();
+            logger.info("Deleted all shard configurations");
+        } catch (SQLException e) {
+            throw new RuntimeException("Error deleting shard configurations", e);
+        }
+    }
 }

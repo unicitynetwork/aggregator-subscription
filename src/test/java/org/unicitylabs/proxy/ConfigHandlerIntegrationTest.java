@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
+import org.unicitylabs.proxy.repository.ShardConfigRepository;
 import org.unicitylabs.proxy.shard.ShardConfig;
 import org.unicitylabs.proxy.shard.ShardInfo;
 
@@ -15,6 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.jetty.http.HttpStatus.METHOD_NOT_ALLOWED_405;
 import static org.eclipse.jetty.http.HttpStatus.OK_200;
+import static org.eclipse.jetty.http.HttpStatus.SERVICE_UNAVAILABLE_503;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class ConfigHandlerIntegrationTest extends AbstractIntegrationTest {
@@ -80,5 +82,16 @@ public class ConfigHandlerIntegrationTest extends AbstractIntegrationTest {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         assertThat(response.statusCode()).isEqualTo(METHOD_NOT_ALLOWED_405);
+    }
+
+    @Test
+    @DisplayName("GET /config/shards returns 503 when no configuration exists")
+    void testReturns503WhenNoConfigExists() throws Exception {
+        new ShardConfigRepository(TestDatabaseSetup.getDatabaseConfig()).deleteAllConfigs();
+
+        HttpResponse<String> response = performGetRequest("/config/shards");
+
+        assertThat(response.statusCode()).isEqualTo(SERVICE_UNAVAILABLE_503);
+        assertThat(response.body()).contains("error");
     }
 }
