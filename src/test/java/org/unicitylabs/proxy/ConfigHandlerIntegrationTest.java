@@ -7,10 +7,13 @@ import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.shard.ShardConfig;
 import org.unicitylabs.proxy.shard.ShardInfo;
 
+import java.net.URI;
+import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.eclipse.jetty.http.HttpStatus.METHOD_NOT_ALLOWED_405;
 import static org.eclipse.jetty.http.HttpStatus.OK_200;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -64,5 +67,18 @@ public class ConfigHandlerIntegrationTest extends AbstractIntegrationTest {
         HttpResponse<String> response = corsTestSupport.assertCorsHeadersInGetResponse("/config/shards", "https://unicitynetwork.github.io");
 
         assertThat(response.statusCode()).isEqualTo(OK_200);
+    }
+
+    @Test
+    @DisplayName("POST /config/shards returns 405 Method Not Allowed")
+    void testPostMethodNotAllowed() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl() + "/config/shards"))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(METHOD_NOT_ALLOWED_405);
     }
 }

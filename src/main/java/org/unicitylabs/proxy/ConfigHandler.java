@@ -48,6 +48,11 @@ public class ConfigHandler extends Handler.Abstract {
         }
 
         if ("/config/shards".equals(path)) {
+            if (!"GET".equals(method)) {
+                response.setStatus(HttpStatus.METHOD_NOT_ALLOWED_405);
+                callback.succeeded();
+                return true;
+            }
             handleShardConfig(response, callback);
             return true;
         }
