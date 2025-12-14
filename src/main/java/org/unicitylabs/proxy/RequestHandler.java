@@ -129,7 +129,7 @@ public class RequestHandler extends Handler.Abstract {
         CorsUtils.addCorsHeaders(request, response, HEADER_X_RATE_LIMIT_REMAINING);
 
         // Handle CORS preflight OPTIONS requests
-        if ("OPTIONS".equals(method)) {
+        if (OPTIONS.asString().equals(method)) {
             response.setStatus(HttpStatus.NO_CONTENT_204);
             callback.succeeded();
             return true;
@@ -171,7 +171,7 @@ public class RequestHandler extends Handler.Abstract {
 
     private JsonNode attemptParsingRequestBodyAsJson(String method, byte[] requestBody) {
         JsonNode root = null;
-        if ("POST".equals(method) && requestBody != null) {
+        if (POST.asString().equals(method) && requestBody != null) {
             try {
                root = objectMapper.readTree(requestBody);
             } catch (IOException e) {
@@ -227,7 +227,7 @@ public class RequestHandler extends Handler.Abstract {
 
     private boolean requiresAuthentication(String method, JsonNode root) {
         boolean requiresAuth = false;
-        if ("POST".equals(method) && root != null) {
+        if (POST.asString().equals(method) && root != null) {
             String jsonRpcMethod = extractJsonRpcMethodFromBody(root);
             if (jsonRpcMethod != null && protectedMethods.contains(jsonRpcMethod)) {
                 requiresAuth = true;

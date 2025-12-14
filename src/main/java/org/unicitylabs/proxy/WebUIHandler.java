@@ -12,6 +12,8 @@ import org.eclipse.jetty.http.HttpHeader;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
+import static org.eclipse.jetty.http.HttpMethod.POST;
+
 public class WebUIHandler extends Handler.Abstract {
 
     private final ApiKeyRepository repository;
@@ -27,7 +29,7 @@ public class WebUIHandler extends Handler.Abstract {
         if ("/".equals(path) || "/index.html".equals(path)) {
             handleHomePage(response, callback, null);
             return true;
-        } else if ("/generate".equals(path) && "POST".equals(request.getMethod())) {
+        } else if ("/generate".equals(path) && POST.asString().equals(request.getMethod())) {
             handleGenerateKey(response, callback);
             return true;
         }

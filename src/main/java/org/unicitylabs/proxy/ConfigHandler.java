@@ -18,6 +18,9 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
+import static org.eclipse.jetty.http.HttpMethod.GET;
+import static org.eclipse.jetty.http.HttpMethod.OPTIONS;
+
 public class ConfigHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(ConfigHandler.class);
     private static final ObjectMapper mapper = ObjectMapperUtils.createObjectMapper();
@@ -41,14 +44,14 @@ public class ConfigHandler extends Handler.Abstract {
         CorsUtils.addCorsHeaders(request, response);
 
         // Handle CORS preflight OPTIONS requests
-        if ("OPTIONS".equals(method)) {
+        if (OPTIONS.asString().equals(method)) {
             response.setStatus(HttpStatus.NO_CONTENT_204);
             callback.succeeded();
             return true;
         }
 
         if ("/config/shards".equals(path)) {
-            if (!"GET".equals(method)) {
+            if (!GET.asString().equals(method)) {
                 response.setStatus(HttpStatus.METHOD_NOT_ALLOWED_405);
                 callback.succeeded();
                 return true;
