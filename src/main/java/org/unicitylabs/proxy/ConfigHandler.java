@@ -52,6 +52,7 @@ public class ConfigHandler extends Handler.Abstract {
 
         if ("/config/shards".equals(path)) {
             if (!GET.asString().equals(method)) {
+                response.getHeaders().put(HttpHeader.ALLOW, "GET, OPTIONS");
                 response.setStatus(HttpStatus.METHOD_NOT_ALLOWED_405);
                 callback.succeeded();
                 return true;
