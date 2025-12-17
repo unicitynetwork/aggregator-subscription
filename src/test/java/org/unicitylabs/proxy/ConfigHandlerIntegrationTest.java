@@ -40,13 +40,7 @@ public class ConfigHandlerIntegrationTest extends AbstractIntegrationTest {
             """
             {
               "version" : 1,
-              "shards" : [ {
-                "id" : 2,
-                "url" : "http://shard2.example.com:8080"
-              }, {
-                "id" : 3,
-                "url" : "http://shard3.example.com:9090"
-              } ]
+              "shardIds" : [ 2, 3 ]
             }""",
             objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(objectMapper.readTree(response.body())));
     }

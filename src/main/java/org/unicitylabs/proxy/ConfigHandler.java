@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.repository.ShardConfigRepository;
+import org.unicitylabs.proxy.shard.ShardIdsResponse;
 import org.unicitylabs.proxy.util.CorsUtils;
 
 import java.nio.ByteBuffer;
@@ -67,7 +68,8 @@ public class ConfigHandler extends Handler.Abstract {
     private void handleShardConfig(Response response, Callback callback) {
         try {
             ShardConfigRepository.ShardConfigRecord configRecord = shardConfigRepository.getLatestConfig();
-            String json = mapper.writeValueAsString(configRecord.config());
+            ShardIdsResponse shardIdsResponse = ShardIdsResponse.fromShardConfig(configRecord.config());
+            String json = mapper.writeValueAsString(shardIdsResponse);
             sendJsonResponse(response, callback, json, HttpStatus.OK_200);
         } catch (Exception e) {
             logger.error("Failed to retrieve shard configuration", e);
