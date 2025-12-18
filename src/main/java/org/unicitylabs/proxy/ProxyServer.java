@@ -73,12 +73,19 @@ public class ProxyServer {
         // Create health check handler
         HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig);
 
-        // Create a combined handler that tries handlers in order: health, payment, admin, then proxy
+        // Create config handler for public config endpoints
+        ConfigHandler configHandler = new ConfigHandler(shardConfigRepository);
+
+        // Create a combined handler that tries handlers in order: health, config, payment, admin, then proxy
         Handler.Abstract combinedHandler = new Handler.Abstract() {
             @Override
             public boolean handle(Request request, Response response, Callback callback) throws Exception {
                 // Try health check first (for /health endpoint)
                 if (healthCheckHandler.handle(request, response, callback)) {
+                    return true;
+                }
+                // Try config handler (for /config/* endpoints)
+                if (configHandler.handle(request, response, callback)) {
                     return true;
                 }
                 // Try payment handler (for /api/payment/* endpoints)

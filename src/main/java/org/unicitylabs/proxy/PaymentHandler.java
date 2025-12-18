@@ -23,6 +23,9 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
+import static org.eclipse.jetty.http.HttpMethod.GET;
+import static org.eclipse.jetty.http.HttpMethod.POST;
+
 public class PaymentHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(PaymentHandler.class);
 
@@ -63,16 +66,16 @@ public class PaymentHandler extends Handler.Abstract {
         }
 
         try {
-            if ("GET".equals(method) && "/api/payment/plans".equals(path)) {
+            if (GET.asString().equals(method) && "/api/payment/plans".equals(path)) {
                 handleGetPaymentPlans(response, callback);
                 return true;
-            } else if ("POST".equals(method) && "/api/payment/initiate".equals(path)) {
+            } else if (POST.asString().equals(method) && "/api/payment/initiate".equals(path)) {
                 handleInitiatePayment(request, response, callback);
                 return true;
-            } else if ("POST".equals(method) && "/api/payment/complete".equals(path)) {
+            } else if (POST.asString().equals(method) && "/api/payment/complete".equals(path)) {
                 handleCompletePayment(request, response, callback);
                 return true;
-            } else if ("GET".equals(method) && path.startsWith("/api/payment/key/")) {
+            } else if (GET.asString().equals(method) && path.startsWith("/api/payment/key/")) {
                 handleGetApiKeyDetails(request, response, callback);
                 return true;
             } else {

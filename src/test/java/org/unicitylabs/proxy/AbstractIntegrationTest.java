@@ -414,6 +414,16 @@ public abstract class AbstractIntegrationTest {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    protected HttpResponse<String> performGetRequest(String path) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getProxyUrl() + path))
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     protected RateLimiterManager getRateLimiterManager() {
         return proxyServer.getRateLimiterManager();
     }

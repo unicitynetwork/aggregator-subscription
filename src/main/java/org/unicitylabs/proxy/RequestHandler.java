@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 import java.io.IOException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.unicitylabs.proxy.util.CorsUtils;
 
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.eclipse.jetty.http.HttpHeader.*;
@@ -66,13 +67,6 @@ public class RequestHandler extends Handler.Abstract {
     private static final String COOKIE_REQUEST_ID = "UNICITY_REQUEST_ID";
 
     private static final Logger logger = LoggerFactory.getLogger(RequestHandler.class);
-
-    // CORS headers
-    private static final String CORS_ALLOW_ORIGIN = "Access-Control-Allow-Origin";
-    private static final String CORS_ALLOW_METHODS = "Access-Control-Allow-Methods";
-    private static final String CORS_ALLOW_HEADERS = "Access-Control-Allow-Headers";
-    private static final String CORS_MAX_AGE = "Access-Control-Max-Age";
-    private static final String CORS_EXPOSE_HEADERS = "Access-Control-Expose-Headers";
 
     private static final Pattern BEARER_RX = Pattern.compile(
             "^\\s*[Bb]earer[ \\t]+([A-Za-z0-9\\-._~+/]+=*)\\s*$");
@@ -132,10 +126,10 @@ public class RequestHandler extends Handler.Abstract {
         }
 
         // Add CORS headers to all responses
-        addCorsHeaders(request, response);
+        CorsUtils.addCorsHeaders(request, response, HEADER_X_RATE_LIMIT_REMAINING);
 
         // Handle CORS preflight OPTIONS requests
-        if ("OPTIONS".equals(method)) {
+        if (OPTIONS.asString().equals(method)) {
             response.setStatus(HttpStatus.NO_CONTENT_204);
             callback.succeeded();
             return true;
@@ -177,7 +171,7 @@ public class RequestHandler extends Handler.Abstract {
 
     private JsonNode attemptParsingRequestBodyAsJson(String method, byte[] requestBody) {
         JsonNode root = null;
-        if ("POST".equals(method) && requestBody != null) {
+        if (POST.asString().equals(method) && requestBody != null) {
             try {
                root = objectMapper.readTree(requestBody);
             } catch (IOException e) {
@@ -233,7 +227,7 @@ public class RequestHandler extends Handler.Abstract {
 
     private boolean requiresAuthentication(String method, JsonNode root) {
         boolean requiresAuth = false;
-        if ("POST".equals(method) && root != null) {
+        if (POST.asString().equals(method) && root != null) {
             String jsonRpcMethod = extractJsonRpcMethodFromBody(root);
             if (jsonRpcMethod != null && protectedMethods.contains(jsonRpcMethod)) {
                 requiresAuth = true;
@@ -335,7 +329,7 @@ public class RequestHandler extends Handler.Abstract {
                 // Skip hop-by-hop headers and CORS headers (proxy adds its own CORS headers)
                 if (!name.equalsIgnoreCase(CONNECTION.asString()) &&
                     !name.equalsIgnoreCase(TRANSFER_ENCODING.asString()) &&
-                    !isCorsHeader(name)) {
+                    !CorsUtils.isCorsHeader(name)) {
                     for (String value : values) {
                         response.getHeaders().add(name, value);
                     }
@@ -359,15 +353,6 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private boolean isCorsHeader(String name) {
-        return name.equalsIgnoreCase(CORS_ALLOW_ORIGIN) ||
-               name.equalsIgnoreCase(CORS_ALLOW_METHODS) ||
-               name.equalsIgnoreCase(CORS_ALLOW_HEADERS) ||
-               name.equalsIgnoreCase(CORS_MAX_AGE) ||
-               name.equalsIgnoreCase(CORS_EXPOSE_HEADERS) ||
-               name.equalsIgnoreCase("Access-Control-Allow-Credentials");
-    }
-    
     private void handleError(Response response, Callback callback, Throwable throwable) {
         logger.error("Error processing request", throwable);
         
@@ -386,28 +371,6 @@ public class RequestHandler extends Handler.Abstract {
                PATCH.asString().equals(method) || DELETE.asString().equals(method);
     }
 
-    private void addCorsHeaders(Request request, Response response) {
-        // Get the Origin header from the request
-        var originField = request.getHeaders().getField("Origin");
-        String origin = originField != null ? originField.getValue() : "*";
-
-        // Allow the requesting origin (or * if no Origin header)
-        response.getHeaders().put(CORS_ALLOW_ORIGIN, origin);
-
-        // Allow common HTTP methods
-        response.getHeaders().put(CORS_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS");
-
-        // Allow common headers including auth headers
-        response.getHeaders().put(CORS_ALLOW_HEADERS,
-            "Content-Type, Authorization, X-API-Key, X-Requested-With, Accept, Origin");
-
-        // Expose rate limit headers to JavaScript
-        response.getHeaders().put(CORS_EXPOSE_HEADERS, HEADER_X_RATE_LIMIT_REMAINING);
-
-        // Cache preflight response for 1 hour (3600 seconds)
-        response.getHeaders().put(CORS_MAX_AGE, "3600");
-    }
-    
     private boolean isRestrictedHeader(String name) {
         return name.equalsIgnoreCase(HOST.asString()) ||
                name.equalsIgnoreCase(CONNECTION.asString()) ||

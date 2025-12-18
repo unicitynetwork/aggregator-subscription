@@ -34,12 +34,13 @@ import java.io.InputStream;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static org.eclipse.jetty.http.HttpMethod.*;
 
 public class AdminHandler extends Handler.Abstract {
     public static final int PAYMENT_SESSIONS_PER_PAGE = 10;
@@ -97,7 +98,7 @@ public class AdminHandler extends Handler.Abstract {
         }
 
         // Handle login
-        if ("/admin/login".equals(path) && "POST".equals(method)) {
+        if ("/admin/login".equals(path) && POST.asString().equals(method)) {
             handleLogin(request, response, callback);
             return true;
         }
@@ -115,37 +116,37 @@ public class AdminHandler extends Handler.Abstract {
 
             // Route to appropriate handler
             if ("/admin/api/keys".equals(path)) {
-                if ("GET".equals(method)) {
+                if (GET.asString().equals(method)) {
                     handleGetApiKeys(response, callback);
-                } else if ("POST".equals(method)) {
+                } else if (POST.asString().equals(method)) {
                     handleCreateApiKey(request, response, callback);
                 }
-            } else if (path.startsWith("/admin/api/keys/") && "PUT".equals(method)) {
+            } else if (path.startsWith("/admin/api/keys/") && PUT.asString().equals(method)) {
                 String keyId = path.substring("/admin/api/keys/".length());
                 handleUpdateApiKey(keyId, request, response, callback);
-            } else if ("/admin/api/plans".equals(path) && "GET".equals(method)) {
+            } else if ("/admin/api/plans".equals(path) && GET.asString().equals(method)) {
                 handleGetPricingPlans(response, callback);
-            } else if ("/admin/api/plans".equals(path) && "POST".equals(method)) {
+            } else if ("/admin/api/plans".equals(path) && POST.asString().equals(method)) {
                 handleCreatePricingPlan(request, response, callback);
-            } else if (path.startsWith("/admin/api/plans/") && "PUT".equals(method)) {
+            } else if (path.startsWith("/admin/api/plans/") && PUT.asString().equals(method)) {
                 String planId = path.substring("/admin/api/plans/".length());
                 handleUpdatePricingPlan(planId, request, response, callback);
-            } else if (path.startsWith("/admin/api/plans/") && "DELETE".equals(method)) {
+            } else if (path.startsWith("/admin/api/plans/") && DELETE.asString().equals(method)) {
                 String planId = path.substring("/admin/api/plans/".length());
                 handleDeletePricingPlan(planId, response, callback);
-            } else if ("/admin/api/stats".equals(path) && "GET".equals(method)) {
+            } else if ("/admin/api/stats".equals(path) && GET.asString().equals(method)) {
                 handleGetStats(response, callback);
-            } else if ("/admin/api/utilization".equals(path) && "GET".equals(method)) {
+            } else if ("/admin/api/utilization".equals(path) && GET.asString().equals(method)) {
                 handleGetUtilization(response, callback);
-            } else if ("/admin/api/shard-config".equals(path) && "GET".equals(method)) {
+            } else if ("/admin/api/shard-config".equals(path) && GET.asString().equals(method)) {
                 handleGetShardConfig(response, callback);
-            } else if ("/admin/api/shard-config".equals(path) && "POST".equals(method)) {
+            } else if ("/admin/api/shard-config".equals(path) && POST.asString().equals(method)) {
                 handleUploadShardConfig(request, response, callback);
-            } else if ("/admin/api/payment-sessions".equals(path) && "GET".equals(method)) {
+            } else if ("/admin/api/payment-sessions".equals(path) && GET.asString().equals(method)) {
                 handleGetPaymentSessions(request, response, callback);
-            } else if ("/admin/api/payment-sessions/search".equals(path) && "GET".equals(method)) {
+            } else if ("/admin/api/payment-sessions/search".equals(path) && GET.asString().equals(method)) {
                 handleSearchPaymentSessions(request, response, callback);
-            } else if ("/admin/api/stats/payments".equals(path) && "GET".equals(method)) {
+            } else if ("/admin/api/stats/payments".equals(path) && GET.asString().equals(method)) {
                 handleGetPaymentStats(response, callback);
             } else {
                 sendNotFound(response, callback);

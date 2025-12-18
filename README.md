@@ -349,6 +349,17 @@ EOF
 % export SHARD_CONFIG_URI="file:///etc/aggregator/config/shardConfiguration.json" && docker compose up -d
 ```
 
+### Retrieving the list of current shard IDs
+
+The active list of shard IDs can be retrieved via the public endpoint `/config/shards`. This endpoint requires no authentication and returns the response in a JSON file of the following format:
+
+```json
+{
+  "version": 1,
+  "shardIds": [2, 3]
+}
+```
+
 ## Configuration settings
 
 The command line parameter `--help` prints out various configuration options.
