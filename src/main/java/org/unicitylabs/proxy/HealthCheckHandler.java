@@ -156,12 +156,8 @@ public class HealthCheckHandler extends Handler.Abstract {
             .toList();
 
         for (CompletableFuture<Map.Entry<String, String>> future : futures) {
-            try {
-                Map.Entry<String, String> entry = future.join();
-                statuses.put(entry.getKey(), entry.getValue());
-            } catch (Exception e) {
-                logger.error("Error getting aggregator check result", e);
-            }
+            Map.Entry<String, String> entry = future.join();
+            statuses.put(entry.getKey(), entry.getValue());
         }
 
         return statuses;
