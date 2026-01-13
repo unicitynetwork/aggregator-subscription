@@ -22,13 +22,23 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
 public class HealthCheckHandler extends Handler.Abstract {
     private static final Logger logger = LoggerFactory.getLogger(HealthCheckHandler.class);
     private static final ObjectMapper mapper = ObjectMapperUtils.createObjectMapper();
-    private static final int AGGREGATOR_CHECK_TIMEOUT_SECONDS = 5;
+    static final int AGGREGATOR_CHECK_TIMEOUT_SECONDS = 5;
+
+    // Dedicated executor for I/O-bound health check operations to avoid blocking the common ForkJoinPool
+    private static final ExecutorService HEALTH_CHECK_EXECUTOR = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "health-check-worker");
+        t.setDaemon(true);
+        return t;
+    });
 
     private final DatabaseConfig databaseConfig;
     private final Supplier<ShardRouter> shardRouterSupplier;
@@ -55,6 +65,8 @@ public class HealthCheckHandler extends Handler.Abstract {
     }
 
     private static long defaultAggregatorCheck(String url) throws Exception {
+        // Note: JsonRpcAggregatorClient from the SDK does not implement AutoCloseable
+        // and does not hold persistent resources that require cleanup
         JsonRpcAggregatorClient client = new JsonRpcAggregatorClient(url);
         return client.getBlockHeight().get();
     }
@@ -127,18 +139,25 @@ public class HealthCheckHandler extends Handler.Abstract {
             return statuses;
         }
 
-        // Check all aggregators in parallel with timeout
+        // Check all aggregators in parallel with timeout using dedicated I/O executor.
+        // Note: This blocks the request thread for up to AGGREGATOR_CHECK_TIMEOUT_SECONDS
+        // when aggregators are slow or unreachable.
         List<CompletableFuture<Map.Entry<String, String>>> futures = targets.stream()
-            .map(url -> CompletableFuture.supplyAsync(() -> checkSingleAggregator(url))
+            .map(url -> CompletableFuture.supplyAsync(() -> checkSingleAggregator(url), HEALTH_CHECK_EXECUTOR)
                 .orTimeout(AGGREGATOR_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .exceptionally(e -> Map.entry(url, "timeout")))
+                .exceptionally(e -> {
+                    // Distinguish between timeout and other failures
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    if (cause instanceof TimeoutException) {
+                        return Map.entry(url, "timeout");
+                    }
+                    return Map.entry(url, "error: " + cause.getMessage());
+                }))
             .toList();
-
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
         for (CompletableFuture<Map.Entry<String, String>> future : futures) {
             try {
-                Map.Entry<String, String> entry = future.get();
+                Map.Entry<String, String> entry = future.join();
                 statuses.put(entry.getKey(), entry.getValue());
             } catch (Exception e) {
                 logger.error("Error getting aggregator check result", e);

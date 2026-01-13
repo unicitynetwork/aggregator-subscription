@@ -208,8 +208,8 @@ public class HealthCheckHandlerTest {
     }
 
     @Test
-    @DisplayName("Health check reports correct block heights from aggregators")
-    void testAggregatorBlockHeightsAreQueried() throws Exception {
+    @DisplayName("Health check succeeds when aggregator health checks complete successfully")
+    void testAggregatorHealthChecksSucceed() throws Exception {
         aggregator1BlockHeight.set(500);
         aggregator2BlockHeight.set(600);
         startHealthServer(createShardRouter());
@@ -217,11 +217,77 @@ public class HealthCheckHandlerTest {
         HttpResponse<String> response = sendHealthRequest();
 
         assertEquals(OK_200, response.statusCode());
-        // Both aggregators should be ok (meaning health check succeeded)
         JsonNode json = objectMapper.readTree(response.body());
         JsonNode aggregators = json.get("aggregators");
         assertEquals("ok", aggregators.get(AGGREGATOR_URL_1).asText());
         assertEquals("ok", aggregators.get(AGGREGATOR_URL_2).asText());
+    }
+
+    @Test
+    @DisplayName("Health check returns 503 with timeout status when aggregator check times out")
+    void testUnhealthyWhenAggregatorTimesOut() throws Exception {
+        // Create a checker that simulates a slow aggregator exceeding the timeout
+        HealthCheckHandler.AggregatorHealthChecker slowChecker = url -> {
+            if (AGGREGATOR_URL_1.equals(url)) {
+                // Sleep longer than the timeout
+                Thread.sleep((HealthCheckHandler.AGGREGATOR_CHECK_TIMEOUT_SECONDS + 2) * 1000L);
+                return 100;
+            }
+            return aggregator2BlockHeight.get();
+        };
+
+        startHealthServerWithCustomChecker(createShardRouter(), slowChecker);
+
+        HttpResponse<String> response = sendHealthRequest();
+
+        assertEquals(SERVICE_UNAVAILABLE_503, response.statusCode());
+
+        JsonNode json = objectMapper.readTree(response.body());
+        assertEquals("unhealthy", json.get("status").asText());
+
+        JsonNode aggregators = json.get("aggregators");
+        assertEquals("timeout", aggregators.get(AGGREGATOR_URL_1).asText());
+        assertEquals("ok", aggregators.get(AGGREGATOR_URL_2).asText());
+    }
+
+    @Test
+    @DisplayName("Health check returns 503 when router has empty targets list")
+    void testUnhealthyWhenRouterHasEmptyTargets() throws Exception {
+        // Create a mock router that returns an empty list of targets
+        ShardRouter emptyRouter = new ShardRouter() {
+            @Override
+            public String routeByRequestId(String requestIdHex) {
+                throw new IllegalStateException("No targets available");
+            }
+
+            @Override
+            public java.util.Optional<String> routeByShardId(int shardId) {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public String getRandomTarget() {
+                throw new IllegalStateException("No targets available");
+            }
+
+            @Override
+            public List<String> getAllTargets() {
+                return List.of();
+            }
+        };
+
+        startHealthServer(emptyRouter);
+
+        HttpResponse<String> response = sendHealthRequest();
+
+        assertEquals(SERVICE_UNAVAILABLE_503, response.statusCode());
+
+        JsonNode json = objectMapper.readTree(response.body());
+        assertEquals("unhealthy", json.get("status").asText());
+
+        JsonNode aggregators = json.get("aggregators");
+        assertTrue(aggregators.has("_error"));
+        assertEquals("no aggregator targets configured", aggregators.get("_error").asText());
     }
 
     @Test
@@ -270,13 +336,18 @@ public class HealthCheckHandlerTest {
     }
 
     private void startHealthServer(ShardRouter router) throws Exception {
+        startHealthServerWithCustomChecker(router, createMockAggregatorChecker());
+    }
+
+    private void startHealthServerWithCustomChecker(ShardRouter router,
+            HealthCheckHandler.AggregatorHealthChecker checker) throws Exception {
         DatabaseConfig mockDbConfig = new MockDatabaseConfig(databaseHealthy);
         Supplier<ShardRouter> routerSupplier = () -> router;
 
         HealthCheckHandler healthHandler = new HealthCheckHandler(
             mockDbConfig,
             routerSupplier,
-            createMockAggregatorChecker()
+            checker
         );
 
         healthServer = new Server(0);
