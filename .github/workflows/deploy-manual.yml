@@ -25,6 +25,7 @@ jobs:
             git checkout ${{ github.ref_name }}
             git pull origin ${{ github.ref_name }}
             echo "Updated commit: $(git rev-parse HEAD) ($(git rev-parse --short HEAD))"
+            docker compose build
             PROXY_PORT=3000 ADMIN_PASSWORD="$ADMIN_PASSWORD" docker compose up -d
             docker compose ps
         env:
