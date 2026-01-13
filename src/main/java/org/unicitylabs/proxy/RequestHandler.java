@@ -579,7 +579,7 @@ public class RequestHandler extends Handler.Abstract {
         return routeWithParams(params, isJsonRpc);
     }
 
-    ShardRouter getShardRouterForTesting() {
+    ShardRouter getShardRouter() {
         return shardRouter;
     }
 

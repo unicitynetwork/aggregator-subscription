@@ -148,7 +148,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
 
         ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
 
-        assertEquals("http://localhost:8001", server.getShardRouterForTesting().routeByShardId(1).get());
+        assertEquals("http://localhost:8001", server.getShardRouter().routeByShardId(1).get());
 
         server.stop();
     }
@@ -170,7 +170,7 @@ public class ShardConfigEnvironmentTest extends AbstractIntegrationTest {
 
         ProxyServer server = new ProxyServer(config, serverSecret, envProvider, TestDatabaseSetup.getDatabaseConfig(), false);
 
-        assertEquals("http://localhost:8123", server.getShardRouterForTesting().routeByShardId(1).get());
+        assertEquals("http://localhost:8123", server.getShardRouter().routeByShardId(1).get());
 
         server.stop();
     }

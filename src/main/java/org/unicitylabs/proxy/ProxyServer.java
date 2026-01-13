@@ -70,8 +70,8 @@ public class ProxyServer {
 
         this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter, databaseConfig);
 
-        // Create health check handler
-        HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig);
+        // Create health check handler with dynamic access to the current shard router via supplier
+        HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig, requestHandler::getShardRouter);
 
         // Create config handler for public config endpoints
         ConfigHandler configHandler = new ConfigHandler(shardConfigRepository);
@@ -288,7 +288,7 @@ public class ProxyServer {
         return paymentHandler;
     }
 
-    public ShardRouter getShardRouterForTesting() {
-        return this.requestHandler.getShardRouterForTesting();
+    public ShardRouter getShardRouter() {
+        return this.requestHandler.getShardRouter();
     }
 }

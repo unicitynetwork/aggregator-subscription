@@ -10,6 +10,7 @@ import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.unicitylabs.sdk.StateTransitionClient;
 import org.unicitylabs.sdk.address.AddressFactory;
 import org.unicitylabs.sdk.address.DirectAddress;
@@ -48,12 +49,18 @@ import static org.unicitylabs.proxy.service.PaymentService.canonicalRequestId;
 import static org.unicitylabs.proxy.util.TimeUtils.currentTimeMillis;
 import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.PATH_NOT_INCLUDED;
 
+/**
+ * Integration tests for payment functionality.
+ * Requires AGGREGATOR_URL environment variable pointing to a single (non-sharded) aggregator node.
+ */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@EnabledIfEnvironmentVariable(named = "AGGREGATOR_URL", matches = ".+")
 public class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     private static final String TEST_API_KEY = "test-payment-key";
     private static final SecureRandom random = new SecureRandom();
     private static ObjectMapper objectMapper;
+    private static String realAggregatorUrl;
 
     private StateTransitionClient directToAggregator;
     private AggregatorClient aggregatorClient;
@@ -72,18 +79,16 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private PaymentRepository paymentRepository;
 
     @BeforeAll
-    static void setupObjectMapper() {
+    static void setUpClass() {
+        realAggregatorUrl = System.getenv("AGGREGATOR_URL");
         objectMapper = ObjectMapperUtils.createObjectMapper();
     }
 
     @Override
     protected void setUpConfigForTests(ProxyConfig config) {
         super.setUpConfigForTests(config);
-
         config.setPort(443);
-
-        // Using a real aggregator here because our mock server is not capable of aggregating transactions
-        setUpSingleShardAggregatorUrl(getRealAggregatorUrl());
+        setUpSingleShardAggregatorUrl(realAggregatorUrl);
     }
 
     @BeforeEach
@@ -99,7 +104,6 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         apiKeyRepository.insert(TEST_API_KEY, PLAN_BASIC.id(), expiry);
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
-        String realAggregatorUrl = getRealAggregatorUrl();
         aggregatorClient = new JsonRpcAggregatorClient(realAggregatorUrl);
         directToAggregator = new StateTransitionClient(aggregatorClient);
     }
@@ -619,14 +623,6 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         byte[] result = new byte[count];
         random.nextBytes(result);
         return result;
-    }
-
-    private @NotNull String getRealAggregatorUrl() {
-        String aggregatorUrl = System.getenv("AGGREGATOR_URL");
-        if (aggregatorUrl == null || aggregatorUrl.isEmpty()) {
-            aggregatorUrl = "https://goggregator-test.unicity.network";
-        }
-        return aggregatorUrl;
     }
 
     private void assertApiKeyUnauthorizedForMinting(StateTransitionClient proxiedAggregator) {
