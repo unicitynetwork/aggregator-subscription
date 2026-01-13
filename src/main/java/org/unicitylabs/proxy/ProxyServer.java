@@ -70,8 +70,8 @@ public class ProxyServer {
 
         this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter, databaseConfig);
 
-        // Create health check handler
-        HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig);
+        // Create health check handler with access to current shard router
+        HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig, requestHandler::getShardRouterForTesting);
 
         // Create config handler for public config endpoints
         ConfigHandler configHandler = new ConfigHandler(shardConfigRepository);
