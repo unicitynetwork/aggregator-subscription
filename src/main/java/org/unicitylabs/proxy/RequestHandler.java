@@ -485,18 +485,18 @@ public class RequestHandler extends Handler.Abstract {
         String shardId = null;
 
         try {
+            if (root.path("params").has("stateId")) {
+                requestId = root.path("params").path("stateId").asText(null);
+            }
+
+            if (root.path("params").has("shardId")) {
+                shardId = root.path("params").path("shardId").asText(null);
+            }
+
             String method = extractJsonRpcMethodFromBody(root);
             if (CERTIFICATION_REQUEST.equals(method) && root.has("params")) {
                 List<byte[]> data = CborDeserializer.readArray(HexConverter.decode(root.get("params").asText()));
                 requestId = HexConverter.encode(CborDeserializer.readByteString(data.getFirst()));
-            }
-
-            if (INCLUSION_PROOF_REQUEST.equals(method)) {
-                requestId = root.path("params").path("stateId").asText(null);
-            }
-
-            if (BLOCK_HEIGHT_REQUEST.equals(method)) {
-                shardId = root.path("params").path("shardId").asText(null);
             }
         } catch (Exception e) {
             logger.debug("Could not extract routing params from request body", e);
