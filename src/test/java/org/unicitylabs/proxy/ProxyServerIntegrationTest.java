@@ -339,7 +339,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should not require authentication for malformed JSON targeting protected endpoint")
     void testMalformedJsonForProtectedEndpointDoesNotRequireAuth() throws Exception {
-        String malformedJson = "{\"jsonrpc\":\"2.0\",\"method\":\"submit_commitment\",\"params\":{\"requestId\":\"1234\"},"; // Missing closing brace
+        String malformedJson = "{\"jsonrpc\":\"2.0\",\"method\":\"submit_commitment\",\"params\":{\"stateId\":\"1234\"},"; // Missing closing brace
 
         HttpRequest request = getRequestBuilder("/", authMode)
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())

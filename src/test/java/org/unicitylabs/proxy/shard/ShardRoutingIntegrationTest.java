@@ -162,7 +162,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
                 "jsonrpc": "2.0",
                 "method": "get_inclusion_proof",
                 "params": {
-                    "requestId": "%s"
+                    "stateId": "%s"
                 },
                 "id": 1
             }
@@ -207,7 +207,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
                 "jsonrpc": "2.0",
                 "method": "get_inclusion_proof",
                 "params": {
-                    "requestId": "00000000000000000000000000000000000000000000000000000000000000F2"
+                    "stateId": "00000000000000000000000000000000000000000000000000000000000000F2"
                 },
                 "id": 1
             }
@@ -245,7 +245,7 @@ public class ShardRoutingIntegrationTest extends AbstractIntegrationTest {
                 "jsonrpc": "2.0",
                 "method": "some_method",
                 "params": {
-                    "requestId": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "stateId": "0000000000000000000000000000000000000000000000000000000000000000",
                     "shardId": "4"
                 },
                 "id": 1
