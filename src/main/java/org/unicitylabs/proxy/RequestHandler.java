@@ -64,6 +64,7 @@ record RoutingParams(String requestId, String shardId) {
 public class RequestHandler extends Handler.Abstract {
     private static final String CERTIFICATION_REQUEST = "certification_request";
     private static final String INCLUSION_PROOF_REQUEST = "get_inclusion_proof.v2";
+    private static final String BLOCK_HEIGHT_REQUEST = "get_block_height";
 
     public static final int MAX_PAYLOAD_SIZE_BYTES = 10 * (int) ONE_MB;
     public static final int MAX_HEADER_COUNT = 200;
@@ -481,21 +482,27 @@ public class RequestHandler extends Handler.Abstract {
 
     private RoutingParams extractRoutingParams(JsonNode root) {
         String requestId = null;
+        String shardId = null;
 
         try {
-            if (root.get("method").asText().equals(CERTIFICATION_REQUEST) && root.has("params")) {
+            String method = extractJsonRpcMethodFromBody(root);
+            if (CERTIFICATION_REQUEST.equals(method) && root.has("params")) {
                 List<byte[]> data = CborDeserializer.readArray(HexConverter.decode(root.get("params").asText()));
                 requestId = HexConverter.encode(CborDeserializer.readByteString(data.getFirst()));
             }
 
-            if (root.get("method").asText().equals(INCLUSION_PROOF_REQUEST)) {
+            if (INCLUSION_PROOF_REQUEST.equals(method)) {
                 requestId = root.path("params").path("stateId").asText(null);
+            }
+
+            if (BLOCK_HEIGHT_REQUEST.equals(method)) {
+                shardId = root.path("params").path("shardId").asText(null);
             }
         } catch (Exception e) {
             logger.debug("Could not extract routing params from request body", e);
         }
 
-        return new RoutingParams(requestId, null);
+        return new RoutingParams(requestId, shardId);
     }
 
     private boolean isJsonRpcRequest(JsonNode root) {
