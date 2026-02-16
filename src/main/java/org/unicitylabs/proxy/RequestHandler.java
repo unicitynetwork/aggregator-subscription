@@ -63,8 +63,6 @@ record RoutingParams(String requestId, String shardId) {
 
 public class RequestHandler extends Handler.Abstract {
     private static final String CERTIFICATION_REQUEST = "certification_request";
-    private static final String INCLUSION_PROOF_REQUEST = "get_inclusion_proof.v2";
-    private static final String BLOCK_HEIGHT_REQUEST = "get_block_height";
 
     public static final int MAX_PAYLOAD_SIZE_BYTES = 10 * (int) ONE_MB;
     public static final int MAX_HEADER_COUNT = 200;
@@ -487,6 +485,8 @@ public class RequestHandler extends Handler.Abstract {
         try {
             if (root.path("params").has("stateId")) {
                 requestId = root.path("params").path("stateId").asText(null);
+            } else if (root.path("params").has("requestId")) {
+                requestId = root.path("params").path("requestId").asText(null);
             }
 
             if (root.path("params").has("shardId")) {
