@@ -35,6 +35,8 @@ import java.io.IOException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.unicitylabs.proxy.util.CorsUtils;
+import org.unicitylabs.sdk.serializer.cbor.CborDeserializer;
+import org.unicitylabs.sdk.util.HexConverter;
 
 import static org.apache.commons.io.FileUtils.ONE_MB;
 import static org.eclipse.jetty.http.HttpHeader.*;
@@ -60,6 +62,8 @@ record RoutingParams(String requestId, String shardId) {
 }
 
 public class RequestHandler extends Handler.Abstract {
+    private static final String CERTIFICATION_REQUEST = "certification_request";
+
     public static final int MAX_PAYLOAD_SIZE_BYTES = 10 * (int) ONE_MB;
     public static final int MAX_HEADER_COUNT = 200;
 
@@ -160,8 +164,7 @@ public class RequestHandler extends Handler.Abstract {
         }
 
         if (useVirtualThreads) {
-            JsonNode finalRoot = root;
-            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, finalRoot, response, callback));
+            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, root, response, callback));
         } else {
             handleRequestAsync(request, requestBody, root, response, callback);
         }
@@ -480,22 +483,20 @@ public class RequestHandler extends Handler.Abstract {
         String shardId = null;
 
         try {
-            if (root.has("params")) {
-                JsonNode params = root.get("params");
+            if (root.path("params").has("stateId")) {
+                requestId = root.path("params").path("stateId").asText(null);
+            } else if (root.path("params").has("requestId")) {
+                requestId = root.path("params").path("requestId").asText(null);
+            }
 
-                if (params.has("requestId")) {
-                    String value = params.get("requestId").asText();
-                    if (value != null && !value.isBlank()) {
-                        requestId = value;
-                    }
-                }
+            if (root.path("params").has("shardId")) {
+                shardId = root.path("params").path("shardId").asText(null);
+            }
 
-                if (params.has("shardId")) {
-                    String value = params.get("shardId").asText();
-                    if (value != null && !value.isBlank()) {
-                        shardId = value;
-                    }
-                }
+            String method = extractJsonRpcMethodFromBody(root);
+            if (CERTIFICATION_REQUEST.equals(method) && root.has("params")) {
+                List<byte[]> data = CborDeserializer.readArray(HexConverter.decode(root.get("params").asText()));
+                requestId = HexConverter.encode(CborDeserializer.readByteString(data.getFirst()));
             }
         } catch (Exception e) {
             logger.debug("Could not extract routing params from request body", e);
