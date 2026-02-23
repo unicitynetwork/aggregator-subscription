@@ -30,7 +30,7 @@ public class ProxyConfig {
     private String adminPassword = null;
 
     @Parameter(names = {"--protected-methods"}, description = "Comma-separated list of JSON-RPC methods requiring authentication and rate limiting")
-    private String protectedMethods = "submit_commitment";
+    private String protectedMethods = "submit_commitment,certification_request";
 
     @Parameter(names = {"--trust-base"}, description = "Path to trust base JSON file (defaults to built-in test-trust-base.json from the test network)")
     private String trustBasePath = null;
