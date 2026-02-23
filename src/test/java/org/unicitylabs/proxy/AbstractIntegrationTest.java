@@ -72,7 +72,7 @@ public abstract class AbstractIntegrationTest {
             "jsonrpc": "2.0",
             "method": "submit_commitment",
             "params": {
-                "stateId": "1234"
+                "requestId": "1234"
             },
             "id": 1
         }
@@ -83,7 +83,7 @@ public abstract class AbstractIntegrationTest {
             "jsonrpc": "2.0",
             "method": "get_inclusion_proof",
             "params": {
-                "stateId": "1234"
+                "requestId": "1234"
             },
             "id": 1
         }
@@ -94,7 +94,7 @@ public abstract class AbstractIntegrationTest {
             "jsonrpc": "2.0",
             "method": "submit_commitment",
             "params": {
-                "stateId": "1234",
+                "requestId": "1234",
                 "data": "PLACEHOLDER"
             },
             "id": 1
