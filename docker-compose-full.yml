@@ -236,8 +236,10 @@ services:
     volumes:
       - ./scripts/sharding/haproxy-shard1.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
-      - aggregator-shard1-1
-      - aggregator-shard1-2
+      aggregator-shard1-1:
+        condition: service_healthy
+      aggregator-shard1-2:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -262,8 +264,10 @@ services:
     volumes:
       - ./scripts/sharding/haproxy-shard2.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
-      - aggregator-shard2-1
-      - aggregator-shard2-2
+      aggregator-shard2-1:
+        condition: service_healthy
+      aggregator-shard2-2:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -295,9 +299,12 @@ services:
       - ./data/genesis:/app/bft-config
       - ./logs/shard1-1:/app/logs
     depends_on:
-      - mongo-setup-shard1
-      - bft-aggregator-genesis-gen
-      - redis
+      mongo-setup-shard1:
+        condition: service_completed_successfully
+      bft-aggregator-genesis-gen:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment: &environment-base
       MONGODB_URI: "mongodb://mongodb-shard1-1:27017,mongodb-shard1-2:27017,mongodb-shard1-3:27017/aggregator?replicaSet=rs1"
       PORT: "3000"
@@ -373,9 +380,12 @@ services:
       <<: *environment-base
       MONGODB_URI: "mongodb://mongodb-shard1-1:27017,mongodb-shard1-2:27017,mongodb-shard1-3:27017/aggregator?replicaSet=rs1"
     depends_on:
-      - mongo-setup-shard1
-      - bft-aggregator-genesis-gen
-      - redis
+      mongo-setup-shard1:
+        condition: service_completed_successfully
+      bft-aggregator-genesis-gen:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   # Aggregator Shard 2 Cluster
   aggregator-shard2-1:
@@ -391,9 +401,12 @@ services:
       SHARDING_MODE: "child"
       SHARDING_CHILD_SHARD_ID: 2 # 0b10
     depends_on:
-      - mongo-setup-shard2
-      - bft-aggregator-genesis-gen
-      - redis
+      mongo-setup-shard2:
+        condition: service_completed_successfully
+      bft-aggregator-genesis-gen:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
   aggregator-shard2-2:
     <<: *aggregator-base
     container_name: aggregator-shard2-2
@@ -407,9 +420,12 @@ services:
       SHARDING_MODE: "child"
       SHARDING_CHILD_SHARD_ID: 2 # 0b10
     depends_on:
-      - mongo-setup-shard2
-      - bft-aggregator-genesis-gen
-      - redis
+      mongo-setup-shard2:
+        condition: service_completed_successfully
+      bft-aggregator-genesis-gen:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   # Aggregator Root
   aggregator-root-1:
@@ -425,9 +441,12 @@ services:
       PARENT_COLLECT_PHASE_DURATION: "200ms"
       BFT_ENABLED: "true"
     depends_on:
-      - mongo-setup-root
-      - bft-aggregator-genesis-gen
-      - redis
+      mongo-setup-root:
+        condition: service_completed_successfully
+      bft-aggregator-genesis-gen:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   # ===========================================================================
   # Subscription Gateway (proxy + PostgreSQL)
