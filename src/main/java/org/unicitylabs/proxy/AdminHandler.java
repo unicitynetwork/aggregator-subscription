@@ -213,7 +213,11 @@ public class AdminHandler extends Handler.Abstract {
                 keyNode.put("apiKey", key.apiKey());
                 keyNode.put("description", key.description());
                 keyNode.put("status", key.status().getValue());
-                keyNode.put("pricingPlanId", key.pricingPlanId());
+                if (key.pricingPlanId() != null) {
+                    keyNode.put("pricingPlanId", key.pricingPlanId());
+                } else {
+                    keyNode.putNull("pricingPlanId");
+                }
                 keyNode.put("createdAt", key.createdAt().toString());
                 if (key.activeUntil() != null) {
                     keyNode.put("activeUntil", key.activeUntil().toString());
@@ -227,9 +231,11 @@ public class AdminHandler extends Handler.Abstract {
                 }
 
                 // Add plan name
-                var plan = pricingPlanRepository.findById(key.pricingPlanId());
-                if (plan != null) {
-                    keyNode.put("planName", plan.name());
+                if (key.pricingPlanId() != null) {
+                    var plan = pricingPlanRepository.findById(key.pricingPlanId());
+                    if (plan != null) {
+                        keyNode.put("planName", plan.name());
+                    }
                 }
 
                 keysArray.add(keyNode);
@@ -310,8 +316,9 @@ public class AdminHandler extends Handler.Abstract {
                 apiKeyRepository.updateActiveUntil(id, activeUntil);
             }
 
-            // Clear cache to force reload
-            apiKeyManager.removeCacheEntry(keyId);
+            // Clear cache using the actual API key string (not the numeric ID)
+            apiKeyRepository.findApiKeyStringById(id)
+                .ifPresent(apiKeyManager::removeCacheEntry);
 
             ObjectNode responseJson = mapper.createObjectNode();
             responseJson.put("message", "API key updated successfully");

@@ -396,6 +396,22 @@ public class ApiKeyRepository {
         }
     }
 
+    public Optional<String> findApiKeyStringById(Long id) {
+        String sql = "SELECT api_key FROM api_keys WHERE id = ?";
+        try (Connection conn = databaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setLong(1, id);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(rs.getString("api_key"));
+                }
+            }
+            return Optional.empty();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error finding API key by id: " + id, e);
+        }
+    }
+
     public Optional<ApiKeyDetail> findByKey(String apiKey) {
         String sql = """
             SELECT id, api_key, description, status, pricing_plan_id, created_at, active_until
