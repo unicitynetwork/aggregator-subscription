@@ -256,6 +256,10 @@ public abstract class AbstractIntegrationTest {
         server.setHandler(new Handler.Abstract() {
             @Override
             public boolean handle(Request request, Response response, Callback callback) throws Exception {
+                // Read the full request body upfront to prevent connection issues
+                // when handlers respond without consuming large payloads
+                byte[] cachedBody = getBodyBytes(request);
+
                 String path = Request.getPathInContext(request);
                 String method = request.getMethod();
 
@@ -288,10 +292,9 @@ public abstract class AbstractIntegrationTest {
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/api/data" -> {
-                        byte[] requestBody = getBodyBytes(request);
                         response.setStatus(CREATED_201);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
-                        String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
+                        String body = "{\"method\":\"" + method + "\",\"received\":" + cachedBody.length + "}";
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/headers" -> {
@@ -325,10 +328,9 @@ public abstract class AbstractIntegrationTest {
                         response.write(true, ByteBuffer.wrap("Internal Server Error".getBytes()), callback);
                     }
                     case "/api/update" -> {
-                        byte[] requestBody = getBodyBytes(request);
                         response.setStatus(OK_200);
                         response.getHeaders().put(HttpHeader.CONTENT_TYPE, "application/json");
-                        String body = "{\"method\":\"" + method + "\",\"received\":" + requestBody.length + "}";
+                        String body = "{\"method\":\"" + method + "\",\"received\":" + cachedBody.length + "}";
                         response.write(true, ByteBuffer.wrap(body.getBytes()), callback);
                     }
                     case "/api/delete/123" -> {
