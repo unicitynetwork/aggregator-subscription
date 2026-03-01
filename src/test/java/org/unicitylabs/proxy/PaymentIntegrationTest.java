@@ -53,6 +53,7 @@ import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.P
  * Integration tests for payment functionality.
  * Requires AGGREGATOR_URL environment variable pointing to a single (non-sharded) aggregator node.
  */
+@Tag("e2e")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @EnabledIfEnvironmentVariable(named = "AGGREGATOR_URL", matches = ".+")
 public class PaymentIntegrationTest extends AbstractIntegrationTest {

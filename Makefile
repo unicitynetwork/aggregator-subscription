@@ -9,7 +9,7 @@ DATA_DIRS := ./data/genesis/root ./data/genesis-root \
 
 LOG_DIRS := ./logs/shard1-1 ./logs/shard1-2 ./logs/shard2-1 ./logs/shard2-2 ./logs/root-1
 
-.PHONY: start stop restart clean-start clean logs status help
+.PHONY: start stop restart clean-start clean logs status help test-e2e test-e2e-remote
 
 ## Start all services (creates dirs if needed)
 start:
@@ -57,18 +57,28 @@ logs:
 status:
 	$(COMPOSE) ps
 
+## Run e2e tests (auto-starts local docker stack)
+test-e2e:
+	./gradlew e2eTest
+
+## Run e2e tests against a remote aggregator (no local stack)
+test-e2e-remote:
+	./gradlew e2eTest -PaggregatorUrl=$(AGGREGATOR_URL)
+
 ## Show this help
 help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Targets:"
-	@echo "  start        Start all services (creates data dirs if needed)"
-	@echo "  stop         Stop all services (preserves data)"
-	@echo "  restart      Restart all services (preserves data)"
-	@echo "  clean-start  Wipe mongo/redis data (keep BFT genesis) and start fresh"
-	@echo "  clean        Remove everything: containers, volumes, data, logs"
-	@echo "  logs         Tail logs (use SERVICE=proxy to filter)"
-	@echo "  status       Show service status"
+	@echo "  start            Start all services (creates data dirs if needed)"
+	@echo "  stop             Stop all services (preserves data)"
+	@echo "  restart          Restart all services (preserves data)"
+	@echo "  clean-start      Wipe mongo/redis data (keep BFT genesis) and start fresh"
+	@echo "  clean            Remove everything: containers, volumes, data, logs"
+	@echo "  logs             Tail logs (use SERVICE=proxy to filter)"
+	@echo "  status           Show service status"
+	@echo "  test-e2e         Run e2e tests (auto-starts local docker stack)"
+	@echo "  test-e2e-remote  Run e2e tests against remote (set AGGREGATOR_URL)"
 	@echo ""
 	@echo "Environment variables:"
 	@echo "  PROXY_PORT      Proxy port on host (default: 8080)"

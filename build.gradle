@@ -60,11 +60,76 @@ dependencies {
 // Virtual threads are stable in Java 21+, no preview needed
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'e2e'
+    }
     testLogging {
         events = ["passed", "skipped", "failed"]
         exceptionFormat = "full"
     }
+}
+
+// ---------------------------------------------------------------------------
+// E2E test task – runs tests tagged with @Tag("e2e")
+// ---------------------------------------------------------------------------
+
+def useLocalStack = !project.hasProperty('aggregatorUrl')
+def aggregatorUrl = project.hasProperty('aggregatorUrl') ? project.property('aggregatorUrl') : 'http://localhost:8080'
+
+tasks.register('startLocalStack', Exec) {
+    description = 'Start docker-compose-full.yml and wait for proxy health check'
+    def skip = !useLocalStack
+    onlyIf { !skip }
+
+    commandLine 'sh', '-c', '''
+        mkdir -p data/genesis/root data/genesis-root \
+            data/mongodb_shard1_data_1 data/mongodb_shard1_data_2 data/mongodb_shard1_data_3 \
+            data/mongodb_shard2_data_1 data/mongodb_shard2_data_2 data/mongodb_shard2_data_3 \
+            data/mongodb_root_data_1 data/mongodb_root_data_2 data/mongodb_root_data_3 \
+            data/redis_data \
+            logs/shard1-1 logs/shard1-2 logs/shard2-1 logs/shard2-2 logs/root-1 && \
+        chmod -R 777 data logs && \
+        USER_UID=$(id -u) USER_GID=$(id -g) docker compose -f docker-compose-full.yml up -d && \
+        echo "Waiting for proxy to become ready..." && \
+        for i in $(seq 1 120); do \
+            if curl -sf http://localhost:${PROXY_PORT:-8080}/health > /dev/null 2>&1; then \
+                echo "Proxy is ready."; exit 0; \
+            fi; \
+            sleep 2; \
+        done && \
+        echo "ERROR: Proxy did not become ready in time" && exit 1
+    '''
+}
+
+tasks.register('stopLocalStack', Exec) {
+    description = 'Tear down docker-compose-full.yml'
+    def skip = !useLocalStack
+    onlyIf { !skip }
+
+    commandLine 'sh', '-c', 'USER_UID=$(id -u) USER_GID=$(id -g) docker compose -f docker-compose-full.yml down'
+}
+
+tasks.register('e2eTest', Test) {
+    description = 'Run end-to-end tests (auto-starts local stack unless aggregatorUrl property is set)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'e2e'
+    }
+    testLogging {
+        events = ["passed", "skipped", "failed"]
+        exceptionFormat = "full"
+    }
+
+    environment 'AGGREGATOR_URL', aggregatorUrl
+
+    if (useLocalStack) {
+        dependsOn startLocalStack
+    }
+    finalizedBy stopLocalStack
 }
 
 tasks.named('run') {
