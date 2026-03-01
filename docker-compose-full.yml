@@ -454,7 +454,7 @@ services:
     platform: linux/amd64
     container_name: subscription-proxy
     environment:
-      PROXY_ARGS: "--port 8080"
+      PROXY_ARGS: "--port 8080 --trust-base /etc/aggregator/trust-base.json"
       SHARD_CONFIG_URI: "file:///etc/aggregator/shard-config.json"
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       SERVER_SECRET: ${SERVER_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
@@ -466,6 +466,7 @@ services:
       - "${PROXY_PORT:-8080}:8080"
     volumes:
       - ./scripts/sharding/shard-config.json:/etc/aggregator/shard-config.json:ro
+      - ./data/genesis/trust-base.json:/etc/aggregator/trust-base.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -473,6 +474,8 @@ services:
         condition: service_healthy
       haproxy-shard2:
         condition: service_healthy
+      bft-aggregator-genesis-gen:
+        condition: service_completed_successfully
     networks:
       - default
     restart: unless-stopped

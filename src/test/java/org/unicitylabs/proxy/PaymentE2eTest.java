@@ -30,6 +30,8 @@ import org.unicitylabs.sdk.util.HexConverter;
 import org.unicitylabs.sdk.util.InclusionProofUtils;
 import org.unicitylabs.sdk.bft.RootTrustBase;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.URI;
@@ -159,10 +161,7 @@ public class PaymentE2eTest {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
 
-        trustBase = UnicityObjectMapper.JSON.readValue(
-                getClass().getResourceAsStream("/test-trust-base.json"),
-                RootTrustBase.class
-        );
+        trustBase = loadTrustBase();
 
         aggregatorClient = new JsonRpcAggregatorClient(gatewayUrl, aggregatorApiKey);
         directToAggregator = new StateTransitionClient(aggregatorClient);
@@ -939,5 +938,42 @@ public class PaymentE2eTest {
         byte[] result = new byte[count];
         random.nextBytes(result);
         return result;
+    }
+
+    private static final String TESTNET_TRUST_BASE_URL =
+            "https://raw.githubusercontent.com/unicitynetwork/unicity-ids/refs/heads/main/bft-trustbase.testnet.json";
+
+    private RootTrustBase loadTrustBase() throws IOException {
+        // 1. Try loading from docker stack's generated trust base (local docker setup)
+        File generatedTrustBase = new File("data/genesis/trust-base.json");
+        if (generatedTrustBase.exists()) {
+            System.out.println("Loading trust base from docker stack: " + generatedTrustBase.getAbsolutePath());
+            return UnicityObjectMapper.JSON.readValue(new FileInputStream(generatedTrustBase), RootTrustBase.class);
+        }
+
+        // 2. For remote setups, fetch from the testnet trust base URL
+        System.out.println("Loading trust base from: " + TESTNET_TRUST_BASE_URL);
+        try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(TESTNET_TRUST_BASE_URL))
+                    .timeout(Duration.ofSeconds(10))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return UnicityObjectMapper.JSON.readValue(response.body(), RootTrustBase.class);
+            }
+            System.err.println("Failed to fetch trust base from URL (HTTP " + response.statusCode() + "), falling back to embedded");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.err.println("Interrupted while fetching trust base, falling back to embedded");
+        }
+
+        // 3. Fall back to embedded test trust base
+        System.out.println("Loading embedded test trust base");
+        return UnicityObjectMapper.JSON.readValue(
+                getClass().getResourceAsStream("/test-trust-base.json"),
+                RootTrustBase.class
+        );
     }
 }
