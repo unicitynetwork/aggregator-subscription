@@ -393,7 +393,7 @@ public class PaymentRepository {
                pp.name as plan_name
         FROM payment_sessions ps
         LEFT JOIN pricing_plans pp ON ps.target_plan_id = pp.id
-        WHERE ps.api_key = COALESCE(?::TEXT, ps.api_key)
+        WHERE (? IS NULL OR ps.api_key = ?::TEXT)
           AND CAST(ps.id AS TEXT) LIKE COALESCE(?::TEXT, '%')
           AND ps.created_at >= COALESCE(?::TIMESTAMP, '1970-01-01'::TIMESTAMP)
         ORDER BY ps.created_at ASC, ps.id ASC
@@ -458,9 +458,10 @@ public class PaymentRepository {
              PreparedStatement stmt = conn.prepareStatement(SEARCH_SESSIONS_SQL)) {
 
             stmt.setString(1, apiKey);
-            stmt.setString(2, sessionId);
-            stmt.setTimestamp(3, createdAfter == null ? null : Timestamp.from(createdAfter));
-            stmt.setInt(4, limit);
+            stmt.setString(2, apiKey);
+            stmt.setString(3, sessionId);
+            stmt.setTimestamp(4, createdAfter == null ? null : Timestamp.from(createdAfter));
+            stmt.setInt(5, limit);
 
             java.util.List<PaymentSessionListItem> sessions = new java.util.ArrayList<>();
             try (ResultSet rs = stmt.executeQuery()) {
