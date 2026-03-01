@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "shards": [
+    {"id": 3, "url": "http://haproxy-shard1:3000"},
+    {"id": 2, "url": "http://haproxy-shard2:3000"}
+  ]
+}
