@@ -33,6 +33,7 @@ import org.unicitylabs.sdk.util.InclusionProofUtils;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
@@ -51,7 +52,7 @@ import static org.unicitylabs.sdk.transaction.InclusionProofVerificationStatus.P
 
 /**
  * Integration tests for payment functionality.
- * Requires AGGREGATOR_URL environment variable pointing to a single (non-sharded) aggregator node.
+ * Requires AGGREGATOR_URL environment variable pointing to a deployed subscription gateway.
  */
 @Tag("e2e")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -62,6 +63,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private static final SecureRandom random = new SecureRandom();
     private static ObjectMapper objectMapper;
     private static String realAggregatorUrl;
+    private static String aggregatorApiKey;
 
     private StateTransitionClient directToAggregator;
     private AggregatorClient aggregatorClient;
@@ -80,9 +82,71 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
     private PaymentRepository paymentRepository;
 
     @BeforeAll
-    static void setUpClass() {
+    static void setUpClass() throws Exception {
         realAggregatorUrl = System.getenv("AGGREGATOR_URL");
         objectMapper = ObjectMapperUtils.createObjectMapper();
+        aggregatorApiKey = obtainAggregatorApiKey();
+    }
+
+    /**
+     * Obtains an API key for the real aggregator.
+     * If AGGREGATOR_API_KEY env var is set, uses it directly.
+     * Otherwise, auto-generates one via the gateway's admin API.
+     */
+    private static String obtainAggregatorApiKey() throws Exception {
+        String envKey = System.getenv("AGGREGATOR_API_KEY");
+        if (envKey != null && !envKey.isBlank()) {
+            return envKey;
+        }
+
+        // Auto-generate via admin API
+        String adminPassword = System.getenv("ADMIN_PASSWORD") != null
+                ? System.getenv("ADMIN_PASSWORD") : "admin";
+
+        try (HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build()) {
+
+            // Step 1: Login to admin
+            String loginBody = objectMapper.writeValueAsString(Map.of("password", adminPassword));
+            HttpRequest loginRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(realAggregatorUrl + "/admin/login"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(loginBody))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+
+            HttpResponse<String> loginResponse = client.send(loginRequest, HttpResponse.BodyHandlers.ofString());
+            if (loginResponse.statusCode() != 200) {
+                throw new RuntimeException("Admin login failed (HTTP " + loginResponse.statusCode()
+                        + "): " + loginResponse.body());
+            }
+
+            String sessionToken = objectMapper.readTree(loginResponse.body()).get("token").asText();
+
+            // Step 2: Create API key
+            String createBody = objectMapper.writeValueAsString(Map.of(
+                    "description", "e2e-test-key",
+                    "pricingPlanId", 1
+            ));
+            HttpRequest createKeyRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(realAggregatorUrl + "/admin/api/keys"))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + sessionToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(createBody))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+
+            HttpResponse<String> createKeyResponse = client.send(createKeyRequest, HttpResponse.BodyHandlers.ofString());
+            if (createKeyResponse.statusCode() != 201) {
+                throw new RuntimeException("API key creation failed (HTTP " + createKeyResponse.statusCode()
+                        + "): " + createKeyResponse.body());
+            }
+
+            String apiKey = objectMapper.readTree(createKeyResponse.body()).get("apiKey").asText();
+            System.out.println("Auto-generated aggregator API key for e2e tests: " + apiKey.substring(0, 6) + "...");
+            return apiKey;
+        }
     }
 
     @Override
@@ -105,7 +169,7 @@ public class PaymentIntegrationTest extends AbstractIntegrationTest {
         apiKeyRepository.insert(TEST_API_KEY, PLAN_BASIC.id(), expiry);
         TestDatabaseSetup.markForDeletionDuringReset(TEST_API_KEY);
 
-        aggregatorClient = new JsonRpcAggregatorClient(realAggregatorUrl);
+        aggregatorClient = new JsonRpcAggregatorClient(realAggregatorUrl, aggregatorApiKey);
         directToAggregator = new StateTransitionClient(aggregatorClient);
     }
 

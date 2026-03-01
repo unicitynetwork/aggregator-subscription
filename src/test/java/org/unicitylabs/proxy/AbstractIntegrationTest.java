@@ -1,5 +1,6 @@
 package org.unicitylabs.proxy;
 
+import org.unicitylabs.proxy.repository.ApiKeyRepository;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
 import org.unicitylabs.proxy.shard.ShardConfig;
 import org.unicitylabs.proxy.shard.ShardInfo;
@@ -119,6 +120,7 @@ public abstract class AbstractIntegrationTest {
     protected volatile int mockResponseStatus;
     protected volatile String mockResponseBody;
     protected volatile boolean mockShouldReturnError;
+    protected TestEnvironmentProvider testEnvironmentProvider;
     protected ProxyConfig config;
 
     @BeforeAll
@@ -149,14 +151,20 @@ public abstract class AbstractIntegrationTest {
         mockServer = createMockServer();
         mockServer.start();
 
-        config = new ProxyConfig(new TestEnvironmentProvider());
+        testEnvironmentProvider = new TestEnvironmentProvider();
+        config = new ProxyConfig(testEnvironmentProvider);
         setUpConfigForTests(config);
 
         setUpNewProxyServer();
+
+        // Insert default test API key (no longer seeded by migrations)
+        ApiKeyRepository apiKeyRepo = new ApiKeyRepository(TestDatabaseSetup.getDatabaseConfig());
+        apiKeyRepo.create(defaultApiKey, "default test key", PLAN_STANDARD.id());
+        TestDatabaseSetup.markForDeletionDuringReset(defaultApiKey);
     }
 
     protected void setUpNewProxyServer() throws Exception {
-        proxyServer = new ProxyServer(config, SERVER_SECRET, new TestEnvironmentProvider(), TestDatabaseSetup.getDatabaseConfig(), false);
+        proxyServer = new ProxyServer(config, SERVER_SECRET, testEnvironmentProvider, TestDatabaseSetup.getDatabaseConfig(), false);
         proxyServer.start();
 
         proxyPort = ((ServerConnector) proxyServer.getServer().getConnectors()[0]).getLocalPort();
