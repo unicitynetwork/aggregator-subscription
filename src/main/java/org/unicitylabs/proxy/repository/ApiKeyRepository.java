@@ -64,6 +64,8 @@ public class ApiKeyRepository {
 
     private static final String UPDATE_DESCRIPTION_SQL = "UPDATE api_keys SET description = ? WHERE id = ?";
 
+    private static final String UPDATE_ACTIVE_UNTIL_SQL = "UPDATE api_keys SET active_until = ? WHERE id = ?";
+
     public static final String UPDATE_PRICING_PLAN_AND_SET_EXPIRY = """
             UPDATE api_keys
             SET pricing_plan_id = ?,
@@ -354,6 +356,20 @@ public class ApiKeyRepository {
             }
         } catch (SQLException e) {
             throw new RuntimeException("Error updating description for API key id: " + id, e);
+        }
+    }
+
+    public void updateActiveUntil(Long id, Instant activeUntil) {
+        try (Connection conn = databaseConfig.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(UPDATE_ACTIVE_UNTIL_SQL)) {
+            stmt.setTimestamp(1, Timestamp.from(activeUntil));
+            stmt.setLong(2, id);
+            int affected = stmt.executeUpdate();
+            if (affected > 0) {
+                logger.info("Updated activeUntil for API key id: {} to: {}", id, activeUntil);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error updating activeUntil for API key id: " + id, e);
         }
     }
 

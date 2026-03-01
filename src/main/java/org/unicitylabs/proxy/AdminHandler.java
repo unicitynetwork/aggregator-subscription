@@ -248,13 +248,17 @@ public class AdminHandler extends Handler.Abstract {
             ObjectNode keyRequest = (ObjectNode) mapper.readTree(body);
 
             String description = keyRequest.has("description") ? keyRequest.get("description").asText() : "";
-            Long planId = keyRequest.has("pricingPlanId") ? keyRequest.get("pricingPlanId").asLong() : 1L;
 
             // Generate new API key
             String newApiKey = ApiKeyService.generateApiKey();
 
-            // Save to database
-            apiKeyRepository.create(newApiKey, description, planId);
+            // Save to database - with or without a pricing plan
+            if (keyRequest.has("pricingPlanId")) {
+                Long planId = keyRequest.get("pricingPlanId").asLong();
+                apiKeyRepository.create(newApiKey, description, planId);
+            } else {
+                apiKeyRepository.createWithoutPlan(newApiKey);
+            }
 
             // Clear cache to force reload
             apiKeyManager.removeCacheEntry(newApiKey);
@@ -299,6 +303,11 @@ public class AdminHandler extends Handler.Abstract {
             if (updateRequest.has("description")) {
                 String description = updateRequest.get("description").asText();
                 apiKeyRepository.updateDescription(id, description);
+            }
+
+            if (updateRequest.has("activeUntil")) {
+                Instant activeUntil = Instant.parse(updateRequest.get("activeUntil").asText());
+                apiKeyRepository.updateActiveUntil(id, activeUntil);
             }
 
             // Clear cache to force reload
@@ -582,6 +591,7 @@ public class AdminHandler extends Handler.Abstract {
                 sessionNode.put("completedAt", session.completedAt() != null ? session.completedAt().toString() : null);
                 sessionNode.put("tokenReceived", session.tokenReceived());
                 sessionNode.put("resultingToken", session.completionRequestJson());
+                sessionNode.put("requestId", session.requestId());
                 sessionsArray.add(sessionNode);
             }
 
@@ -624,6 +634,7 @@ public class AdminHandler extends Handler.Abstract {
                 sessionNode.put("completedAt", session.completedAt() != null ? session.completedAt().toString() : null);
                 sessionNode.put("tokenReceived", session.tokenReceived());
                 sessionNode.put("resultingToken", session.completionRequestJson());
+                sessionNode.put("requestId", session.requestId());
                 sessionsArray.add(sessionNode);
             }
 

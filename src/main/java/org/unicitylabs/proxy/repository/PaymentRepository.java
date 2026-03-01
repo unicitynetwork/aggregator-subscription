@@ -359,7 +359,8 @@ public class PaymentRepository {
         Instant createdAt,
         Instant completedAt,
         String tokenReceived,
-        String completionRequestJson
+        String completionRequestJson,
+        String requestId
     ) {}
 
     public record PaymentSessionsPage(
@@ -373,7 +374,7 @@ public class PaymentRepository {
     private static final String LIST_SESSIONS_SQL = """
         SELECT ps.id, ps.api_key, ps.status, ps.target_plan_id, ps.amount_required,
                ps.should_create_key, ps.created_at, ps.completed_at,
-               ps.token_received, ps.completion_request_json,
+               ps.token_received, ps.completion_request_json, ps.request_id,
                pp.name as plan_name
         FROM payment_sessions ps
         LEFT JOIN pricing_plans pp ON ps.target_plan_id = pp.id
@@ -388,7 +389,7 @@ public class PaymentRepository {
     private static final String SEARCH_SESSIONS_SQL = """
         SELECT ps.id, ps.api_key, ps.status, ps.target_plan_id, ps.amount_required,
                ps.should_create_key, ps.created_at, ps.completed_at,
-               ps.token_received, ps.completion_request_json,
+               ps.token_received, ps.completion_request_json, ps.request_id,
                pp.name as plan_name
         FROM payment_sessions ps
         LEFT JOIN pricing_plans pp ON ps.target_plan_id = pp.id
@@ -411,7 +412,8 @@ public class PaymentRepository {
             rs.getTimestamp("completed_at") != null ?
                 rs.getTimestamp("completed_at").toInstant() : null,
             rs.getString("token_received"),
-            rs.getString("completion_request_json")
+            rs.getString("completion_request_json"),
+            rs.getString("request_id")
         );
     }
 
