@@ -14,7 +14,7 @@ class SelectiveAuthenticationTest extends AbstractIntegrationTest {
     void testProtectedMethodRequiresAuthentication() throws Exception {
         HttpResponse<String> response = performJsonRpcRequest(
                 getNotAuthorizedRequestBuilder("/"),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(response.statusCode()).isEqualTo(UNAUTHORIZED_401);
     }
 
@@ -22,7 +22,7 @@ class SelectiveAuthenticationTest extends AbstractIntegrationTest {
     void testProtectedMethodWorksWithAuthentication() throws Exception {
         HttpResponse<String> response = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/"),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(response.statusCode()).isEqualTo(OK_200);
     }
     
@@ -30,7 +30,7 @@ class SelectiveAuthenticationTest extends AbstractIntegrationTest {
     void testUnprotectedMethodWorksWithoutAuthentication() throws Exception {
         HttpResponse<String> response = performJsonRpcRequest(
                 getNotAuthorizedRequestBuilder("/"),
-                GET_INCLUSION_PROOF_REQUEST);
+                GET_INCLUSION_PROOF_V2_JSON);
         assertThat(response.statusCode()).isEqualTo(OK_200);
     }
     
@@ -38,7 +38,7 @@ class SelectiveAuthenticationTest extends AbstractIntegrationTest {
     void testUnprotectedMethodAlsoWorksWithAuthentication() throws Exception {
         HttpResponse<String> response = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/"),
-                GET_INCLUSION_PROOF_REQUEST);
+                GET_INCLUSION_PROOF_V2_JSON);
         assertThat(response.statusCode()).isEqualTo(OK_200);
     }
     

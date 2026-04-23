@@ -87,7 +87,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
             // For authorized mode, use JSON-RPC which will get the error response
             response = performJsonRpcRequest(
                     getRequestBuilder("/", authMode),
-                    GET_INCLUSION_PROOF_REQUEST);
+                    GET_INCLUSION_PROOF_V2_JSON);
         } else {
             // For unauthorized mode, use regular GET
             HttpRequest request = getRequestBuilder("/test", authMode)
@@ -111,7 +111,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
             // For authorized mode, use JSON-RPC which will get the error response
             response = performJsonRpcRequest(
                     getRequestBuilder("/", authMode),
-                    GET_INCLUSION_PROOF_REQUEST);
+                    GET_INCLUSION_PROOF_V2_JSON);
         } else {
             // For unauthorized mode, use regular GET
             HttpRequest request = getRequestBuilder("/test", authMode)
@@ -182,7 +182,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         
         HttpResponse<String> response = performJsonRpcRequest(
                 getRequestBuilder("/", authMode),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         
         assertThat(response.statusCode()).isEqualTo(UNAUTHORIZED_401);
         assertThat(response.body()).isEqualTo("Unauthorized");
@@ -197,7 +197,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         assumeTrue(authMode == AUTHORIZED);
         response = performJsonRpcRequest(
                 getRequestBuilder("/", authMode),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(response.statusCode()).isEqualTo(OK_200);
     }
     
@@ -213,14 +213,14 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
                 .uri(URI.create(getProxyUrl() + "/"))
                 .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
                 .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
-                .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
+                .POST(ofString(CERTIFICATION_REQUEST_JSON))
                 .build();
         } else {
             // For unauthorized mode, add X-API-Key header
             request = getRequestBuilder("/", authMode)
                 .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
                 .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
-                .POST(ofString(GET_INCLUSION_PROOF_REQUEST))
+                .POST(ofString(GET_INCLUSION_PROOF_V2_JSON))
                 .build();
         }
         
@@ -234,7 +234,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         HttpRequest request = getNotAuthorizedRequestBuilder("/")
             .header("Authorization", "Bearer wrongtoken")
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
-            .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
+            .POST(ofString(CERTIFICATION_REQUEST_JSON))
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -265,7 +265,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
         // Unprotected methods should work regardless of auth mode
         HttpResponse<String> response = performJsonRpcRequest(
                 getRequestBuilder("/", authMode),
-                GET_INCLUSION_PROOF_REQUEST);
+                GET_INCLUSION_PROOF_V2_JSON);
         
         assertThat(response.statusCode()).isEqualTo(OK_200);
     }
@@ -280,7 +280,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
             .header(RequestHandler.HEADER_X_API_KEY, defaultApiKey)
             .header("X-Custom-Header", "should-be-forwarded")
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
-            .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
+            .POST(ofString(CERTIFICATION_REQUEST_JSON))
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -300,7 +300,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
             .header("X-Request-Id", "test-123")
             .header("X-Custom-Header", "custom-value")
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())
-            .POST(ofString(SUBMIT_COMMITMENT_REQUEST))
+            .POST(ofString(CERTIFICATION_REQUEST_JSON))
             .build();
         
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -339,7 +339,7 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should not require authentication for malformed JSON targeting protected endpoint")
     void testMalformedJsonForProtectedEndpointDoesNotRequireAuth() throws Exception {
-        String malformedJson = "{\"jsonrpc\":\"2.0\",\"method\":\"submit_commitment\",\"params\":{\"stateId\":\"1234\"},"; // Missing closing brace
+        String malformedJson = "{\"jsonrpc\":\"2.0\",\"method\":\"certification_request\",\"params\":\"815820" + "00".repeat(32) + "\","; // Missing closing brace
 
         HttpRequest request = getRequestBuilder("/", authMode)
             .header(CONTENT_TYPE.asString(), APPLICATION_JSON.asString())

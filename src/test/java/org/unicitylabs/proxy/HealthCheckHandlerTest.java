@@ -256,12 +256,17 @@ public class HealthCheckHandlerTest {
         // Create a mock router that returns an empty list of targets
         ShardRouter emptyRouter = new ShardRouter() {
             @Override
-            public String routeByRequestId(String requestIdHex) {
+            public org.unicitylabs.proxy.shard.ShardingMode getMode() {
+                return org.unicitylabs.proxy.shard.ShardingMode.APP_SHARD;
+            }
+
+            @Override
+            public String routeByStateId(String stateIdHex) {
                 throw new IllegalStateException("No targets available");
             }
 
             @Override
-            public java.util.Optional<String> routeByShardId(int shardId) {
+            public java.util.Optional<String> routeByShardId(String shardIdLabel) {
                 return java.util.Optional.empty();
             }
 

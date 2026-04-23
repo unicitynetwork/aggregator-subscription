@@ -6,11 +6,22 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 
 /**
- * Routes requests to shard targets based on request ID suffixes or explicit shard IDs.
- * Uses a binary tree index for O(log n) lookup performance.
+ * Routes requests to shard targets by matching the v2 {@code stateId} against
+ * sentinel-integer-encoded shard suffixes using the aggregator's v2 SMT bit
+ * layout: bit {@code d} = bit {@code d%8} of byte {@code d/8} (LSB-first
+ * within each byte; bytes walked from byte 0 upward). This matches the
+ * aggregator's {@code MatchesShardPrefix} exactly.
+ *
+ * <p>Uses a binary tree index for O(log n) lookup performance.
  */
 public class DefaultShardRouter implements ShardRouter {
+    /**
+     * Expected length of a decoded v2 state ID.
+     */
+    public static final int STATE_ID_LENGTH_BYTES = 32;
+
     private static final Logger logger = LoggerFactory.getLogger(ShardRouter.class);
+    private static final java.util.HexFormat HEX = java.util.HexFormat.of();
 
     private final List<ShardSuffix> suffixes;
     private final List<String> allTargets;
@@ -23,20 +34,17 @@ public class DefaultShardRouter implements ShardRouter {
         this.shardIdToUrl = new HashMap<>();
         this.random = new Random();
 
-        // Parse all shard configurations
         for (ShardInfo shardInfo : config.getShards()) {
             ShardSuffix suffix = new ShardSuffix(shardInfo);
             suffixes.add(suffix);
             shardIdToUrl.put(shardInfo.id(), shardInfo.url());
         }
 
-        // Extract unique target URLs for random selection
         this.allTargets = suffixes.stream()
             .map(ShardSuffix::getTargetUrl)
             .distinct()
             .toList();
 
-        // Build binary tree index for fast lookup
         this.rootNode = buildRoutingTree();
 
         logger.info("ShardRouter initialized with {} shards, {} unique targets",
@@ -48,10 +56,10 @@ public class DefaultShardRouter implements ShardRouter {
     }
 
     /**
-     * Build a binary routing tree from the suffix configuration.
-     * The tree is traversed from LSB to MSB of the request ID.
-     *
-     * @return Root node of the routing tree
+     * Builds the binary routing tree. Each suffix is a sentinel-prefixed
+     * integer; bit {@code i} (for i in 0..bitLength-1) of the suffix defines
+     * which child to follow at depth {@code i}. This matches the LSB-first
+     * suffix encoding expected by the aggregator's bitmask convention.
      */
     private ShardTreeNode buildRoutingTree() {
         ShardTreeNode root = new ShardTreeNode();
@@ -60,19 +68,15 @@ public class DefaultShardRouter implements ShardRouter {
             ShardTreeNode current = root;
             int bitLength = suffix.getBitLength();
 
-            // Walk from LSB to MSB, creating nodes as needed
             for (int bitIndex = 0; bitIndex < bitLength; bitIndex++) {
-                // Extract a bit at position bitIndex (0 = LSB)
                 boolean bitValue = suffix.getSuffixBits().testBit(bitIndex);
 
                 if (bitValue) {
-                    // Bit is 1, go right
                     if (current.getRight() == null) {
                         current.setRight(new ShardTreeNode());
                     }
                     current = current.getRight();
                 } else {
-                    // Bit is 0, go left
                     if (current.getLeft() == null) {
                         current.setLeft(new ShardTreeNode());
                     }
@@ -80,70 +84,66 @@ public class DefaultShardRouter implements ShardRouter {
                 }
             }
 
-            // Mark this node as a leaf with the target URL
             current.setTargetUrl(suffix.getTargetUrl());
         }
 
         return root;
     }
 
-    /**
-     * Route based on request ID using binary tree traversal.
-     * Walks the tree from LSB to MSB until hitting a leaf node.
-     *
-     * @param requestIdHex Request ID as hex string (256 bits = 64 hex chars)
-     * @return Target URL to route to
-     */
     @Override
-    public String routeByRequestId(String requestIdHex) {
-        // Normalize: remove any 0x prefix if present
-        String normalizedHex = requestIdHex.toLowerCase();
-        if (normalizedHex.startsWith("0x")) {
-            normalizedHex = normalizedHex.substring(2);
-        }
+    public ShardingMode getMode() {
+        return ShardingMode.APP_SHARD;
+    }
 
-        // Parse request ID to extract bits
-        java.math.BigInteger requestId;
+    @Override
+    public String routeByStateId(String stateIdHex) {
+        if (stateIdHex == null || stateIdHex.isBlank()) {
+            throw new IllegalArgumentException("stateId cannot be null or empty");
+        }
+        String normalized = stateIdHex.toLowerCase();
+        if (normalized.startsWith("0x")) {
+            normalized = normalized.substring(2);
+        }
+        byte[] keyBytes;
         try {
-            requestId = new java.math.BigInteger(normalizedHex, 16);
-        } catch (NumberFormatException e) {
-            logger.warn("Invalid request ID format: {}, using random target", requestIdHex);
-            throw new IllegalArgumentException("Invalid request ID format: '" + requestIdHex + "'");
+            keyBytes = HEX.parseHex(normalized);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid state ID format: '" + stateIdHex + "'", e);
+        }
+        if (keyBytes.length != STATE_ID_LENGTH_BYTES) {
+            throw new IllegalArgumentException(
+                "Invalid state ID length: expected " + STATE_ID_LENGTH_BYTES
+                    + " raw bytes, got " + keyBytes.length);
         }
 
-        // Walk the tree from LSB to MSB
         ShardTreeNode current = rootNode;
         int bitIndex = 0;
 
         while (current != null && !current.isLeaf()) {
-            boolean bitValue = requestId.testBit(bitIndex);
-
-            if (bitValue) {
-                current = current.getRight();
-            } else {
-                current = current.getLeft();
-            }
-
+            int b = (keyBytes[bitIndex / 8] >> (bitIndex % 8)) & 1;
+            current = (b == 1) ? current.getRight() : current.getLeft();
             bitIndex++;
         }
 
         if (current != null && current.isLeaf()) {
-            logger.trace("Request ID {} routed via tree to {}",
-                requestIdHex, current.getTargetUrl());
+            if (logger.isTraceEnabled()) {
+                logger.trace("stateId {} routed via tree to {}", stateIdHex, current.getTargetUrl());
+            }
             return current.getTargetUrl();
         }
 
-        throw new RuntimeException("Error: could not find a matching shard for Request ID: " + requestIdHex);
+        throw new RuntimeException("Error: could not find a matching shard for stateId: " + stateIdHex);
     }
 
-    /**
-     * Route based on explicit shard ID.
-     *
-     * @param shardId Shard ID as integer
-     * @return Target URL to route to, or null if shard ID not found
-     */
     @Override
-    public Optional<String> routeByShardId(int shardId) {
+    public Optional<String> routeByShardId(String shardIdLabel) {
+        int shardId;
+        try {
+            shardId = Integer.parseInt(shardIdLabel);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                "Invalid shard ID format for app-shard mode (expected integer): '" + shardIdLabel + "'", e);
+        }
         String targetUrl = shardIdToUrl.get(shardId);
         if (targetUrl != null) {
             logger.trace("Shard ID {} routed to {}", shardId, targetUrl);
@@ -154,10 +154,6 @@ public class DefaultShardRouter implements ShardRouter {
         }
     }
 
-    /**
-     * Get a random target for requests without a request ID.
-     * @return Random target URL
-     */
     @Override
     public String getRandomTarget() {
         if (allTargets.isEmpty()) {
@@ -166,9 +162,6 @@ public class DefaultShardRouter implements ShardRouter {
         return allTargets.get(random.nextInt(allTargets.size()));
     }
 
-    /**
-     * Get all configured target URLs.
-     */
     @Override
     public List<String> getAllTargets() {
         return Collections.unmodifiableList(allTargets);

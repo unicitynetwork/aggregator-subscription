@@ -40,7 +40,29 @@ public class ConfigHandlerIntegrationTest extends AbstractIntegrationTest {
             """
             {
               "version" : 1,
+              "mode" : "app-shard",
               "shardIds" : [ 2, 3 ]
+            }""",
+            objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(objectMapper.readTree(response.body())));
+    }
+
+    @Test
+    @DisplayName("GET /config/shards returns bft-shard prefixes in bft-shard mode")
+    void testGetShardConfigBftShardMode() throws Exception {
+        insertShardConfig(new ShardConfig(1, org.unicitylabs.proxy.shard.ShardingMode.BFT_SHARD, null, List.of(
+            new org.unicitylabs.proxy.shard.BftShardInfo("0", "http://bft-shard0.example.com:3000"),
+            new org.unicitylabs.proxy.shard.BftShardInfo("1", "http://bft-shard1.example.com:3000")
+        )));
+
+        HttpResponse<String> response = performGetRequest("/config/shards");
+
+        assertEquals(OK_200, response.statusCode());
+        assertEquals(
+            """
+            {
+              "version" : 1,
+              "mode" : "bft-shard",
+              "bftShardPrefixes" : [ "0", "1" ]
             }""",
             objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(objectMapper.readTree(response.body())));
     }

@@ -68,43 +68,63 @@ public abstract class AbstractIntegrationTest {
             PLAN_TEST_BASIC, PLAN_TEST_STANDARD, PLAN_TEST_PREMIUM
     );
 
-    protected static final String SUBMIT_COMMITMENT_REQUEST = """
+    /**
+     * Real tagged v2 certification_request params copied from the aggregator-go
+     * gateway docs example. The embedded stateId starts with 0xf6 (MSB=1), so
+     * in bft-shard mode it should route to shard prefix "1".
+     */
+    protected static final String CERTIFICATION_REQUEST_STATE_ID_HEX =
+        "f6a9010354c4359cbe9d63892684bbff6bd54ef86e9dd98a155a1a32716a0247";
+
+    protected static final String CERTIFICATION_REQUEST_PARAMS_HEX =
+        "d9987684015820" + CERTIFICATION_REQUEST_STATE_ID_HEX +
+        "d998778501d9987883014101582102cbbbe7dc6d51dea5c5fb4d7e7da3416e5914b989c303399f31b51db090981cfa" +
+        "58208126936ae7bcd660a93368a8c83951e01ccbcd4af093769b1cc14f942e2a9ca8" +
+        "5820ad8f039daf3827446a0af7ccf31b438aea079440406a07cca7374b52b4e84c2c" +
+        "584177ff8a78a8e59f71d03e687fa14851327babb6a4f5cafcdfc56b16b2267284247734523df030465e249734aab146ae18d65bb3c7aee570c4f53e56e779e0c42" +
+        "00100";
+
+    protected static final String CERTIFICATION_REQUEST_JSON =
+        certificationRequestJson(CERTIFICATION_REQUEST_PARAMS_HEX);
+
+    protected static final String GET_INCLUSION_PROOF_V2_JSON = """
         {
             "jsonrpc": "2.0",
-            "method": "submit_commitment",
+            "method": "get_inclusion_proof.v2",
             "params": {
-                "requestId": "1234"
+                "stateId": "%s"
             },
             "id": 1
         }
-        """;
+        """.formatted("00".repeat(32));
 
-    protected static final String GET_INCLUSION_PROOF_REQUEST = """
-        {
-            "jsonrpc": "2.0",
-            "method": "get_inclusion_proof",
-            "params": {
-                "requestId": "1234"
-            },
-            "id": 1
-        }
-        """;
-
+    // Size-test template: valid certification_request with a sibling
+    // "_padding" field that the gateway ignores. PLACEHOLDER is replaced with
+    // 'A' padding to reach the target size.
     private static final String JSON_RPC_TEMPLATE = """
         {
             "jsonrpc": "2.0",
-            "method": "submit_commitment",
-            "params": {
-                "requestId": "1234",
-                "data": "PLACEHOLDER"
-            },
+            "method": "certification_request",
+            "params": "%s",
+            "_padding": "PLACEHOLDER",
             "id": 1
         }
-        """;
+        """.formatted(CERTIFICATION_REQUEST_PARAMS_HEX);
 
     private static final String REGULAR_CONTENT_TEMPLATE = "PLACEHOLDER";
 
     public static final String APPLICATION_OCTET_STREAM = "application/octet-stream";
+
+    protected static String certificationRequestJson(String paramsHex) {
+        return """
+            {
+                "jsonrpc": "2.0",
+                "method": "certification_request",
+                "params": "%s",
+                "id": 1
+            }
+            """.formatted(paramsHex);
+    }
 
     protected final String defaultApiKey = "supersecret";
 
@@ -468,7 +488,7 @@ public abstract class AbstractIntegrationTest {
         if (authMode == AUTHORIZED) {
             request = requestBuilder
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(SUBMIT_COMMITMENT_REQUEST))
+                    .POST(HttpRequest.BodyPublishers.ofString(CERTIFICATION_REQUEST_JSON))
                     .timeout(Duration.ofSeconds(5))
                     .build();
         } else {

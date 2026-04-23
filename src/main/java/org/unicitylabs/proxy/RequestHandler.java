@@ -2,6 +2,7 @@ package org.unicitylabs.proxy;
 
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.shard.ShardRouter;
+import org.unicitylabs.proxy.shard.ShardingMode;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
@@ -43,32 +44,42 @@ import static org.eclipse.jetty.http.HttpHeader.*;
 import static org.eclipse.jetty.http.HttpMethod.*;
 import static org.eclipse.jetty.http.MimeTypes.Type.TEXT_PLAIN;
 
-record RoutingParams(String requestId, String shardId) {
-    boolean hasBoth() {
-        return hasRequestId() && hasShardId();
-    }
-
-    boolean hasAny() {
-        return hasRequestId() || hasShardId();
-    }
-
-    boolean hasRequestId() {
-        return requestId != null && !requestId.isBlank();
+record RoutingParams(String stateId, String shardId) {
+    boolean hasStateId() {
+        return stateId != null && !stateId.isBlank();
     }
 
     boolean hasShardId() {
         return shardId != null && !shardId.isBlank();
     }
+
+    boolean hasBoth() {
+        return hasStateId() && hasShardId();
+    }
 }
 
 public class RequestHandler extends Handler.Abstract {
     private static final String CERTIFICATION_REQUEST = "certification_request";
+    private static final String GET_INCLUSION_PROOF_V2 = "get_inclusion_proof.v2";
+    // TODO(bft-shard): replace these with Java SDK-exported v2 CBOR metadata
+    // once available. Until then, aggregator-go/pkg/api/cbor_tags.go is the
+    // source of truth for the certification_request wire tag/version.
+    private static final long CERTIFICATION_REQUEST_CBOR_TAG = 39030L;
+    private static final int CERTIFICATION_REQUEST_VERSION = 1;
+
+    /**
+     * JSON-RPC methods whose semantics require shard-bound routing in bft-shard
+     * mode. For any method in this set, the gateway rejects requests lacking a
+     * {@code stateId}.
+     */
+    private static final Set<String> SHARD_BOUND_V2_METHODS =
+        Set.of(CERTIFICATION_REQUEST, GET_INCLUSION_PROOF_V2);
 
     public static final int MAX_PAYLOAD_SIZE_BYTES = 10 * (int) ONE_MB;
     public static final int MAX_HEADER_COUNT = 200;
 
     private static final String COOKIE_SHARD_ID = "UNICITY_SHARD_ID";
-    private static final String COOKIE_REQUEST_ID = "UNICITY_REQUEST_ID";
+    private static final String COOKIE_STATE_ID = "UNICITY_STATE_ID";
 
     private static final Logger logger = LoggerFactory.getLogger(RequestHandler.class);
 
@@ -479,30 +490,42 @@ public class RequestHandler extends Handler.Abstract {
     }
 
     private RoutingParams extractRoutingParams(JsonNode root) {
-        String requestId = null;
+        String stateId = null;
         String shardId = null;
 
         try {
-            if (root.path("params").has("stateId")) {
-                requestId = root.path("params").path("stateId").asText(null);
-            } else if (root.path("params").has("requestId")) {
-                requestId = root.path("params").path("requestId").asText(null);
+            String method = extractJsonRpcMethodFromBody(root);
+
+            if (CERTIFICATION_REQUEST.equals(method) && root.has("params")) {
+                // certification_request params are a tagged/versioned CBOR value.
+                var tagged = CborDeserializer.readTag(HexConverter.decode(root.get("params").asText()));
+                if (tagged.getTag() != CERTIFICATION_REQUEST_CBOR_TAG) {
+                    throw new IllegalArgumentException("unexpected certification_request CBOR tag: " + tagged.getTag());
+                }
+
+                List<byte[]> data = CborDeserializer.readArray(tagged.getData());
+                if (data.size() < 2) {
+                    throw new IllegalArgumentException("certification_request params missing stateId field");
+                }
+
+                int version = CborDeserializer.readUnsignedInteger(data.getFirst()).asInt();
+                if (version != CERTIFICATION_REQUEST_VERSION) {
+                    throw new IllegalArgumentException("unsupported certification_request version: " + version);
+                }
+
+                stateId = HexConverter.encode(CborDeserializer.readByteString(data.get(1)));
+            } else if (root.path("params").has("stateId")) {
+                stateId = root.path("params").path("stateId").asText(null);
             }
 
             if (root.path("params").has("shardId")) {
                 shardId = root.path("params").path("shardId").asText(null);
             }
-
-            String method = extractJsonRpcMethodFromBody(root);
-            if (CERTIFICATION_REQUEST.equals(method) && root.has("params")) {
-                List<byte[]> data = CborDeserializer.readArray(HexConverter.decode(root.get("params").asText()));
-                requestId = HexConverter.encode(CborDeserializer.readByteString(data.getFirst()));
-            }
         } catch (Exception e) {
             logger.debug("Could not extract routing params from request body", e);
         }
 
-        return new RoutingParams(requestId, shardId);
+        return new RoutingParams(stateId, shardId);
     }
 
     private boolean isJsonRpcRequest(JsonNode root) {
@@ -510,39 +533,47 @@ public class RequestHandler extends Handler.Abstract {
     }
 
     private RoutingParams extractRoutingParamsFromCookies(Request request) {
-        String requestId = null;
+        String stateId = null;
         String shardId = null;
 
         List<HttpCookie> cookies = Request.getCookies(request);
         if (cookies != null) {
             for (HttpCookie cookie : cookies) {
-                if (COOKIE_REQUEST_ID.equals(cookie.getName())) {
-                    requestId = cookie.getValue();
+                if (COOKIE_STATE_ID.equals(cookie.getName())) {
+                    stateId = cookie.getValue();
                 } else if (COOKIE_SHARD_ID.equals(cookie.getName())) {
                     shardId = cookie.getValue();
                 }
             }
         }
 
-        return new RoutingParams(requestId, shardId);
+        return new RoutingParams(stateId, shardId);
     }
 
-    private String routeWithParams(RoutingParams params, boolean isJsonRpc) throws IllegalArgumentException {
-        // Check for conflicting parameters
+    private String routeWithParams(RoutingParams params, boolean isJsonRpc, String rpcMethod) throws IllegalArgumentException {
         if (params.hasBoth()) {
-            throw new IllegalArgumentException("Cannot specify both requestId and shardId");
+            throw new IllegalArgumentException("Cannot specify both stateId and shardId");
         }
 
-        // Route by shard ID if present
-        if (params.hasShardId()) {
-            int shardId;
-            try {
-                shardId = Integer.parseInt(params.shardId());
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Invalid Shard ID format: " + params.shardId(), e);
-            }
+        // Shard-bound v2 methods (certification_request, get_inclusion_proof.v2)
+        // always route by stateId — shard ownership is derived from it, so a
+        // shardId override would let the caller bypass that derivation.
+        boolean shardBoundV2 = isJsonRpc && rpcMethod != null && SHARD_BOUND_V2_METHODS.contains(rpcMethod);
+        if (shardBoundV2 && !params.hasStateId()) {
+            throw new IllegalArgumentException(
+                "JSON-RPC method '" + rpcMethod + "' requires stateId");
+        }
 
-            Optional<String> target = shardRouter.routeByShardId(shardId);
+        if (params.hasStateId()) {
+            String target = shardRouter.routeByStateId(params.stateId());
+            if (logger.isTraceEnabled()) {
+                logger.trace("Routing request by stateId {} to {}", params.stateId(), target);
+            }
+            return target;
+        }
+
+        if (params.hasShardId()) {
+            Optional<String> target = shardRouter.routeByShardId(params.shardId());
             if (target.isEmpty()) {
                 throw new IllegalArgumentException("Shard ID not found: " + params.shardId());
             }
@@ -552,32 +583,26 @@ public class RequestHandler extends Handler.Abstract {
             return target.get();
         }
 
-        // Route by request ID if present
-        if (params.hasRequestId()) {
-            String target = shardRouter.routeByRequestId(params.requestId());
-            if (logger.isTraceEnabled()) {
-                logger.trace("Routing request with ID {} to {}", params.requestId(), target);
-            }
-            return target;
-        }
-
-        // No routing params
         if (isJsonRpc) {
-            throw new IllegalArgumentException("JSON-RPC requests must include either requestId or shardId");
-        } else {
-            // Non-JSON-RPC requests use random routing
-            return shardRouter.getRandomTarget();
+            throw new IllegalArgumentException(
+                "JSON-RPC requests must include either stateId or shardId");
         }
+        return shardRouter.getRandomTarget();
     }
 
     private String determineTargetUrl(Request request, JsonNode root) throws IllegalArgumentException {
         boolean isJsonRpc = isJsonRpcRequest(root);
 
-        RoutingParams params = isJsonRpc
-            ? extractRoutingParams(root)
-            : extractRoutingParamsFromCookies(request);
+        RoutingParams params;
+        String rpcMethod = null;
+        if (isJsonRpc) {
+            params = extractRoutingParams(root);
+            rpcMethod = extractJsonRpcMethodFromBody(root);
+        } else {
+            params = extractRoutingParamsFromCookies(request);
+        }
 
-        return routeWithParams(params, isJsonRpc);
+        return routeWithParams(params, isJsonRpc, rpcMethod);
     }
 
     ShardRouter getShardRouter() {

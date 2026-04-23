@@ -149,32 +149,13 @@ public class PaymentHandler extends Handler.Abstract {
             return;
         }
 
-        try {
-            PaymentModels.CompletePaymentResponse completeResponse =
-                paymentService.completePayment(completeRequest);
-
-            int statusCode = completeResponse.isSuccess() ?
-                HttpStatus.OK_200 : HttpStatus.PAYMENT_REQUIRED_402;
-
-            sendJsonResponse(response, callback, statusCode, completeResponse);
-
-        } catch (ApiKeyRepository.LockConflictException e) {
-            logger.info("Lock conflict during payment completion: {}", e.getMessage());
-            sendErrorResponse(response, callback, HttpStatus.CONFLICT_409,
-                "Conflict", e.getMessage());
-        } catch (PaymentRepository.DuplicateRequestIdException e) {
-            logger.info("Duplicate request ID detected during payment completion: {}", e.getMessage());
-            sendErrorResponse(response, callback, HttpStatus.CONFLICT_409,
-                "Conflict", e.getMessage());
-        } catch (IllegalArgumentException e) {
-            logger.info("Invalid payment completion request: {}", e.getMessage());
-            sendErrorResponse(response, callback, HttpStatus.BAD_REQUEST_400,
-                "Bad Request", e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error completing payment", e);
-            sendErrorResponse(response, callback, HttpStatus.INTERNAL_SERVER_ERROR_500,
-                "Internal Server Error", "Payment processing failed: " + e.getMessage());
-        }
+        // Payment completion exercises the aggregator's v1 submit path through
+        // the Java SDK. The aggregator has dropped v1, so this path is
+        // intentionally disabled until the SDK is upgraded to v2 (Phase 2).
+        // Fail fast before any DB side effects.
+        sendErrorResponse(response, callback, HttpStatus.NOT_IMPLEMENTED_501,
+            "Not Implemented",
+            "Payment flow is disabled until the Java SDK v2 upgrade completes.");
     }
 
     private boolean validateCompletePaymentRequest(Response response, Callback callback, PaymentModels.CompletePaymentRequest completeRequest) {

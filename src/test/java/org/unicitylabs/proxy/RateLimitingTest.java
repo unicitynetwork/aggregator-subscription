@@ -61,7 +61,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 7; i++) {
             responses.add(performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                    SUBMIT_COMMITMENT_REQUEST));
+                    CERTIFICATION_REQUEST_JSON));
         }
         
         for (int i = 0; i < 5; i++) {
@@ -77,19 +77,19 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 5; i++) {
             performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                    SUBMIT_COMMITMENT_REQUEST);
+                    CERTIFICATION_REQUEST_JSON);
         }
 
         HttpResponse<String> blockedResponse = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(blockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
 
         testTimeMeter.addTime(1100);
 
         HttpResponse<String> response = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(response.statusCode()).isEqualTo(OK_200);
     }
 
@@ -98,12 +98,12 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 10; i++) {
             performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", TEST_API_KEY),
-                    SUBMIT_COMMITMENT_REQUEST);
+                    CERTIFICATION_REQUEST_JSON);
         }
 
         HttpResponse<String> response = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(response.statusCode()).isEqualTo(OK_200);
     }
 
@@ -113,7 +113,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 25; i++) {
             responses.add(performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", PREMIUM_API_KEY),
-                    SUBMIT_COMMITMENT_REQUEST));
+                    CERTIFICATION_REQUEST_JSON));
         }
         
         for (int i = 0; i < 20; i++) {
@@ -133,7 +133,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
     void testRateLimitHeadersPresent() throws Exception {
         HttpResponse<String> response = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         
         assertThat(response.statusCode()).isEqualTo(OK_200);
         assertThat(response.headers().firstValue(HEADER_X_RATE_LIMIT_REMAINING)).isPresent();
@@ -147,12 +147,12 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 5; i++) {
             performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                    SUBMIT_COMMITMENT_REQUEST);
+                    CERTIFICATION_REQUEST_JSON);
         }
 
         HttpResponse<String> blockedResponse = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(blockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
         assertThat(blockedResponse.headers().firstValue("Retry-After")).isPresent();
         
@@ -167,7 +167,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 15; i++) {
             HttpRequest request = getAuthorizedRequestBuilder("/", TEST_API_KEY)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(SUBMIT_COMMITMENT_REQUEST))
+                    .POST(HttpRequest.BodyPublishers.ofString(CERTIFICATION_REQUEST_JSON))
                     .timeout(Duration.ofSeconds(5))
                     .build();
             futures.add(httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString()));
@@ -189,7 +189,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
     void testInvalidApiKeyReturnsUnauthorized() throws Exception {
         HttpResponse<String> response = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", "invalid-key"),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
 
         assertThat(response.statusCode()).isEqualTo(UNAUTHORIZED_401);
         assertThat(response.headers().firstValue(WWW_AUTHENTICATE.asString())).isPresent();
@@ -205,7 +205,7 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 5; i++) {
             responses.add(performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", "day-limit-test"),
-                    SUBMIT_COMMITMENT_REQUEST));
+                    CERTIFICATION_REQUEST_JSON));
         }
         
         for (int i = 0; i < 3; i++) {
@@ -225,13 +225,13 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 5; i++) {
             HttpResponse<String> response = performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                    SUBMIT_COMMITMENT_REQUEST);
+                    CERTIFICATION_REQUEST_JSON);
             assertThat(response.statusCode()).isEqualTo(OK_200);
         }
         
         HttpResponse<String> blockedResponse = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(blockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
 
         // Update the key's plan in the database to Premium (20 requests/sec)
@@ -243,13 +243,13 @@ class RateLimitingTest extends AbstractIntegrationTest {
         for (int i = 0; i < 20; i++) {
             HttpResponse<String> response = performJsonRpcRequest(
                     getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                    SUBMIT_COMMITMENT_REQUEST);
+                    CERTIFICATION_REQUEST_JSON);
             assertThat(response.statusCode()).isEqualTo(OK_200);
         }
         
         HttpResponse<String> finalBlockedResponse = performJsonRpcRequest(
                 getAuthorizedRequestBuilder("/", BASIC_API_KEY),
-                SUBMIT_COMMITMENT_REQUEST);
+                CERTIFICATION_REQUEST_JSON);
         assertThat(finalBlockedResponse.statusCode()).isEqualTo(TOO_MANY_REQUESTS_429);
     }
 }
