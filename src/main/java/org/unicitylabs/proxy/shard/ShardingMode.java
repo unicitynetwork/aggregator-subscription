@@ -6,13 +6,12 @@ import com.fasterxml.jackson.annotation.JsonValue;
 /**
  * Sharding mode for the gateway.
  *
- * <p>The two modes use different routing inputs and different shard-ID
- * semantics; they are not interchangeable.
+ * <p>The two modes use different shard-ID semantics; they are not
+ * interchangeable.
  *
  * <ul>
- *   <li>{@link #APP_SHARD}: routes JSON-RPC by {@code requestId}, LSB-first
- *       suffix matching against integer-encoded shard IDs. Preserves legacy
- *       behavior.</li>
+ *   <li>{@link #APP_SHARD}: routes JSON-RPC by {@code stateId}, using the
+ *       legacy app-shard LSB-first integer shard-ID convention.</li>
  *   <li>{@link #BFT_SHARD}: routes v2 JSON-RPC by {@code stateId}, MSB-first
  *       prefix matching against bitstring shard IDs. Used for multi-shard BFT
  *       aggregator partitions.</li>

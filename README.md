@@ -351,7 +351,7 @@ Shard-bound v2 methods (`certification_request`, `get_inclusion_proof.v2`) requi
 
 **Client-side proof verification**: Phase 1 of BFT-shard support only covers gateway routing. Clients and testers remain responsible for verifying inclusion proofs themselves, which in bft-shard mode requires verification against a trust base and the expected shard context (not just successful gateway routing). SDK-side verification support will land in a follow-up.
 
-**Payment flow is disabled in this phase.** The payment endpoint `/api/payment/complete` returns `501 Not Implemented` until the Java SDK is upgraded to v2 (Phase 2 follow-up). The payment examples earlier in this README describe the intended workflow, but they do not currently execute end-to-end against the v2-only aggregator surface.
+**Payment flow is disabled in this phase.** The payment endpoint `/api/payment/complete` returns `501 Not Implemented` until the Java SDK is upgraded to v2 (Phase 2 follow-up). The current Java SDK/payment path still depends on the old requestId/old inclusion-proof model and must be migrated to `certification_request` + `get_inclusion_proof.v2`. The payment examples earlier in this README describe the intended workflow, but they do not currently execute end-to-end against the v2-only aggregator surface.
 
 ### Running without shards
 
