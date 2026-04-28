@@ -8,7 +8,7 @@ import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
-import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Routes requests to BFT shard targets by MSB-first prefix matching against
@@ -32,7 +32,6 @@ public class BftShardRouter implements ShardRouter {
 
     private final List<Entry> entries;
     private final List<String> allTargets;
-    private final Random random;
 
     public BftShardRouter(ShardConfig config) {
         if (config.getMode() != ShardingMode.BFT_SHARD) {
@@ -51,7 +50,6 @@ public class BftShardRouter implements ShardRouter {
             .map(Entry::url)
             .distinct()
             .toList();
-        this.random = new Random();
 
         logger.info("BftShardRouter initialized with {} shards, {} unique targets",
             entries.size(), allTargets.size());
@@ -96,7 +94,7 @@ public class BftShardRouter implements ShardRouter {
             }
         }
 
-        throw new RuntimeException(
+        throw new IllegalStateException(
             "No bft shard matches stateId prefix for '" + stateIdHex + "'");
     }
 
@@ -128,7 +126,7 @@ public class BftShardRouter implements ShardRouter {
         if (allTargets.isEmpty()) {
             throw new IllegalStateException("No shard targets configured");
         }
-        return allTargets.get(random.nextInt(allTargets.size()));
+        return allTargets.get(ThreadLocalRandom.current().nextInt(allTargets.size()));
     }
 
     @Override

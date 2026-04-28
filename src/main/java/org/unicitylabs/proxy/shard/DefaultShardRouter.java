@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Routes requests to shard targets by matching the v2 {@code stateId} against
@@ -26,13 +27,11 @@ public class DefaultShardRouter implements ShardRouter {
     private final List<ShardSuffix> suffixes;
     private final List<String> allTargets;
     private final Map<Integer, String> shardIdToUrl;
-    private final Random random;
     private final ShardTreeNode rootNode;
 
     public DefaultShardRouter(ShardConfig config) {
         this.suffixes = new ArrayList<>();
         this.shardIdToUrl = new HashMap<>();
-        this.random = new Random();
 
         for (ShardInfo shardInfo : config.getShards()) {
             ShardSuffix suffix = new ShardSuffix(shardInfo);
@@ -132,7 +131,7 @@ public class DefaultShardRouter implements ShardRouter {
             return current.getTargetUrl();
         }
 
-        throw new RuntimeException("Error: could not find a matching shard for stateId: " + stateIdHex);
+        throw new IllegalStateException("Error: could not find a matching shard for stateId: " + stateIdHex);
     }
 
     @Override
@@ -159,7 +158,7 @@ public class DefaultShardRouter implements ShardRouter {
         if (allTargets.isEmpty()) {
             throw new IllegalStateException("No shard targets configured");
         }
-        return allTargets.get(random.nextInt(allTargets.size()));
+        return allTargets.get(ThreadLocalRandom.current().nextInt(allTargets.size()));
     }
 
     @Override
