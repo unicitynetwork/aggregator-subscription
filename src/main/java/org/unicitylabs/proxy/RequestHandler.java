@@ -25,6 +25,7 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.Set;
@@ -274,7 +275,7 @@ public class RequestHandler extends Handler.Abstract {
             } catch (IllegalArgumentException e) {
                 logger.warn("Invalid routing parameters: {}", e.getMessage());
                 response.setStatus(HttpStatus.BAD_REQUEST_400);
-                String errorBody = String.format("{\"error\":\"%s\"}", e.getMessage());
+                String errorBody = routingErrorBody(e.getMessage());
                 response.write(true, ByteBuffer.wrap(errorBody.getBytes()), callback);
                 return;
             }
@@ -309,6 +310,15 @@ public class RequestHandler extends Handler.Abstract {
             
         } catch (Exception e) {
             handleError(response, callback, e);
+        }
+    }
+
+    private String routingErrorBody(String message) {
+        try {
+            return objectMapper.writeValueAsString(Map.of("error", message));
+        } catch (Exception e) {
+            logger.debug("Could not serialize routing error response", e);
+            return "{\"error\":\"Invalid routing parameters\"}";
         }
     }
 
@@ -493,27 +503,11 @@ public class RequestHandler extends Handler.Abstract {
         String stateId = null;
         String shardId = null;
 
+        String method = extractJsonRpcMethodFromBody(root);
+
         try {
-            String method = extractJsonRpcMethodFromBody(root);
-
             if (CERTIFICATION_REQUEST.equals(method) && root.has("params")) {
-                // certification_request params are a tagged/versioned CBOR value.
-                var tagged = CborDeserializer.readTag(HexConverter.decode(root.get("params").asText()));
-                if (tagged.getTag() != CERTIFICATION_REQUEST_CBOR_TAG) {
-                    throw new IllegalArgumentException("unexpected certification_request CBOR tag: " + tagged.getTag());
-                }
-
-                List<byte[]> data = CborDeserializer.readArray(tagged.getData());
-                if (data.size() < 2) {
-                    throw new IllegalArgumentException("certification_request params missing stateId field");
-                }
-
-                int version = CborDeserializer.readUnsignedInteger(data.getFirst()).asInt();
-                if (version != CERTIFICATION_REQUEST_VERSION) {
-                    throw new IllegalArgumentException("unsupported certification_request version: " + version);
-                }
-
-                stateId = HexConverter.encode(CborDeserializer.readByteString(data.get(1)));
+                stateId = extractCertificationRequestStateId(root.get("params").asText());
             } else if (root.path("params").has("stateId")) {
                 stateId = root.path("params").path("stateId").asText(null);
             }
@@ -521,11 +515,47 @@ public class RequestHandler extends Handler.Abstract {
             if (root.path("params").has("shardId")) {
                 shardId = root.path("params").path("shardId").asText(null);
             }
+        } catch (IllegalArgumentException e) {
+            if (CERTIFICATION_REQUEST.equals(method)) {
+                throw e;
+            }
+            logger.debug("Could not extract routing params from request body", e);
         } catch (Exception e) {
+            if (CERTIFICATION_REQUEST.equals(method)) {
+                String message = e.getMessage();
+                if (message == null || message.isBlank()) {
+                    message = "invalid certification_request params";
+                }
+                throw new IllegalArgumentException(message, e);
+            }
             logger.debug("Could not extract routing params from request body", e);
         }
 
         return new RoutingParams(stateId, shardId);
+    }
+
+    private String extractCertificationRequestStateId(String paramsHex) {
+        // certification_request params are a tagged/versioned CBOR value.
+        var tagged = CborDeserializer.readTag(HexConverter.decode(paramsHex));
+        if (tagged.getTag() != CERTIFICATION_REQUEST_CBOR_TAG) {
+            throw new IllegalArgumentException("unexpected certification_request CBOR tag: " + tagged.getTag());
+        }
+
+        List<byte[]> data = CborDeserializer.readArray(tagged.getData());
+        if (data.size() < 2) {
+            throw new IllegalArgumentException("certification_request params missing stateId field");
+        }
+
+        int version = CborDeserializer.readUnsignedInteger(data.getFirst()).asInt();
+        if (version != CERTIFICATION_REQUEST_VERSION) {
+            throw new IllegalArgumentException("unsupported certification_request version: " + version);
+        }
+
+        try {
+            return HexConverter.encode(CborDeserializer.readByteString(data.get(1)));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("certification_request stateId must be a byte string", e);
+        }
     }
 
     private boolean isJsonRpcRequest(JsonNode root) {

@@ -101,7 +101,8 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
             getAuthorizedRequestBuilder("/"),
             certificationRequestJson(CERTIFICATION_REQUEST_PARAMS_HEX_WRONG_TAG));
         assertEquals(400, response.statusCode());
-        assertTrue(response.body().contains("requires stateId"), "got: " + response.body());
+        assertTrue(response.body().contains("unexpected certification_request CBOR tag"),
+            "got: " + response.body());
     }
 
     @Test
@@ -111,7 +112,8 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
             getAuthorizedRequestBuilder("/"),
             certificationRequestJson(CERTIFICATION_REQUEST_PARAMS_HEX_WRONG_VERSION));
         assertEquals(400, response.statusCode());
-        assertTrue(response.body().contains("requires stateId"), "got: " + response.body());
+        assertTrue(response.body().contains("unsupported certification_request version"),
+            "got: " + response.body());
     }
 
     @Test
@@ -121,7 +123,8 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
             getAuthorizedRequestBuilder("/"),
             certificationRequestJson("d998768101"));
         assertEquals(400, response.statusCode());
-        assertTrue(response.body().contains("requires stateId"), "got: " + response.body());
+        assertTrue(response.body().contains("certification_request params missing stateId field"),
+            "got: " + response.body());
     }
 
     @Test
@@ -131,7 +134,8 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
             getAuthorizedRequestBuilder("/"),
             certificationRequestJson("d99876820100"));
         assertEquals(400, response.statusCode());
-        assertTrue(response.body().contains("requires stateId"), "got: " + response.body());
+        assertTrue(response.body().contains("certification_request stateId must be a byte string"),
+            "got: " + response.body());
     }
 
     @Test

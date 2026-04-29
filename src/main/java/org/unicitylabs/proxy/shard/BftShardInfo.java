@@ -50,7 +50,7 @@ public record BftShardInfo(String prefix, String url) {
             //noinspection ResultOfMethodCallIgnored
             URI.create(url);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("BFT shard URL is malformed: '" + url + "'");
+            throw new IllegalArgumentException("BFT shard URL is malformed: '" + url + "'", e);
         }
 
         this.prefix = prefix;

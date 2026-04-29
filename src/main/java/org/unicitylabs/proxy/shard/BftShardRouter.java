@@ -68,8 +68,8 @@ public class BftShardRouter implements ShardRouter {
         if (stateIdHex == null || stateIdHex.isBlank()) {
             throw new IllegalArgumentException("stateId cannot be null or empty");
         }
-        String normalized = stateIdHex.toLowerCase();
-        if (normalized.startsWith("0x")) {
+        String normalized = stateIdHex;
+        if (normalized.regionMatches(true, 0, "0x", 0, 2)) {
             normalized = normalized.substring(2);
         }
         byte[] keyBytes;
