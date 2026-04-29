@@ -25,7 +25,7 @@ services:
     container_name: aggregator-proxy
     environment:
       # Proxy configuration - container always listens on 8080 internally
-      PROXY_ARGS: "--port 8080 --protected-methods certification_request --token-type-ids-url file:///etc/aggregator/test-token-types.json"
+      PROXY_ARGS: "--port 8080 --protected-methods ${PROTECTED_METHODS:-certification_request} --token-type-ids-url file:///etc/aggregator/test-token-types.json"
       # Shard configuration
       SHARD_CONFIG_URI: "file:///etc/aggregator/shard-config.json"
       # Admin dashboard configuration
@@ -51,7 +51,7 @@ services:
       # Allow proxy to connect to host machine (for local aggregator)
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./scripts/sharding/shard-config-bft.json:/etc/aggregator/shard-config.json:ro
+      - ${SHARD_CONFIG_FILE:-./scripts/sharding/shard-config-bft.json}:/etc/aggregator/shard-config.json:ro
       - ./src/test/resources/test-token-types.json:/etc/aggregator/test-token-types.json:ro
     restart: unless-stopped
 

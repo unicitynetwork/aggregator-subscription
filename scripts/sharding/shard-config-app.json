@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "mode": "app-shard",
+  "shards": [
+    {"id": 2, "url": "http://aggregator-shard2:3000"},
+    {"id": 3, "url": "http://aggregator-shard1:3000"}
+  ]
+}
