@@ -97,10 +97,10 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("certification_request routes by X-State-Id without decoding embedded params")
+    @DisplayName("certification_request routes by X-State-ID without decoding embedded params")
     void certificationRequestRoutesByStateIdHeader() throws Exception {
         HttpResponse<String> response = performJsonRpcRequest(
-            getAuthorizedRequestBuilder("/").header("X-State-Id", ZERO_STATE_ID),
+            getAuthorizedRequestBuilder("/").header("X-State-ID", ZERO_STATE_ID),
             certificationRequestJson(CERTIFICATION_REQUEST_PARAMS_HEX_WRONG_TAG));
 
         assertEquals(200, response.statusCode(),
@@ -184,7 +184,7 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("shard-bound v2 method routes by X-State-Id when body has no stateId")
+    @DisplayName("shard-bound v2 method routes by X-State-ID when body has no stateId")
     void shardBoundV2RoutesByStateIdHeader() throws Exception {
         HttpResponse<String> response = postJsonWithStateIdHeader(
             jsonRpc("get_inclusion_proof.v2", "{}"), ONE_STATE_ID);
@@ -273,7 +273,7 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(getProxyUrl()))
             .header("Content-Type", "application/json")
-            .header("X-State-Id", stateId)
+            .header("X-State-ID", stateId)
             .POST(HttpRequest.BodyPublishers.ofString(jsonRpcRequest))
             .timeout(Duration.ofSeconds(5))
             .build();

@@ -90,7 +90,7 @@ public class RequestHandler extends Handler.Abstract {
     private static final String BEARER_AUTHORIZATION = "Bearer";
     static final String HEADER_X_API_KEY = "X-API-Key";
     static final String HEADER_X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
-    static final String HEADER_X_STATE_ID = "X-State-Id";
+    static final String HEADER_X_STATE_ID = "X-State-ID";
 
     private final HttpClient httpClient;
     private volatile ShardRouter shardRouter;
