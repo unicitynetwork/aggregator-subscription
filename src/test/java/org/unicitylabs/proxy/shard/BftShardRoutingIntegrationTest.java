@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * prefix {@code "0"} (MSB=0) and one for shard prefix {@code "1"} (MSB=1).
  */
 public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
+    private static final String ZERO_STATE_ID = "00".repeat(32);
+    private static final String ONE_STATE_ID = "80" + "00".repeat(31);
     private static final String CERTIFICATION_REQUEST_PARAMS_HEX_WRONG_TAG =
         CERTIFICATION_REQUEST_PARAMS_HEX.replaceFirst("^d99876", "d99877");
     private static final String CERTIFICATION_REQUEST_PARAMS_HEX_WRONG_VERSION =
@@ -92,6 +94,18 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
         assertEquals(200, response.statusCode(),
             "expected 200, got " + response.statusCode() + " body: " + response.body());
         assertEquals("bft-1", shardLabel(response));
+    }
+
+    @Test
+    @DisplayName("certification_request routes by X-State-Id without decoding embedded params")
+    void certificationRequestRoutesByStateIdHeader() throws Exception {
+        HttpResponse<String> response = performJsonRpcRequest(
+            getAuthorizedRequestBuilder("/").header("X-State-Id", ZERO_STATE_ID),
+            certificationRequestJson(CERTIFICATION_REQUEST_PARAMS_HEX_WRONG_TAG));
+
+        assertEquals(200, response.statusCode(),
+            "expected 200, got " + response.statusCode() + " body: " + response.body());
+        assertEquals("bft-0", shardLabel(response));
     }
 
     @Test
@@ -170,6 +184,17 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("shard-bound v2 method routes by X-State-Id when body has no stateId")
+    void shardBoundV2RoutesByStateIdHeader() throws Exception {
+        HttpResponse<String> response = postJsonWithStateIdHeader(
+            jsonRpc("get_inclusion_proof.v2", "{}"), ONE_STATE_ID);
+
+        assertEquals(200, response.statusCode(),
+            "expected 200, got " + response.statusCode() + " body: " + response.body());
+        assertEquals("bft-1", shardLabel(response));
+    }
+
+    @Test
     @DisplayName("shard-bound v2 method with only shardId (no stateId) returns 400")
     void shardBoundV2WithOnlyShardIdReturns400() throws Exception {
         HttpResponse<String> response = postJsonNoStatusCheck(
@@ -237,6 +262,18 @@ public class BftShardRoutingIntegrationTest extends AbstractIntegrationTest {
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(getProxyUrl()))
             .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(jsonRpcRequest))
+            .timeout(Duration.ofSeconds(5))
+            .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> postJsonWithStateIdHeader(String jsonRpcRequest, String stateId)
+        throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(getProxyUrl()))
+            .header("Content-Type", "application/json")
+            .header("X-State-Id", stateId)
             .POST(HttpRequest.BodyPublishers.ofString(jsonRpcRequest))
             .timeout(Duration.ofSeconds(5))
             .build();
