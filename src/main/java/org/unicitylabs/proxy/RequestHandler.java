@@ -2,7 +2,6 @@ package org.unicitylabs.proxy;
 
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.shard.ShardRouter;
-import org.unicitylabs.proxy.shard.ShardingMode;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
@@ -34,6 +33,8 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.io.IOException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.unicitylabs.proxy.util.CorsUtils;
@@ -89,6 +90,7 @@ public class RequestHandler extends Handler.Abstract {
     private static final String BEARER_AUTHORIZATION = "Bearer";
     static final String HEADER_X_API_KEY = "X-API-Key";
     static final String HEADER_X_RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
+    static final String HEADER_X_STATE_ID = "X-State-ID";
 
     private final HttpClient httpClient;
     private volatile ShardRouter shardRouter;
@@ -163,9 +165,9 @@ public class RequestHandler extends Handler.Abstract {
             requestBody = null;
         }
 
-        JsonNode root = attemptParsingRequestBodyAsJson(method, requestBody);
+        String jsonRpcMethod = extractJsonRpcMethodFromBody(method, requestBody);
 
-        if (requiresAuthentication(request.getMethod(), root)) {
+        if (requiresAuthentication(request.getMethod(), jsonRpcMethod)) {
             if (!performAuthenticationAndRateLimiting(request, response, callback, method, path)) {
                 return true;
             }
@@ -176,25 +178,38 @@ public class RequestHandler extends Handler.Abstract {
         }
 
         if (useVirtualThreads) {
-            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, root, response, callback));
+            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, jsonRpcMethod, response, callback));
         } else {
-            handleRequestAsync(request, requestBody, root, response, callback);
+            handleRequestAsync(request, requestBody, jsonRpcMethod, response, callback);
         }
         
         return true;
     }
 
-    private JsonNode attemptParsingRequestBodyAsJson(String method, byte[] requestBody) {
-        JsonNode root = null;
+    private String extractJsonRpcMethodFromBody(String method, byte[] requestBody) {
         if (POST.asString().equals(method) && requestBody != null) {
-            try {
-               root = objectMapper.readTree(requestBody);
+            try (JsonParser parser = objectMapper.getFactory().createParser(requestBody)) {
+                if (parser.nextToken() != JsonToken.START_OBJECT) {
+                    return null;
+                }
+
+                while (parser.nextToken() == JsonToken.FIELD_NAME) {
+                    String fieldName = parser.currentName();
+                    JsonToken valueToken = parser.nextToken();
+
+                    if ("method".equals(fieldName)) {
+                        return valueToken == JsonToken.VALUE_STRING ? parser.getText() : null;
+                    }
+
+                    parser.skipChildren();
+                }
             } catch (IOException e) {
-              // Non-JSON or invalid JSON content, will be treated as non-JSON-RPC request
-              logger.debug("Could not extract JSON method from request body", e);
+                // Non-JSON or invalid JSON content will be treated as a non-JSON-RPC request
+                // unless a method field was seen before the malformed part.
+                logger.debug("Could not extract JSON-RPC method from request body", e);
             }
         }
-        return root;
+        return null;
     }
 
     private boolean performValidationOnRequestSizeLimits(Request request, Response response, Callback callback) {
@@ -240,20 +255,15 @@ public class RequestHandler extends Handler.Abstract {
         return true;
     }
 
-    private boolean requiresAuthentication(String method, JsonNode root) {
-        boolean requiresAuth = false;
-        if (POST.asString().equals(method) && root != null) {
-            String jsonRpcMethod = extractJsonRpcMethodFromBody(root);
-            if (jsonRpcMethod != null && protectedMethods.contains(jsonRpcMethod)) {
-                requiresAuth = true;
-            }
-        }
-        return requiresAuth;
+    private boolean requiresAuthentication(String method, String jsonRpcMethod) {
+        return POST.asString().equals(method)
+            && jsonRpcMethod != null
+            && protectedMethods.contains(jsonRpcMethod);
     }
 
-    private void handleRequestAsync(Request request, byte[] cachedBody, JsonNode root, Response response, Callback callback) {
+    private void handleRequestAsync(Request request, byte[] cachedBody, String jsonRpcMethod, Response response, Callback callback) {
         try {
-            proxyRequest(request, cachedBody, root, response, callback);
+            proxyRequest(request, cachedBody, jsonRpcMethod, response, callback);
         } catch (Exception e) {
             logger.error("Error handling request", e);
             response.setStatus(HttpStatus.BAD_GATEWAY_502);
@@ -261,7 +271,7 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
     
-    private void proxyRequest(Request request, byte[] cachedBody, JsonNode root, Response response, Callback callback) {
+    private void proxyRequest(Request request, byte[] cachedBody, String jsonRpcMethod, Response response, Callback callback) {
         try {
             String method = request.getMethod();
             String path = Request.getPathInContext(request);
@@ -271,7 +281,7 @@ public class RequestHandler extends Handler.Abstract {
             // Determine target URL based on routing parameters
             String targetUrl;
             try {
-                targetUrl = determineTargetUrl(request, root);
+                targetUrl = determineTargetUrl(request, cachedBody, jsonRpcMethod);
             } catch (IllegalArgumentException e) {
                 logger.warn("Invalid routing parameters: {}", e.getMessage());
                 response.setStatus(HttpStatus.BAD_REQUEST_400);
@@ -488,22 +498,17 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private String extractJsonRpcMethodFromBody(JsonNode root) {
+    private JsonNode parseRequestBodyAsJsonForRouting(byte[] requestBody) {
         try {
-            if (root.has("method")) {
-                return root.get("method").asText();
-            }
-        } catch (Exception e) {
-            logger.debug("Could not extract JSON-RPC method from request body", e);
+            return objectMapper.readTree(requestBody);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Invalid JSON-RPC request body", e);
         }
-        return null;
     }
 
-    private RoutingParams extractRoutingParams(JsonNode root) {
+    private RoutingParams extractRoutingParams(JsonNode root, String method) {
         String stateId = null;
         String shardId = null;
-
-        String method = extractJsonRpcMethodFromBody(root);
 
         try {
             if (CERTIFICATION_REQUEST.equals(method) && root.has("params")) {
@@ -558,8 +563,15 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private boolean isJsonRpcRequest(JsonNode root) {
-        return root != null && root.has("method");
+    private RoutingParams extractRoutingParamsFromHeaders(Request request) {
+        String stateId = null;
+
+        var stateIdField = request.getHeaders().getField(HEADER_X_STATE_ID);
+        if (stateIdField != null && stateIdField.getValue() != null) {
+            stateId = stateIdField.getValue().trim();
+        }
+
+        return new RoutingParams(stateId, null);
     }
 
     private RoutingParams extractRoutingParamsFromCookies(Request request) {
@@ -620,19 +632,20 @@ public class RequestHandler extends Handler.Abstract {
         return shardRouter.getRandomTarget();
     }
 
-    private String determineTargetUrl(Request request, JsonNode root) throws IllegalArgumentException {
-        boolean isJsonRpc = isJsonRpcRequest(root);
+    private String determineTargetUrl(Request request, byte[] requestBody, String jsonRpcMethod) throws IllegalArgumentException {
+        boolean isJsonRpc = jsonRpcMethod != null;
 
-        RoutingParams params;
-        String rpcMethod = null;
-        if (isJsonRpc) {
-            params = extractRoutingParams(root);
-            rpcMethod = extractJsonRpcMethodFromBody(root);
-        } else {
-            params = extractRoutingParamsFromCookies(request);
+        RoutingParams headerParams = extractRoutingParamsFromHeaders(request);
+        if (headerParams.hasStateId()) {
+            return routeWithParams(headerParams, isJsonRpc, jsonRpcMethod);
         }
 
-        return routeWithParams(params, isJsonRpc, rpcMethod);
+        if (isJsonRpc) {
+            JsonNode root = parseRequestBodyAsJsonForRouting(requestBody);
+            return routeWithParams(extractRoutingParams(root, jsonRpcMethod), true, jsonRpcMethod);
+        }
+
+        return routeWithParams(extractRoutingParamsFromCookies(request), false, null);
     }
 
     ShardRouter getShardRouter() {

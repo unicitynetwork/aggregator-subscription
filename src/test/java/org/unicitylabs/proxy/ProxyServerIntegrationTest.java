@@ -337,8 +337,8 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should not require authentication for malformed JSON targeting protected endpoint")
-    void testMalformedJsonForProtectedEndpointDoesNotRequireAuth() throws Exception {
+    @DisplayName("Should apply method-based auth when protected method is found before malformed JSON tail")
+    void testMalformedJsonForProtectedEndpointUsesExtractedMethodForAuth() throws Exception {
         String malformedJson = "{\"jsonrpc\":\"2.0\",\"method\":\"certification_request\",\"params\":\"815820" + "00".repeat(32) + "\","; // Missing closing brace
 
         HttpRequest request = getRequestBuilder("/", authMode)
@@ -348,10 +348,13 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        // Should be treated as non-JSON-RPC request (no auth required)
-        // The mock server will respond with OK since it receives the request
-        assertThat(response.statusCode()).isEqualTo(OK_200);
-        assertThat(response.body()).isEqualTo("OK");
+        if (authMode == AUTHORIZED) {
+            assertThat(response.statusCode()).isEqualTo(BAD_REQUEST_400);
+            assertThat(response.body()).contains("Invalid JSON-RPC request body");
+        } else {
+            assertThat(response.statusCode()).isEqualTo(UNAUTHORIZED_401);
+            assertThat(response.body()).isEqualTo("Unauthorized");
+        }
     }
 
     @Test
