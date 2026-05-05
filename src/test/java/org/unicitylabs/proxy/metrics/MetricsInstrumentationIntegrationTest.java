@@ -146,6 +146,21 @@ class MetricsInstrumentationIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void rateLimitBucketGaugeReflectsAuthorizedTraffic() throws Exception {
+        // Before any authorized request, no bucket has been allocated.
+        long before = gauge(scrapeMetrics(), "gateway_ratelimit_buckets");
+
+        // One authorized request → bucket created for the default test API key.
+        HttpResponse<String> response = performJsonRpcRequest(
+            getAuthorizedRequestBuilder("/"), CERTIFICATION_REQUEST_JSON);
+        assertThat(response.statusCode()).isEqualTo(OK_200);
+
+        long after = gauge(scrapeMetrics(), "gateway_ratelimit_buckets");
+        assertThat(after).as("gateway_ratelimit_buckets should grow after a new key allocates a bucket")
+            .isGreaterThan(before);
+    }
+
+    @Test
     void successCounterIncrementsRateLimitRemainingHeaderPresent() throws Exception {
         // Sanity check that instrumentation does not break the existing
         // X-RateLimit-Remaining header path.
@@ -161,6 +176,24 @@ class MetricsInstrumentationIntegrationTest extends AbstractIntegrationTest {
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
         assertThat(resp.statusCode()).isEqualTo(200);
         return resp.body();
+    }
+
+    /**
+     * Returns the (single) value of an unlabeled gauge. Returns -1 if absent
+     * so the caller can distinguish "not present" from "present and zero".
+     */
+    private static long gauge(String scrape, String metric) {
+        Pattern line = Pattern.compile("^" + Pattern.quote(metric) + "(?:\\{[^}]*\\})?\\s+([0-9eE.+-]+)\\s*$",
+            Pattern.MULTILINE);
+        Matcher m = line.matcher(scrape);
+        if (m.find()) {
+            try {
+                return (long) Double.parseDouble(m.group(1));
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+        return -1;
     }
 
     /**

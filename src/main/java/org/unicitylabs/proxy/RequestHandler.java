@@ -177,7 +177,20 @@ public class RequestHandler extends Handler.Abstract {
 
         byte[] requestBody;
         if (hasBody(request.getMethod())) {
-            requestBody = readBodyWithLimit(request);
+            try {
+                requestBody = readBodyWithLimit(request);
+            } catch (IOException e) {
+                // Client transport failed mid-body. Without this catch, the
+                // exception bubbles out of handle(), Jetty's default error
+                // path runs, and our wrapped callback never fires — so the
+                // request is missing from gateway_requests_total.
+                logger.warn("Failed to read request body: {}", e.getMessage());
+                recorder.setOutcome(Outcome.BAD_REQUEST);
+                response.setStatus(HttpStatus.BAD_REQUEST_400);
+                response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
+                response.write(true, ByteBuffer.wrap("Failed to read request body".getBytes()), metricsCallback);
+                return true;
+            }
         } else {
             requestBody = null;
         }

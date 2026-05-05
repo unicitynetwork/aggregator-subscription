@@ -310,8 +310,9 @@ public class ProxyServer {
     /**
      * Build a stable URL → shard-label map for Prometheus labels. App-shard
      * targets get {@code shard-<id>}; bft-shard targets get
-     * {@code shard-<prefix>} (or {@code shard-default} for an empty prefix).
-     * Duplicate URLs across shards keep the first label seen.
+     * {@code shard-<prefix>}. Duplicate URLs across shards keep the first
+     * label seen. {@code BftShardInfo} validates at construction that prefix
+     * is non-blank, so no empty-prefix handling is needed here.
      */
     static Map<String, String> buildShardLabels(ShardConfig config) {
         Map<String, String> labels = new LinkedHashMap<>();
@@ -326,8 +327,7 @@ public class ProxyServer {
         if (config.getBftShards() != null) {
             for (BftShardInfo s : config.getBftShards()) {
                 if (s.url() != null) {
-                    String prefix = s.prefix() == null || s.prefix().isBlank() ? "default" : s.prefix();
-                    labels.putIfAbsent(s.url(), "shard-" + prefix);
+                    labels.putIfAbsent(s.url(), "shard-" + s.prefix());
                 }
             }
         }
