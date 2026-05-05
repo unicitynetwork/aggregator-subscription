@@ -1,5 +1,7 @@
 package org.unicitylabs.proxy;
 
+import org.unicitylabs.proxy.metrics.GatewayMetrics;
+import org.unicitylabs.proxy.metrics.GatewayMetrics.Outcome;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.shard.ShardRouter;
 import org.eclipse.jetty.http.HttpField;
@@ -101,8 +103,14 @@ public class RequestHandler extends Handler.Abstract {
     private final WebUIHandler webUIHandler;
     private final Set<String> protectedMethods;
     private final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
+    private final GatewayMetrics metrics;
 
     public RequestHandler(ProxyConfig config, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
+        this(config, shardRouter, databaseConfig, new GatewayMetrics());
+    }
+
+    public RequestHandler(ProxyConfig config, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig, GatewayMetrics metrics) {
+        this.metrics = metrics;
         this.shardRouter = shardRouter;
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
@@ -146,18 +154,21 @@ public class RequestHandler extends Handler.Abstract {
         // Add CORS headers to all responses
         CorsUtils.addCorsHeaders(request, response, HEADER_X_RATE_LIMIT_REMAINING);
 
+        RequestMetricsRecorder recorder = new RequestMetricsRecorder(metrics, response);
+        Callback metricsCallback = recorder.wrap(callback);
+
         // Handle CORS preflight OPTIONS requests
         if (OPTIONS.asString().equals(method)) {
             response.setStatus(HttpStatus.NO_CONTENT_204);
-            callback.succeeded();
+            metricsCallback.succeeded();
             return true;
         }
 
         // Handle web UI routes
         if ("/index.html".equals(path) || "/generate".equals(path)) {
-            return webUIHandler.handle(request, response, callback);
+            return webUIHandler.handle(request, response, metricsCallback);
         }
-        
+
         byte[] requestBody;
         if (hasBody(request.getMethod())) {
             requestBody = readBodyWithLimit(request);
@@ -166,23 +177,24 @@ public class RequestHandler extends Handler.Abstract {
         }
 
         String jsonRpcMethod = extractJsonRpcMethodFromBody(method, requestBody);
+        recorder.setJsonRpcMethod(jsonRpcMethod);
 
         if (requiresAuthentication(request.getMethod(), jsonRpcMethod)) {
-            if (!performAuthenticationAndRateLimiting(request, response, callback, method, path)) {
+            if (!performAuthenticationAndRateLimiting(request, response, metricsCallback, method, path, recorder)) {
                 return true;
             }
         }
 
-        if (!performValidationOnRequestSizeLimits(request, response, callback)) {
+        if (!performValidationOnRequestSizeLimits(request, response, metricsCallback, recorder)) {
             return true;
         }
 
         if (useVirtualThreads) {
-            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, jsonRpcMethod, response, callback));
+            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, jsonRpcMethod, response, metricsCallback, recorder));
         } else {
-            handleRequestAsync(request, requestBody, jsonRpcMethod, response, callback);
+            handleRequestAsync(request, requestBody, jsonRpcMethod, response, metricsCallback, recorder);
         }
-        
+
         return true;
     }
 
@@ -212,10 +224,11 @@ public class RequestHandler extends Handler.Abstract {
         return null;
     }
 
-    private boolean performValidationOnRequestSizeLimits(Request request, Response response, Callback callback) {
+    private boolean performValidationOnRequestSizeLimits(Request request, Response response, Callback callback, RequestMetricsRecorder recorder) {
         String validationError = validateRequestSizeLimits(request);
         if (validationError != null) {
             logger.warn("Request validation failed: {}", validationError);
+            recorder.setOutcome(Outcome.BAD_REQUEST);
             response.setStatus(HttpStatus.BAD_REQUEST_400);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.write(true, ByteBuffer.wrap(validationError.getBytes()), callback);
@@ -224,11 +237,12 @@ public class RequestHandler extends Handler.Abstract {
         return true;
     }
 
-    private boolean performAuthenticationAndRateLimiting(Request request, Response response, Callback callback, String method, String path) {
+    private boolean performAuthenticationAndRateLimiting(Request request, Response response, Callback callback, String method, String path, RequestMetricsRecorder recorder) {
         String apiKey = extractApiKey(request);
         if (apiKey == null || !apiKeyManager.isValidApiKey(apiKey)) {
             logger.warn("Authentication failed for request: {} {} - API key: {}", method, path,
                     apiKey != null ? "invalid" : "missing");
+            recorder.setOutcome(Outcome.UNAUTHORIZED);
             response.setStatus(HttpStatus.UNAUTHORIZED_401);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.getHeaders().put(HttpHeader.WWW_AUTHENTICATE, BEARER_AUTHORIZATION);
@@ -244,6 +258,7 @@ public class RequestHandler extends Handler.Abstract {
         RateLimiterManager.RateLimitResult rateLimitResult = rateLimiterManager.tryConsume(apiKey);
         if (!rateLimitResult.allowed()) {
             logger.info("Rate limit exceeded for API key: {}", apiKey);
+            recorder.setOutcome(Outcome.RATE_LIMITED);
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS_429);
             response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
             response.getHeaders().put(RETRY_AFTER, String.valueOf(rateLimitResult.retryAfterSeconds()));
@@ -261,17 +276,18 @@ public class RequestHandler extends Handler.Abstract {
             && protectedMethods.contains(jsonRpcMethod);
     }
 
-    private void handleRequestAsync(Request request, byte[] cachedBody, String jsonRpcMethod, Response response, Callback callback) {
+    private void handleRequestAsync(Request request, byte[] cachedBody, String jsonRpcMethod, Response response, Callback callback, RequestMetricsRecorder recorder) {
         try {
-            proxyRequest(request, cachedBody, jsonRpcMethod, response, callback);
+            proxyRequest(request, cachedBody, jsonRpcMethod, response, callback, recorder);
         } catch (Exception e) {
             logger.error("Error handling request", e);
+            recorder.setOutcome(Outcome.UPSTREAM_ERROR);
             response.setStatus(HttpStatus.BAD_GATEWAY_502);
             response.write(true, ByteBuffer.wrap("Bad Gateway".getBytes()), callback);
         }
     }
-    
-    private void proxyRequest(Request request, byte[] cachedBody, String jsonRpcMethod, Response response, Callback callback) {
+
+    private void proxyRequest(Request request, byte[] cachedBody, String jsonRpcMethod, Response response, Callback callback, RequestMetricsRecorder recorder) {
         try {
             String method = request.getMethod();
             String path = Request.getPathInContext(request);
@@ -284,6 +300,7 @@ public class RequestHandler extends Handler.Abstract {
                 targetUrl = determineTargetUrl(request, cachedBody, jsonRpcMethod);
             } catch (IllegalArgumentException e) {
                 logger.warn("Invalid routing parameters: {}", e.getMessage());
+                recorder.setOutcome(Outcome.ROUTING_ERROR);
                 response.setStatus(HttpStatus.BAD_REQUEST_400);
                 String errorBody = routingErrorBody(e.getMessage());
                 response.write(true, ByteBuffer.wrap(errorBody.getBytes()), callback);
@@ -309,16 +326,20 @@ public class RequestHandler extends Handler.Abstract {
                 .whenComplete((httpResponse, throwable) -> {
                     if (throwable != null) {
                         logger.error("Failed to proxy request to {}: {}", targetUri, throwable.getMessage());
+                        metrics.recordUpstream(targetUrl, false);
+                        recorder.setOutcome(Outcome.UPSTREAM_ERROR);
                         handleError(response, callback, throwable);
                     } else {
                         if (logger.isDebugEnabled()) {
                             logger.debug("Received response from {}: status {}", targetUri, httpResponse.statusCode());
                         }
+                        metrics.recordUpstream(targetUrl, httpResponse.statusCode() < 500);
                         forwardResponse(response, callback, httpResponse);
                     }
                 });
-            
+
         } catch (Exception e) {
+            recorder.setOutcome(Outcome.UPSTREAM_ERROR);
             handleError(response, callback, e);
         }
     }
@@ -656,5 +677,49 @@ public class RequestHandler extends Handler.Abstract {
         String cleanBase = baseUrl.replaceAll("/+$", "");
         String cleanPath = path.replaceAll("^/+", "");
         return URI.create(cleanBase + "/" + cleanPath).toString();
+    }
+
+    /**
+     * Per-request metrics state. Mutated as the request flows through the
+     * handler; recorded once when the response callback completes.
+     */
+    static final class RequestMetricsRecorder {
+        private final GatewayMetrics metrics;
+        private final Response response;
+        private final long startNanos = System.nanoTime();
+        private final java.util.concurrent.atomic.AtomicBoolean recorded = new java.util.concurrent.atomic.AtomicBoolean();
+        private volatile String jsonRpcMethod;
+        private volatile Outcome outcome = Outcome.SUCCESS;
+
+        RequestMetricsRecorder(GatewayMetrics metrics, Response response) {
+            this.metrics = metrics;
+            this.response = response;
+        }
+
+        void setJsonRpcMethod(String method) { this.jsonRpcMethod = method; }
+        void setOutcome(Outcome outcome) { this.outcome = outcome; }
+
+        Callback wrap(Callback delegate) {
+            return new Callback() {
+                @Override
+                public void succeeded() {
+                    recordOnce();
+                    delegate.succeeded();
+                }
+
+                @Override
+                public void failed(Throwable x) {
+                    recordOnce();
+                    delegate.failed(x);
+                }
+            };
+        }
+
+        private void recordOnce() {
+            if (recorded.compareAndSet(false, true)) {
+                long elapsed = System.nanoTime() - startNanos;
+                metrics.recordRequest(outcome, jsonRpcMethod, response.getStatus(), elapsed);
+            }
+        }
     }
 }
