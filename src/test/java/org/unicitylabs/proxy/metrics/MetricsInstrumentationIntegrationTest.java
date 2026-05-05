@@ -5,10 +5,13 @@ import org.unicitylabs.proxy.AbstractIntegrationTest;
 
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.eclipse.jetty.http.HttpStatus.BAD_GATEWAY_502;
+import static org.eclipse.jetty.http.HttpStatus.BAD_REQUEST_400;
 import static org.eclipse.jetty.http.HttpStatus.OK_200;
 import static org.eclipse.jetty.http.HttpStatus.TOO_MANY_REQUESTS_429;
 import static org.eclipse.jetty.http.HttpStatus.UNAUTHORIZED_401;
@@ -78,22 +81,68 @@ class MetricsInstrumentationIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void routingErrorIncrementsRoutingErrorCounter() throws Exception {
-        // get_inclusion_proof.v2 with a stateId of all zeros — valid hex but
-        // causes the router to fail because no shard prefix matches in the
-        // single-shard test config. Either way it's parsed as JSON-RPC and
-        // hits a 4xx path that's not unauthorized/rate-limited.
+        // get_inclusion_proof.v2 is shard-bound and requires stateId. Sending
+        // it with empty params triggers the routing-error branch in
+        // determineTargetUrl deterministically (no body parsing needed).
+        String body = """
+            {"jsonrpc":"2.0","method":"get_inclusion_proof.v2","params":{},"id":1}""";
         HttpResponse<String> response = performJsonRpcRequest(
-            getAuthorizedRequestBuilder("/"), GET_INCLUSION_PROOF_V2_JSON);
-        // Status may be 2xx (forwarded successfully) or 4xx routing_error
-        // depending on shard config — what we're verifying is that
-        // *some* counter increments and the request was instrumented.
-        assertThat(response.statusCode()).isBetween(200, 599);
+            getNotAuthorizedRequestBuilder("/"), body);
+        assertThat(response.statusCode()).isEqualTo(BAD_REQUEST_400);
 
         String scrape = scrapeMetrics();
-        // get_inclusion_proof.v2 is in the known-methods set
-        long total = counter(scrape, "gateway_requests_total",
-            "jsonrpc_method=\"get_inclusion_proof.v2\"");
-        assertThat(total).as("expected at least one request counted for get_inclusion_proof.v2").isGreaterThanOrEqualTo(1);
+        long routingErrors = counter(scrape, "gateway_requests_total",
+            "outcome=\"routing_error\"",
+            "jsonrpc_method=\"get_inclusion_proof.v2\"",
+            "status_class=\"4xx\"");
+        assertThat(routingErrors).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void oversizedHeadersIncrementBadRequestCounter() throws Exception {
+        // Send >MAX_HEADER_COUNT (200) headers; validateRequestSizeLimits
+        // returns the bad_request branch.
+        HttpRequest.Builder b = getAuthorizedRequestBuilder("/");
+        for (int i = 0; i < 250; i++) {
+            b = b.header("X-Stuff-" + i, "v" + i);
+        }
+        HttpRequest req = b
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(CERTIFICATION_REQUEST_JSON))
+            .timeout(Duration.ofSeconds(5))
+            .build();
+        HttpResponse<String> response = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(BAD_REQUEST_400);
+
+        String scrape = scrapeMetrics();
+        long badRequests = counter(scrape, "gateway_requests_total",
+            "outcome=\"bad_request\"",
+            "jsonrpc_method=\"certification_request\"",
+            "status_class=\"4xx\"");
+        assertThat(badRequests).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void unreachableUpstreamIncrementsUpstreamErrorCounter() throws Exception {
+        // Stop the mock so the proxy's upstream call fails with a connection
+        // error → handleError → outcome=upstream_error.
+        mockServer.stop();
+
+        HttpResponse<String> response = performJsonRpcRequest(
+            getAuthorizedRequestBuilder("/"), CERTIFICATION_REQUEST_JSON);
+        assertThat(response.statusCode()).isEqualTo(BAD_GATEWAY_502);
+
+        String scrape = scrapeMetrics();
+        long upstreamErrors = counter(scrape, "gateway_requests_total",
+            "outcome=\"upstream_error\"",
+            "jsonrpc_method=\"certification_request\"",
+            "status_class=\"5xx\"");
+        assertThat(upstreamErrors).isGreaterThanOrEqualTo(1);
+
+        // The dedicated upstream counter should also reflect the failure.
+        long upstreamFailures = counter(scrape, "gateway_upstream_requests_total",
+            "outcome=\"error\"");
+        assertThat(upstreamFailures).isGreaterThanOrEqualTo(1);
     }
 
     @Test

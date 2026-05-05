@@ -140,7 +140,9 @@ public final class GatewayMetrics {
 
     public <T> void registerRateLimitBucketGauge(T source, ToDoubleFunction<T> sizeFn) {
         io.micrometer.core.instrument.Gauge.builder("gateway_ratelimit_buckets", source, sizeFn)
-            .description("Number of active per-API-key rate-limit buckets")
+            .description("Per-API-key rate-limit buckets currently held in memory. " +
+                "Buckets are created on first use and not evicted, so the value " +
+                "approximates the count of distinct API keys seen since startup.")
             .register(registry);
     }
 
@@ -185,7 +187,10 @@ public final class GatewayMetrics {
     private static String statusClass(int status) {
         if (status >= 500) return "5xx";
         if (status >= 400) return "4xx";
-        if (status >= 300) return "3xx";
+        // 3xx upstream responses fold into 2xx — the proxy disables redirect
+        // following, so any 3xx received is forwarded as-is and is treated as a
+        // successful upstream interaction. Keeping the documented three-class
+        // schema ({2xx,4xx,5xx}) keeps dashboards/alerts stable.
         if (status >= 200) return "2xx";
         return "other";
     }
