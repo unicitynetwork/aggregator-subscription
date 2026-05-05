@@ -275,6 +275,10 @@ public class ProxyServer {
         }
 
         server.stop();
+        // Release the meter registry's listeners (notably JvmGcMetrics' GC
+        // notification listener) — required when the same JVM constructs
+        // and tears down ProxyServer repeatedly.
+        metrics.close();
         logger.info("Proxy server stopped");
     }
     

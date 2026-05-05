@@ -30,7 +30,7 @@ import java.util.function.ToDoubleFunction;
  * the request-duration timer is applied globally via a {@link MeterFilter}
  * registered at construction time.
  */
-public final class GatewayMetrics {
+public final class GatewayMetrics implements AutoCloseable {
 
     public enum Outcome {
         SUCCESS("success"),
@@ -71,6 +71,7 @@ public final class GatewayMetrics {
     );
 
     private final PrometheusMeterRegistry registry;
+    private final JvmGcMetrics jvmGcMetrics;
     private final ConcurrentHashMap<RequestKey, Counter> requestCounters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<TimerKey, Timer> requestTimers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UpstreamKey, Counter> upstreamCounters = new ConcurrentHashMap<>();
@@ -97,11 +98,22 @@ public final class GatewayMetrics {
         });
 
         new JvmMemoryMetrics().bindTo(registry);
-        new JvmGcMetrics().bindTo(registry);
+        // JvmGcMetrics installs a GC notification listener and must be
+        // closed when the registry is torn down — otherwise repeated
+        // ProxyServer construction (tests, embedded use, in-JVM rolling
+        // restarts) accumulates listeners.
+        this.jvmGcMetrics = new JvmGcMetrics();
+        jvmGcMetrics.bindTo(registry);
         new JvmThreadMetrics().bindTo(registry);
         new ProcessorMetrics().bindTo(registry);
         new UptimeMetrics().bindTo(registry);
         new FileDescriptorMetrics().bindTo(registry);
+    }
+
+    @Override
+    public void close() {
+        jvmGcMetrics.close();
+        registry.close();
     }
 
     public PrometheusMeterRegistry registry() {
@@ -184,13 +196,17 @@ public final class GatewayMetrics {
         return KNOWN_METHODS.contains(method) ? method : METHOD_OTHER;
     }
 
+    /**
+     * Maps the response status to its standard class label. The proxy
+     * disables redirect following but forwards 3xx upstream responses
+     * unchanged, so 3xx is exposed as its own class for visibility — folding
+     * it into 2xx would hide redirects from dashboards/alerts. The full
+     * label set is {@code {2xx, 3xx, 4xx, 5xx, other}}.
+     */
     private static String statusClass(int status) {
         if (status >= 500) return "5xx";
         if (status >= 400) return "4xx";
-        // 3xx upstream responses fold into 2xx — the proxy disables redirect
-        // following, so any 3xx received is forwarded as-is and is treated as a
-        // successful upstream interaction. Keeping the documented three-class
-        // schema ({2xx,4xx,5xx}) keeps dashboards/alerts stable.
+        if (status >= 300) return "3xx";
         if (status >= 200) return "2xx";
         return "other";
     }
