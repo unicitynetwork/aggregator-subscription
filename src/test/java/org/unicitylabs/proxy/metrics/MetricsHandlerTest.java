@@ -88,6 +88,31 @@ public class MetricsHandlerTest {
         assertThat(resp.statusCode()).isEqualTo(404);
     }
 
+    @Test
+    void rejectsNonGetMethodsWith405() throws Exception {
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+        HttpResponse<String> post = http.send(
+            HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/metrics"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertThat(post.statusCode()).isEqualTo(405);
+        assertThat(post.headers().firstValue("allow")).hasValue("GET");
+    }
+
+    @Test
+    void usesStableShardLabelWhenMapped() throws Exception {
+        metrics.setShardLabels(java.util.Map.of("http://shard-host:1234", "shard-7"));
+        metrics.recordUpstream("http://shard-host:1234", true);
+        metrics.recordUpstream("http://unmapped:9000", true);
+
+        String body = scrape();
+        assertThat(body).contains("shard=\"shard-7\"");
+        assertThat(body).contains("shard=\"unknown\"");
+        // The raw URL must NOT leak as a label value.
+        assertThat(body).doesNotContain("shard=\"http://shard-host:1234\"");
+    }
+
     private String scrape() throws Exception {
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
         HttpResponse<String> resp = http.send(

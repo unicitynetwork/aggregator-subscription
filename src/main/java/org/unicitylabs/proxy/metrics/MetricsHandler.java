@@ -1,6 +1,7 @@
 package org.unicitylabs.proxy.metrics;
 
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
@@ -24,6 +25,12 @@ public class MetricsHandler extends Handler.Abstract {
     public boolean handle(Request request, Response response, Callback callback) {
         if (!PATH.equals(request.getHttpURI().getPath())) {
             return false;
+        }
+        if (!HttpMethod.GET.is(request.getMethod())) {
+            response.setStatus(HttpStatus.METHOD_NOT_ALLOWED_405);
+            response.getHeaders().put(HttpHeader.ALLOW, "GET");
+            callback.succeeded();
+            return true;
         }
         byte[] body = metrics.scrape().getBytes(StandardCharsets.UTF_8);
         response.setStatus(HttpStatus.OK_200);

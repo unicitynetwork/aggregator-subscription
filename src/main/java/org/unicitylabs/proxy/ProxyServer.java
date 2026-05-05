@@ -12,6 +12,8 @@ import org.unicitylabs.proxy.shard.*;
 import org.unicitylabs.proxy.util.EnvironmentProvider;
 import org.unicitylabs.proxy.util.ResourceLoader;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -57,9 +59,9 @@ public class ProxyServer {
         ServerConnector connector = getServerConnector(config);
         server.addConnector(connector);
 
+        this.metrics = new GatewayMetrics();
         ShardRouter shardRouter = loadInitialShardConfiguration(config, environmentProvider);
 
-        this.metrics = new GatewayMetrics();
         this.requestHandler = new RequestHandler(config, shardRouter, databaseConfig, metrics);
         this.rateLimiterManager = requestHandler.getRateLimiterManager();
         metrics.registerRateLimitBucketGauge(rateLimiterManager, RateLimiterManager::getBucketCount);
@@ -145,6 +147,7 @@ public class ProxyServer {
             ShardConfigValidator.validate(tempRouter, configRecord.config(), validateShardConnectivity);
             this.lastConfigId = configRecord.id();
             shardRouter = tempRouter;
+            metrics.setShardLabels(buildShardLabels(configRecord.config()));
             logger.info("Shard configuration loaded and validated successfully (mode: {}, id: {}, created at: {})",
                 configRecord.config().getMode(), configRecord.id(), configRecord.createdAt());
         } catch (Exception e) {
@@ -173,6 +176,7 @@ public class ProxyServer {
             int insertedId = shardConfigRepository.saveConfig(shardConfig, "environment");
             this.lastConfigId = insertedId;
             shardRouter = tempRouter;
+            metrics.setShardLabels(buildShardLabels(shardConfig));
 
             logger.info("Shard configuration loaded from {} and saved to database (id: {})", configUri, insertedId);
         } catch (Exception e) {
@@ -198,6 +202,7 @@ public class ProxyServer {
 
                         requestHandler.updateShardRouter(newRouter);
                         paymentHandler.updateShardRouter(newRouter);
+                        metrics.setShardLabels(buildShardLabels(latestRecord.config()));
                         lastConfigId = latestRecord.id();
 
                         logger.info("Shard configuration hot-reloaded successfully (mode: {}, id: {}) with {} targets",
@@ -300,5 +305,32 @@ public class ProxyServer {
 
     public ShardRouter getShardRouter() {
         return this.requestHandler.getShardRouter();
+    }
+
+    /**
+     * Build a stable URL → shard-label map for Prometheus labels. App-shard
+     * targets get {@code shard-<id>}; bft-shard targets get
+     * {@code shard-<prefix>} (or {@code shard-default} for an empty prefix).
+     * Duplicate URLs across shards keep the first label seen.
+     */
+    static Map<String, String> buildShardLabels(ShardConfig config) {
+        Map<String, String> labels = new LinkedHashMap<>();
+        if (config == null) return labels;
+        if (config.getShards() != null) {
+            for (ShardInfo s : config.getShards()) {
+                if (s.url() != null) {
+                    labels.putIfAbsent(s.url(), "shard-" + s.id());
+                }
+            }
+        }
+        if (config.getBftShards() != null) {
+            for (BftShardInfo s : config.getBftShards()) {
+                if (s.url() != null) {
+                    String prefix = s.prefix() == null || s.prefix().isBlank() ? "default" : s.prefix();
+                    labels.putIfAbsent(s.url(), "shard-" + prefix);
+                }
+            }
+        }
+        return labels;
     }
 }

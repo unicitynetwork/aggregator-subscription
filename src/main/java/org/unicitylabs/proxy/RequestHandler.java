@@ -105,7 +105,13 @@ public class RequestHandler extends Handler.Abstract {
     private final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
     private final GatewayMetrics metrics;
 
-    public RequestHandler(ProxyConfig config, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
+    /**
+     * Test-only convenience constructor: spins up a throwaway
+     * {@link GatewayMetrics} (with its own JVM/system binders). Production
+     * code must use the 4-arg constructor with a shared {@code GatewayMetrics}
+     * to avoid duplicate metric registrations.
+     */
+    RequestHandler(ProxyConfig config, ShardRouter shardRouter, org.unicitylabs.proxy.repository.DatabaseConfig databaseConfig) {
         this(config, shardRouter, databaseConfig, new GatewayMetrics());
     }
 
