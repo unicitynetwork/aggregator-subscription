@@ -5,11 +5,15 @@ import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.unicitylabs.proxy.metrics.GatewayMetrics;
+import org.unicitylabs.proxy.metrics.MetricsHandler;
 import org.unicitylabs.proxy.repository.ShardConfigRepository;
 import org.unicitylabs.proxy.shard.*;
 import org.unicitylabs.proxy.util.EnvironmentProvider;
 import org.unicitylabs.proxy.util.ResourceLoader;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +33,7 @@ public class ProxyServer {
     private final ShardConfigRepository shardConfigRepository;
     private final ScheduledExecutorService configPoller;
     private final boolean validateShardConnectivity;
+    private final GatewayMetrics metrics;
 
     private volatile int lastConfigId;
 
@@ -54,10 +59,12 @@ public class ProxyServer {
         ServerConnector connector = getServerConnector(config);
         server.addConnector(connector);
 
+        this.metrics = new GatewayMetrics();
         ShardRouter shardRouter = loadInitialShardConfiguration(config, environmentProvider);
 
-        this.requestHandler = new RequestHandler(config, shardRouter, databaseConfig);
+        this.requestHandler = new RequestHandler(config, shardRouter, databaseConfig, metrics);
         this.rateLimiterManager = requestHandler.getRateLimiterManager();
+        metrics.registerRateLimitBucketGauge(rateLimiterManager, RateLimiterManager::getBucketCount);
 
         AdminHandler adminHandler = new AdminHandler(
             config.getAdminPassword(),
@@ -76,10 +83,15 @@ public class ProxyServer {
         // Create config handler for public config endpoints
         ConfigHandler configHandler = new ConfigHandler(shardConfigRepository);
 
-        // Create a combined handler that tries handlers in order: health, config, payment, admin, then proxy
+        MetricsHandler metricsHandler = new MetricsHandler(metrics);
+
+        // Create a combined handler that tries handlers in order: metrics, health, config, payment, admin, then proxy
         Handler.Abstract combinedHandler = new Handler.Abstract() {
             @Override
             public boolean handle(Request request, Response response, Callback callback) throws Exception {
+                if (metricsHandler.handle(request, response, callback)) {
+                    return true;
+                }
                 // Try health check first (for /health endpoint)
                 if (healthCheckHandler.handle(request, response, callback)) {
                     return true;
@@ -135,6 +147,7 @@ public class ProxyServer {
             ShardConfigValidator.validate(tempRouter, configRecord.config(), validateShardConnectivity);
             this.lastConfigId = configRecord.id();
             shardRouter = tempRouter;
+            metrics.setShardLabels(buildShardLabels(configRecord.config()));
             logger.info("Shard configuration loaded and validated successfully (mode: {}, id: {}, created at: {})",
                 configRecord.config().getMode(), configRecord.id(), configRecord.createdAt());
         } catch (Exception e) {
@@ -163,6 +176,7 @@ public class ProxyServer {
             int insertedId = shardConfigRepository.saveConfig(shardConfig, "environment");
             this.lastConfigId = insertedId;
             shardRouter = tempRouter;
+            metrics.setShardLabels(buildShardLabels(shardConfig));
 
             logger.info("Shard configuration loaded from {} and saved to database (id: {})", configUri, insertedId);
         } catch (Exception e) {
@@ -188,6 +202,7 @@ public class ProxyServer {
 
                         requestHandler.updateShardRouter(newRouter);
                         paymentHandler.updateShardRouter(newRouter);
+                        metrics.setShardLabels(buildShardLabels(latestRecord.config()));
                         lastConfigId = latestRecord.id();
 
                         logger.info("Shard configuration hot-reloaded successfully (mode: {}, id: {}) with {} targets",
@@ -260,6 +275,10 @@ public class ProxyServer {
         }
 
         server.stop();
+        // Release the meter registry's listeners (notably JvmGcMetrics' GC
+        // notification listener) — required when the same JVM constructs
+        // and tears down ProxyServer repeatedly.
+        metrics.close();
         logger.info("Proxy server stopped");
     }
     
@@ -290,5 +309,32 @@ public class ProxyServer {
 
     public ShardRouter getShardRouter() {
         return this.requestHandler.getShardRouter();
+    }
+
+    /**
+     * Build a stable URL → shard-label map for Prometheus labels. App-shard
+     * targets get {@code shard-<id>}; bft-shard targets get
+     * {@code shard-<prefix>}. Duplicate URLs across shards keep the first
+     * label seen. {@code BftShardInfo} validates at construction that prefix
+     * is non-blank, so no empty-prefix handling is needed here.
+     */
+    static Map<String, String> buildShardLabels(ShardConfig config) {
+        Map<String, String> labels = new LinkedHashMap<>();
+        if (config == null) return labels;
+        if (config.getShards() != null) {
+            for (ShardInfo s : config.getShards()) {
+                if (s.url() != null) {
+                    labels.putIfAbsent(s.url(), "shard-" + s.id());
+                }
+            }
+        }
+        if (config.getBftShards() != null) {
+            for (BftShardInfo s : config.getBftShards()) {
+                if (s.url() != null) {
+                    labels.putIfAbsent(s.url(), "shard-" + s.prefix());
+                }
+            }
+        }
+        return labels;
     }
 }

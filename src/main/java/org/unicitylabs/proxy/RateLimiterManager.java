@@ -30,6 +30,10 @@ public class RateLimiterManager {
         buckets.clear();
     }
 
+    public int getBucketCount() {
+        return buckets.size();
+    }
+
     public RateLimitResult tryConsume(String apiKey) {
         CachedApiKeyManager.ApiKeyInfo currentApiKeyInfo = apiKeyManager.getApiKeyInfo(apiKey);
         if (currentApiKeyInfo == null) {
