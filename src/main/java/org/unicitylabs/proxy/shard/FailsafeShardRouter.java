@@ -15,32 +15,32 @@ public class FailsafeShardRouter implements ShardRouter {
     }
 
     @Override
-    public String routeByRequestId(String requestIdHex) {
-        throw new IllegalStateException(
-            "Shard routing is unavailable due to invalid configuration. " +
-            "Please fix the shard configuration via the Admin UI."
-        );
+    public ShardingMode getMode() {
+        return ShardingMode.APP_SHARD;
     }
 
     @Override
-    public Optional<String> routeByShardId(int shardId) {
-        throw new IllegalStateException(
-            "Shard routing is unavailable due to invalid configuration. " +
-            "Please fix the shard configuration via the Admin UI."
-        );
+    public String routeByStateId(String stateIdHex) {
+        throw new IllegalStateException(unavailableMessage());
+    }
+
+    @Override
+    public Optional<String> routeByShardId(String shardIdLabel) {
+        throw new IllegalStateException(unavailableMessage());
     }
 
     @Override
     public String getRandomTarget() {
-        throw new IllegalStateException(
-            "Shard routing is unavailable due to invalid configuration. " +
-            "Please fix the shard configuration via the Admin UI."
-        );
+        throw new IllegalStateException(unavailableMessage());
     }
 
     @Override
     public List<String> getAllTargets() {
-        // Return empty list instead of throwing, as this might be called for informational purposes
         return Collections.emptyList();
+    }
+
+    private static String unavailableMessage() {
+        return "Shard routing is unavailable due to invalid configuration. " +
+            "Please fix the shard configuration via the Admin UI.";
     }
 }

@@ -1,221 +1,268 @@
+x-bft-base: &bft-base
+  platform: linux/amd64
+  user: "${USER_UID:-0}:${USER_GID:-0}"
+  image: "${BFT_CORE_IMAGE:-ghcr.io/unicitynetwork/bft-core:ceceacd11b7a735de74ce17884a3a45e0db1748d}"
+  pull_policy: always
+
+x-aggregator-base: &aggregator-base
+  image: "${AGGREGATOR_GO_IMAGE:-ghcr.io/unicitynetwork/aggregator-go:sha-9a9ed24}"
+  pull_policy: always
+  platform: linux/amd64
+  user: "${USER_UID:-0}:${USER_GID:-0}"
+  restart: unless-stopped
+  networks:
+    - default
+
 services:
   # ===========================================================================
-  # BFT Consensus Layer
+  # BFT Rootchain - 4 Root Nodes
   # ===========================================================================
-  x-bft: &bft-base
-    platform: linux/amd64
-    user: "${USER_UID:-1001}:${USER_GID:-1001}"
-    image: ghcr.io/unicitynetwork/bft-core:latest
-  bft-root:
+  bft-root-genesis-gen:
     <<: *bft-base
-    ports:
-      - "8002:8002" # expose rpc server
+    container_name: bft-root-genesis-gen
     volumes:
-      - ./data/genesis-root:/genesis/root
-      - ./data/genesis:/genesis
-    healthcheck:
-      test: ["CMD", "nc", "-zv", "bft-root", "8000"]
-      interval: 5s
+      - ./data/bft-sharding/genesis-root:/genesis
     networks:
       - default
     entrypoint: ["/busybox/sh", "-c"]
     command:
       - |
-        if [ -f /genesis/root/node-info.json ] && [ -f /genesis/trust-base.json ] && [ -f /genesis/root/trust-base-signed.json ]; then
-          echo "Genesis files already exist, skipping initialization."
+        set -eu
+        if [ -f /genesis/root_0/node-info.json ] && [ -f /genesis/root_1/node-info.json ] && \
+           [ -f /genesis/root_2/node-info.json ] && [ -f /genesis/root_3/node-info.json ] && \
+           [ -f /genesis/trust-base.json ]; then
+          echo "Root genesis files already exist, skipping initialization."
         else
-          echo "Creating root genesis..." &&
-          ubft root-node init --home /genesis/root -g &&
-          echo "Creating root trust base..." &&
-          ubft trust-base generate --home /genesis --network-id 3 --node-info /genesis/root/node-info.json &&
-          echo "Signing root trust base..." &&
-          ubft trust-base sign --home /genesis/root --trust-base /genesis/trust-base.json
+          mkdir -p /genesis/root_0 /genesis/root_1 /genesis/root_2 /genesis/root_3 &&
+          for root in 0 1 2 3; do
+            if [ -f "/genesis/root_$${root}/node-info.json" ] && [ -f "/genesis/root_$${root}/keys.json" ]; then
+              echo "root_$${root} genesis already exists, skipping init."
+            else
+              echo "Creating root_$${root} genesis..." &&
+              ubft root-node init --home "/genesis/root_$${root}" -g
+            fi
+          done &&
+          echo "Creating 4-node root trust base..." &&
+          ubft trust-base generate \
+            --home /genesis \
+            --epoch 1 \
+            --epoch-start 1 \
+            --network-id 3 \
+            --node-info /genesis/root_0/node-info.json \
+            --node-info /genesis/root_1/node-info.json \
+            --node-info /genesis/root_2/node-info.json \
+            --node-info /genesis/root_3/node-info.json &&
+          for root in 0 1 2 3; do
+            echo "Signing root trust base with root_$${root}..." &&
+            ubft trust-base sign --home "/genesis/root_$${root}" --trust-base /genesis/trust-base.json
+          done
         fi
-        echo "Starting root node..." &&
-        ubft root-node run --home /genesis/root --address "/ip4/$(hostname -i)/tcp/8000" --trust-base /genesis/trust-base.json --rpc-server-address "$(hostname -i):8002" &&
-        ls -l /genesis/root
-        echo "Root node started successfully."
-
-  bft-aggregator-genesis-gen:
-    <<: *bft-base
-    volumes:
-      - ./data/genesis-root:/genesis/root
-      - ./data/genesis:/genesis
-    depends_on:
-      bft-root:
-        condition: service_healthy
-    ports:
-      - "11003:11003"
-    networks:
-      - default
-    entrypoint: ["/busybox/sh", "-c"]
-    command:
-      - |
-        if [ -f /genesis/aggregator/node-info.json ] && [ -f /genesis/shard-conf-7_0.json ]; then
-          echo "Aggregator genesis and config already exist, skipping initialization."
-        else
-          echo "Creating aggregator genesis..." &&
-          ubft shard-node init --home /genesis/aggregator --generate &&
-          echo "Creating aggregator partition configuration..." &&
-          ubft shard-conf generate --home /genesis --t2-timeout 5000 --network-id 3 --partition-id 7 --partition-type-id 7 --epoch-start 10 --node-info=/genesis/aggregator/node-info.json
-        fi
-        chmod -R 755 /genesis/aggregator
-        chmod 644 /genesis/shard-conf-7_0.json
+        chmod -R 755 /genesis/root_0 /genesis/root_1 /genesis/root_2 /genesis/root_3
         chmod 644 /genesis/trust-base.json
-        chmod -R 755 /genesis/root
-        echo "Permissions fixed."
-        ls -l /genesis/aggregator &&
-        ls -l /genesis/
+        ls -l /genesis
+
+  bft-root-0: &bft-root-node
+    <<: *bft-base
+    container_name: bft-root-0
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./data/bft-sharding/genesis-root:/genesis
+    depends_on:
+      bft-root-genesis-gen:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "nc", "-zv", "localhost", "8000"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - default
+    entrypoint: ["/busybox/sh", "-c"]
+    command:
+      - |
+        set -eu
+        echo "Starting root_0..." &&
+        exec ubft root-node run \
+          --home /genesis/root_0 \
+          --address "/ip4/0.0.0.0/tcp/8000" \
+          --trust-base /genesis/trust-base.json \
+          --rpc-server-address "0.0.0.0:8002"
+
+  bft-root-1:
+    <<: *bft-root-node
+    container_name: bft-root-1
+    ports:
+      - "8003:8002"
+    depends_on:
+      bft-root-0:
+        condition: service_healthy
+    command:
+      - |
+        set -eu
+        ROOT0_NODE_ID=$$(grep -o '"nodeId": "[^"]*"' /genesis/root_0/node-info.json | head -1 | cut -d'"' -f4)
+        echo "Starting root_1..." &&
+        exec ubft root-node run \
+          --home /genesis/root_1 \
+          --address "/ip4/0.0.0.0/tcp/8000" \
+          --bootnodes "/dns4/bft-root-0/tcp/8000/p2p/$$ROOT0_NODE_ID" \
+          --trust-base /genesis/trust-base.json \
+          --rpc-server-address "0.0.0.0:8002"
+
+  bft-root-2:
+    <<: *bft-root-node
+    container_name: bft-root-2
+    ports:
+      - "8004:8002"
+    depends_on:
+      bft-root-0:
+        condition: service_healthy
+    command:
+      - |
+        set -eu
+        ROOT0_NODE_ID=$$(grep -o '"nodeId": "[^"]*"' /genesis/root_0/node-info.json | head -1 | cut -d'"' -f4)
+        echo "Starting root_2..." &&
+        exec ubft root-node run \
+          --home /genesis/root_2 \
+          --address "/ip4/0.0.0.0/tcp/8000" \
+          --bootnodes "/dns4/bft-root-0/tcp/8000/p2p/$$ROOT0_NODE_ID" \
+          --trust-base /genesis/trust-base.json \
+          --rpc-server-address "0.0.0.0:8002"
+
+  bft-root-3:
+    <<: *bft-root-node
+    container_name: bft-root-3
+    ports:
+      - "8005:8002"
+    depends_on:
+      bft-root-0:
+        condition: service_healthy
+    command:
+      - |
+        set -eu
+        ROOT0_NODE_ID=$$(grep -o '"nodeId": "[^"]*"' /genesis/root_0/node-info.json | head -1 | cut -d'"' -f4)
+        echo "Starting root_3..." &&
+        exec ubft root-node run \
+          --home /genesis/root_3 \
+          --address "/ip4/0.0.0.0/tcp/8000" \
+          --bootnodes "/dns4/bft-root-0/tcp/8000/p2p/$$ROOT0_NODE_ID" \
+          --trust-base /genesis/trust-base.json \
+          --rpc-server-address "0.0.0.0:8002"
+
+  # ===========================================================================
+  # BFT Shard Configuration
+  # ===========================================================================
+  bft-shard-genesis-gen:
+    <<: *bft-base
+    container_name: bft-shard-genesis-gen
+    volumes:
+      - ./data/bft-sharding/genesis-root:/root-genesis
+      - ./data/bft-sharding/genesis:/genesis
+    depends_on:
+      bft-root-genesis-gen:
+        condition: service_completed_successfully
+    networks:
+      - default
+    entrypoint: ["/busybox/sh", "-c"]
+    command:
+      - |
+        set -eu
+        cp /root-genesis/trust-base.json /genesis/trust-base.json
+        if [ -f /genesis/shard_0/node-info.json ] && [ -f /genesis/shard_0/shard-conf-7_0.json ] && \
+           [ -f /genesis/shard_1/node-info.json ] && [ -f /genesis/shard_1/shard-conf-7_0.json ]; then
+          echo "Shard genesis already exists, skipping initialization."
+        else
+          mkdir -p /genesis/shard_0 /genesis/shard_1 &&
+          for shard in 0 1; do
+            if [ -f "/genesis/shard_$${shard}/node-info.json" ] && [ -f "/genesis/shard_$${shard}/keys.json" ]; then
+              echo "shard_$${shard} genesis already exists, skipping init."
+            else
+              echo "Creating shard_$${shard} genesis..." &&
+              ubft shard-node init --home "/genesis/shard_$${shard}" --generate
+            fi
+          done &&
+          echo "Creating shard_0 config (prefix=0, shardId=0x40)..." &&
+          rm -f /genesis/shard_0/shard-conf-7_0.json /genesis/shard_0/shard-conf-7_1.json &&
+          ubft shard-conf generate --home /genesis/shard_0 --t2-timeout 5000 --network-id 3 --partition-id 7 --partition-type-id 7 --shard-id 0x40 --epoch 0 --epoch-start 10 --node-info=/genesis/shard_0/node-info.json &&
+          echo "Creating shard_1 config (prefix=1, shardId=0xC0)..." &&
+          rm -f /genesis/shard_1/shard-conf-7_0.json /genesis/shard_1/shard-conf-7_1.json &&
+          ubft shard-conf generate --home /genesis/shard_1 --t2-timeout 5000 --network-id 3 --partition-id 7 --partition-type-id 7 --shard-id 0xC0 --epoch 0 --epoch-start 10 --node-info=/genesis/shard_1/node-info.json
+        fi
+        chmod -R 755 /genesis/shard_0 /genesis/shard_1
+        chmod 644 /genesis/trust-base.json /genesis/shard_0/shard-conf-7_0.json /genesis/shard_1/shard-conf-7_0.json
+        ls -l /genesis
 
   upload-configurations:
     image: curlimages/curl:8.13.0
     user: "${USER_UID:-1001}:${USER_GID:-1001}"
+    container_name: bft-upload-configurations
     depends_on:
-      bft-root:
+      bft-root-0:
         condition: service_healthy
-      bft-aggregator-genesis-gen:
+      bft-root-1:
+        condition: service_healthy
+      bft-root-2:
+        condition: service_healthy
+      bft-root-3:
+        condition: service_healthy
+      bft-shard-genesis-gen:
         condition: service_completed_successfully
     restart: on-failure
     volumes:
-      - ./data/genesis:/genesis
-    command: |
-      /bin/sh -c "
-        echo Uploading aggregator configuration &&
-        curl -X PUT -H 'Content-Type: application/json' -d @/genesis/shard-conf-7_0.json http://bft-root:8002/api/v1/configurations
-      "
-
-  # ===========================================================================
-  # MongoDB Replica Sets
-  # ===========================================================================
-
-  # Shard 1 MongoDB Replica Set
-  mongodb-shard1-1: &mongo-base
-    image: mongo:7.0
-    container_name: mongodb-shard1-1
-    user: "${USER_UID:-1001}:${USER_GID:-1001}"
-    volumes:
-      - ./data/mongodb_shard1_data_1:/data/db
-    command: ["--replSet", "rs1", "--bind_ip_all", "--noauth"]
+      - ./data/bft-sharding/genesis:/genesis
     networks:
       - default
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        for root in 0 1 2 3; do
+          for shard in 0 1; do
+            conf="/genesis/shard_$${shard}/shard-conf-7_0.json"
+            attempt=1
+            while [ "$${attempt}" -le 15 ]; do
+              if curl -sf -X PUT -H 'Content-Type: application/json' -d @"$${conf}" "http://bft-root-$${root}:8002/api/v1/configurations" >/dev/null; then
+                echo "Uploaded $$(basename "$${conf}") for shard_$${shard} to bft-root-$${root}"
+                break
+              fi
+              if [ "$${attempt}" -eq 15 ]; then
+                echo "Failed to upload $${conf} to bft-root-$${root} after $${attempt} attempts" >&2
+                exit 1
+              fi
+              echo "Retry $${attempt}/15 uploading $${conf} to bft-root-$${root}..."
+              attempt=$$((attempt + 1))
+              sleep 2
+            done
+          done
+        done
+
+  # ===========================================================================
+  # Aggregator Storage
+  # ===========================================================================
+  mongodb:
+    image: mongo:7.0
+    container_name: aggregator-mongodb
+    user: "${USER_UID:-0}:${USER_GID:-0}"
     restart: unless-stopped
+    volumes:
+      - ./data/bft-sharding/mongodb_data:/data/db
+    command: ["--replSet", "rs0", "--bind_ip_all", "--noauth"]
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 1s
-      timeout: 1s
-      retries: 30
-  mongodb-shard1-2:
-    <<: *mongo-base
-    container_name: mongodb-shard1-2
-    volumes:
-      - ./data/mongodb_shard1_data_2:/data/db
-  mongodb-shard1-3:
-    <<: *mongo-base
-    container_name: mongodb-shard1-3
-    volumes:
-      - ./data/mongodb_shard1_data_3:/data/db
-  mongo-setup-shard1:
-    image: mongo:7.0
+      test: ["CMD", "mongosh", "--eval", "try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb:27017'}]}) }"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     networks:
       - default
-    depends_on:
-      mongodb-shard1-1:
-        condition: service_healthy
-      mongodb-shard1-2:
-        condition: service_healthy
-      mongodb-shard1-3:
-        condition: service_healthy
-    entrypoint:
-      - mongosh
-      - "--host"
-      - "mongodb-shard1-1:27017"
-      - "--eval"
-      - "try { rs.initiate({_id: 'rs1', members: [{_id: 0, host: 'mongodb-shard1-1:27017'}, {_id: 1, host: 'mongodb-shard1-2:27017'}, {_id: 2, host: 'mongodb-shard1-3:27017'}]}) } catch(e) { print('Replica set already initialized or error:', e.message) }"
 
-  # Shard 2 MongoDB Replica Set
-  mongodb-shard2-1:
-    <<: *mongo-base
-    command: ["--replSet", "rs2", "--bind_ip_all", "--noauth"]
-    container_name: mongodb-shard2-1
-    volumes:
-      - ./data/mongodb_shard2_data_1:/data/db
-  mongodb-shard2-2:
-    <<: *mongo-base
-    command: ["--replSet", "rs2", "--bind_ip_all", "--noauth"]
-    container_name: mongodb-shard2-2
-    volumes:
-      - ./data/mongodb_shard2_data_2:/data/db
-  mongodb-shard2-3:
-    <<: *mongo-base
-    command: ["--replSet", "rs2", "--bind_ip_all", "--noauth"]
-    container_name: mongodb-shard2-3
-    volumes:
-      - ./data/mongodb_shard2_data_3:/data/db
-  mongo-setup-shard2:
-    image: mongo:7.0
-    networks:
-      - default
-    depends_on:
-      mongodb-shard2-1:
-        condition: service_healthy
-      mongodb-shard2-2:
-        condition: service_healthy
-      mongodb-shard2-3:
-        condition: service_healthy
-    entrypoint:
-      - mongosh
-      - "--host"
-      - "mongodb-shard2-1:27017"
-      - "--eval"
-      - "try { rs.initiate({_id: 'rs2', members: [{_id: 0, host: 'mongodb-shard2-1:27017'}, {_id: 1, host: 'mongodb-shard2-2:27017'}, {_id: 2, host: 'mongodb-shard2-3:27017'}]}) } catch(e) { print('Replica set already initialized or error:', e.message) }"
-
-  # Root MongoDB Replica Set
-  mongodb-root-1:
-    <<: *mongo-base
-    command: ["--replSet", "rs-root", "--bind_ip_all", "--noauth"]
-    container_name: mongodb-root-1
-    volumes:
-      - ./data/mongodb_root_data_1:/data/db
-  mongodb-root-2:
-    <<: *mongo-base
-    command: ["--replSet", "rs-root", "--bind_ip_all", "--noauth"]
-    container_name: mongodb-root-2
-    volumes:
-      - ./data/mongodb_root_data_2:/data/db
-  mongodb-root-3:
-    <<: *mongo-base
-    command: ["--replSet", "rs-root", "--bind_ip_all", "--noauth"]
-    container_name: mongodb-root-3
-    volumes:
-      - ./data/mongodb_root_data_3:/data/db
-  mongo-setup-root:
-    image: mongo:7.0
-    networks:
-      - default
-    depends_on:
-      mongodb-root-1:
-        condition: service_healthy
-      mongodb-root-2:
-        condition: service_healthy
-      mongodb-root-3:
-        condition: service_healthy
-    entrypoint:
-      - mongosh
-      - "--host"
-      - "mongodb-root-1:27017"
-      - "--eval"
-      - "try { rs.initiate({_id: 'rs-root', members: [{_id: 0, host: 'mongodb-root-1:27017'}, {_id: 1, host: 'mongodb-root-2:27017'}, {_id: 2, host: 'mongodb-root-3:27017'}]}) } catch(e) { print('Replica set already initialized or error:', e.message) }"
-
-  # ===========================================================================
-  # Redis
-  # ===========================================================================
   redis:
     image: redis:7-alpine
-    container_name: redis
-    user: "${USER_UID:-1001}:${USER_GID:-1001}"
+    container_name: aggregator-redis
+    user: "${USER_UID:-0}:${USER_GID:-0}"
     restart: unless-stopped
     volumes:
-      - ./data/redis_data:/data
+      - ./data/bft-sharding/redis_data:/data
     networks:
       - default
     healthcheck:
@@ -225,110 +272,38 @@ services:
       retries: 5
 
   # ===========================================================================
-  # HAProxy Load Balancers (per shard)
+  # BFT Shard Aggregators
   # ===========================================================================
-  haproxy-shard1:
-    image: haproxy:2.8-alpine
-    container_name: haproxy-shard1
-    restart: unless-stopped
-    networks:
-      - default
+  aggregator-bft-shard0: &aggregator-bft-base
+    <<: *aggregator-base
+    container_name: aggregator-bft-shard0
+    ports:
+      - "3001:3000"
     volumes:
-      - ./scripts/sharding/haproxy-shard1.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./data/bft-sharding/genesis:/app/bft-config
+      - ./data/bft-sharding/genesis-root:/app/bft-root-config:ro
+      - ./logs/bft-shard0:/app/logs
     depends_on:
-      aggregator-shard1-1:
-        condition: service_healthy
-      aggregator-shard1-2:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:8404/stats",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  haproxy-shard2:
-    image: haproxy:2.8-alpine
-    container_name: haproxy-shard2
-    restart: unless-stopped
-    networks:
-      - default
-    volumes:
-      - ./scripts/sharding/haproxy-shard2.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    depends_on:
-      aggregator-shard2-1:
-        condition: service_healthy
-      aggregator-shard2-2:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:8404/stats",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  # ===========================================================================
-  # Aggregator Shards
-  # ===========================================================================
-
-  # Aggregator Shard 1 Cluster
-  aggregator-shard1-1: &aggregator-base
-    image: ghcr.io/unicitynetwork/aggregator-go:latest
-    platform: linux/amd64
-    container_name: aggregator-shard1-1
-    restart: unless-stopped
-    networks:
-      - default
-    volumes:
-      - ./data/genesis:/app/bft-config
-      - ./logs/shard1-1:/app/logs
-    depends_on:
-      mongo-setup-shard1:
+      upload-configurations:
         condition: service_completed_successfully
-      bft-aggregator-genesis-gen:
-        condition: service_completed_successfully
+      mongodb:
+        condition: service_healthy
       redis:
         condition: service_healthy
-    environment: &environment-base
-      MONGODB_URI: "mongodb://mongodb-shard1-1:27017,mongodb-shard1-2:27017,mongodb-shard1-3:27017/aggregator?replicaSet=rs1"
+    environment: &aggregator-bft-env
       PORT: "3000"
       HOST: "0.0.0.0"
       CONCURRENCY_LIMIT: "5000"
       ENABLE_DOCS: "true"
       ENABLE_CORS: "true"
-      MONGODB_DATABASE: "aggregator"
+
+      MONGODB_URI: "mongodb://mongodb:27017/aggregator?replicaSet=rs0&directConnection=true"
+      MONGODB_DATABASE: "aggregator_bft_shard_0"
       MONGODB_CONNECT_TIMEOUT: "10s"
       MONGODB_SERVER_SELECTION_TIMEOUT: "5s"
-      DISABLE_HIGH_AVAILABILITY: "false"
-      LOCK_TTL_SECONDS: "30"
-      LEADER_HEARTBEAT_INTERVAL: "10s"
-      LEADER_ELECTION_POLLING_INTERVAL: "5s"
-      LOG_LEVEL: "debug"
-      LOG_FORMAT: "json"
-      LOG_ENABLE_JSON: "true"
-      LOG_FILE_PATH: "/app/logs/aggregator.log"
-      BATCH_LIMIT: "1000"
-      SIGNING_KEY_FILE: "/app/bft-config/aggregator/keys.json"
-      BFT_ENABLED: "false"
-      BFT_SHARD_CONF_FILE: "/app/bft-config/shard-conf-7_0.json"
-      BFT_TRUST_BASE_FILES: "/app/bft-config/trust-base.json"
-      BFT_RPC_ADDRESS: "http://127.0.0.1:8002"
+
+      DISABLE_HIGH_AVAILABILITY: "true"
+
       REDIS_HOST: "redis"
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ""
@@ -336,120 +311,66 @@ services:
       REDIS_POOL_SIZE: "100"
       REDIS_MIN_IDLE_CONNS: "10"
       USE_REDIS_FOR_COMMITMENTS: "true"
-      REDIS_STREAM_NAME: "commitments:shard:1"
+      REDIS_STREAM_NAME: "commitments:bft-shard:0"
       REDIS_FLUSH_INTERVAL: "50ms"
       REDIS_MAX_BATCH_SIZE: "2000"
-      # Sharding configuration
-      SHARDING_MODE: "child"
-      SHARD_ID_LENGTH: 1
-      SHARDING_CHILD_PARENT_RPC_ADDR: http://aggregator-root-1:3000
-      SHARDING_CHILD_SHARD_ID: 3 # 0b11
-      SHARDING_CHILD_ROUND_DURATION: 1s
-      SHARDING_CHILD_PARENT_POLL_TIMEOUT: 5s
-      SHARDING_CHILD_PARENT_POLL_INTERVAL: 100ms
+
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LOG_FORMAT: "json"
+      LOG_ENABLE_JSON: "true"
+      LOG_FILE_PATH: "/app/logs/aggregator.log"
+
+      BATCH_LIMIT: "1000"
+      MAX_COMMITMENTS_PER_ROUND: "10000"
+
+      SHARDING_MODE: "bft-shard"
+      SIGNING_KEY_FILE: "/app/bft-config/shard_0/keys.json"
+      BFT_ENABLED: "true"
+      BFT_ADDRESS: "/ip4/0.0.0.0/tcp/9001"
+      BFT_ANNOUNCE_ADDRESSES: "/dns4/aggregator-bft-shard0/tcp/9001"
+      BFT_RPC_ADDRESS: "http://bft-root-0:8002"
+      BFT_SHARD_CONF_FILE: "/app/bft-config/shard_0/shard-conf-7_0.json"
+      BFT_TRUST_BASE_FILES: "/app/bft-config/trust-base.json"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        if [ -f /app/bft-config/trust-base.json ]; then
-          ROOT_NODE_ID=$$(cat /app/bft-config/trust-base.json | grep -o '"nodeId": "[^"]*"' | head -1 | cut -d'"' -f4)
-          if [ -n "$$ROOT_NODE_ID" ]; then
-            export BFT_BOOTSTRAP_ADDRESSES="/dns4/bft-root/tcp/8000/p2p/$$ROOT_NODE_ID"
-            echo "Set BFT_BOOTSTRAP_ADDRESSES to: $$BFT_BOOTSTRAP_ADDRESSES"
-          else
-            echo "Warning: Could not extract nodeId from trust-base.json"
-            exit 1
-          fi
-        else
-          echo "Error: trust-base.json not found at /app/bft-config/trust-base.json"
+        ROOT0_NODE_ID=$$(grep -o '"nodeId": "[^"]*"' /app/bft-root-config/root_0/node-info.json | head -1 | cut -d'"' -f4)
+        ROOT1_NODE_ID=$$(grep -o '"nodeId": "[^"]*"' /app/bft-root-config/root_1/node-info.json | head -1 | cut -d'"' -f4)
+        ROOT2_NODE_ID=$$(grep -o '"nodeId": "[^"]*"' /app/bft-root-config/root_2/node-info.json | head -1 | cut -d'"' -f4)
+        ROOT3_NODE_ID=$$(grep -o '"nodeId": "[^"]*"' /app/bft-root-config/root_3/node-info.json | head -1 | cut -d'"' -f4)
+        if [ -z "$$ROOT0_NODE_ID" ] || [ -z "$$ROOT1_NODE_ID" ] || [ -z "$$ROOT2_NODE_ID" ] || [ -z "$$ROOT3_NODE_ID" ]; then
+          echo "Error: could not extract all root node IDs" >&2
           exit 1
         fi
+        export BFT_BOOTSTRAP_ADDRESSES="/dns4/bft-root-0/tcp/8000/p2p/$$ROOT0_NODE_ID,/dns4/bft-root-1/tcp/8000/p2p/$$ROOT1_NODE_ID,/dns4/bft-root-2/tcp/8000/p2p/$$ROOT2_NODE_ID,/dns4/bft-root-3/tcp/8000/p2p/$$ROOT3_NODE_ID"
+        echo "Set BFT_BOOTSTRAP_ADDRESSES to: $$BFT_BOOTSTRAP_ADDRESSES"
         exec /app/aggregator
     healthcheck:
-      test: ["CMD-SHELL", "nc -z -w2 127.0.0.1 $${PORT} || exit 1"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "nc", "-zv", "localhost", "3000"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 30s
-  aggregator-shard1-2:
-    <<: *aggregator-base
-    container_name: aggregator-shard1-2
-    volumes:
-      - ./data/genesis:/app/bft-config
-      - ./logs/shard1-2:/app/logs
-    environment:
-      <<: *environment-base
-      MONGODB_URI: "mongodb://mongodb-shard1-1:27017,mongodb-shard1-2:27017,mongodb-shard1-3:27017/aggregator?replicaSet=rs1"
-    depends_on:
-      mongo-setup-shard1:
-        condition: service_completed_successfully
-      bft-aggregator-genesis-gen:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
 
-  # Aggregator Shard 2 Cluster
-  aggregator-shard2-1:
-    <<: *aggregator-base
-    container_name: aggregator-shard2-1
+  aggregator-bft-shard1:
+    <<: *aggregator-bft-base
+    container_name: aggregator-bft-shard1
+    ports:
+      - "3002:3000"
     volumes:
-      - ./data/genesis:/app/bft-config
-      - ./logs/shard2-1:/app/logs
+      - ./data/bft-sharding/genesis:/app/bft-config
+      - ./data/bft-sharding/genesis-root:/app/bft-root-config:ro
+      - ./logs/bft-shard1:/app/logs
     environment:
-      <<: *environment-base
-      MONGODB_URI: "mongodb://mongodb-shard2-1:27017,mongodb-shard2-2:27017,mongodb-shard2-3:27017/aggregator?replicaSet=rs2"
-      REDIS_STREAM_NAME: "commitments:shard:2"
-      SHARDING_MODE: "child"
-      SHARDING_CHILD_SHARD_ID: 2 # 0b10
-    depends_on:
-      mongo-setup-shard2:
-        condition: service_completed_successfully
-      bft-aggregator-genesis-gen:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-  aggregator-shard2-2:
-    <<: *aggregator-base
-    container_name: aggregator-shard2-2
-    volumes:
-      - ./data/genesis:/app/bft-config
-      - ./logs/shard2-2:/app/logs
-    environment:
-      <<: *environment-base
-      MONGODB_URI: "mongodb://mongodb-shard2-1:27017,mongodb-shard2-2:27017,mongodb-shard2-3:27017/aggregator?replicaSet=rs2"
-      REDIS_STREAM_NAME: "commitments:shard:2"
-      SHARDING_MODE: "child"
-      SHARDING_CHILD_SHARD_ID: 2 # 0b10
-    depends_on:
-      mongo-setup-shard2:
-        condition: service_completed_successfully
-      bft-aggregator-genesis-gen:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-
-  # Aggregator Root
-  aggregator-root-1:
-    <<: *aggregator-base
-    container_name: aggregator-root-1
-    volumes:
-      - ./data/genesis:/app/bft-config
-      - ./logs/root-1:/app/logs
-    environment:
-      <<: *environment-base
-      MONGODB_URI: "mongodb://mongodb-root-1:27017,mongodb-root-2:27017,mongodb-root-3:27017/aggregator?replicaSet=rs-root"
-      SHARDING_MODE: "parent"
-      PARENT_COLLECT_PHASE_DURATION: "200ms"
-      BFT_ENABLED: "true"
-    depends_on:
-      mongo-setup-root:
-        condition: service_completed_successfully
-      bft-aggregator-genesis-gen:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+      <<: *aggregator-bft-env
+      MONGODB_DATABASE: "aggregator_bft_shard_1"
+      REDIS_STREAM_NAME: "commitments:bft-shard:1"
+      SIGNING_KEY_FILE: "/app/bft-config/shard_1/keys.json"
+      BFT_ADDRESS: "/ip4/0.0.0.0/tcp/9002"
+      BFT_ANNOUNCE_ADDRESSES: "/dns4/aggregator-bft-shard1/tcp/9002"
+      BFT_SHARD_CONF_FILE: "/app/bft-config/shard_1/shard-conf-7_0.json"
 
   # ===========================================================================
-  # Subscription Gateway (proxy + PostgreSQL)
+  # Subscription Gateway
   # ===========================================================================
   postgres:
     image: postgres:15-alpine
@@ -469,11 +390,17 @@ services:
       - default
 
   subscription-proxy:
-    image: ghcr.io/unicitynetwork/aggregator-subscription:latest
+    # TODO(bft-sharding-routing): switch back to a pinned GHCR commit image after this branch is merged and CI publishes it.
+    image: "${AGGREGATOR_SUBSCRIPTION_IMAGE:-aggregator-subscription:bft-sharding-routing-local}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    pull_policy: build
     platform: linux/amd64
+    user: "${USER_UID:-0}:${USER_GID:-0}"
     container_name: subscription-proxy
     environment:
-      PROXY_ARGS: "--port 8080 --trust-base /etc/aggregator/trust-base.json"
+      PROXY_ARGS: ${PROXY_ARGS:---port 8080 --trust-base /etc/aggregator/trust-base.json}
       SHARD_CONFIG_URI: "file:///etc/aggregator/shard-config.json"
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       SERVER_SECRET: ${SERVER_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
@@ -484,16 +411,16 @@ services:
     ports:
       - "${PROXY_PORT:-8080}:8080"
     volumes:
-      - ./scripts/sharding/shard-config.json:/etc/aggregator/shard-config.json:ro
-      - ./data/genesis/trust-base.json:/etc/aggregator/trust-base.json:ro
+      - ${SHARD_CONFIG_FILE:-./scripts/sharding/shard-config-bft.json}:/etc/aggregator/shard-config.json:ro
+      - ./data/bft-sharding/genesis/trust-base.json:/etc/aggregator/trust-base.json:ro
     depends_on:
       postgres:
         condition: service_healthy
-      haproxy-shard1:
+      aggregator-bft-shard0:
         condition: service_healthy
-      haproxy-shard2:
+      aggregator-bft-shard1:
         condition: service_healthy
-      bft-aggregator-genesis-gen:
+      bft-shard-genesis-gen:
         condition: service_completed_successfully
     networks:
       - default

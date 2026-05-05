@@ -323,52 +323,15 @@ public class PaymentService {
 
     private record SubmitCommitmentResult(Token<?> receivedToken, PaymentModels.CompletePaymentResponse error) {}
     
-    private SubmitCommitmentResult submitAndFinaliseCommitment(TransferCommitment transferCommitment, PaymentSession session, Token<?> sourceToken) throws ExecutionException, InterruptedException, TimeoutException, VerificationException
-    {
-        String hexRequestId = canonicalRequestId(transferCommitment.getRequestId());
-        JsonRpcAggregatorClient aggregatorClient = new JsonRpcAggregatorClient(shardRouter.routeByRequestId(hexRequestId));
-        var stateTransitionClient = new StateTransitionClient(aggregatorClient);
-
-        SubmitCommitmentResponse submitResponse = stateTransitionClient.submitCommitment(transferCommitment).get(30, TimeUnit.SECONDS);
-
-        if (submitResponse.getStatus() != SubmitCommitmentStatus.SUCCESS) {
-            logger.error("Failed to submit transfer commitment: {}", submitResponse.getStatus());
-            return new SubmitCommitmentResult(
-                    null,
-                    new PaymentModels.CompletePaymentResponse(
-                    false, "Failed to submit transfer: " + submitResponse.getStatus(), null, null));
-        }
-
-        InclusionProof inclusionProof = InclusionProofUtils.waitInclusionProof(stateTransitionClient, trustBase, transferCommitment).get(60, TimeUnit.SECONDS);
-
-        TransferTransaction transferTransaction = transferCommitment.toTransaction(inclusionProof);
-
-        SigningService receiverSigningService = SigningService.createFromMaskedSecret(serverSecret, session.receiverNonce());
-
-        MaskedPredicate receiverPredicate = MaskedPredicate.create(
-                sourceToken.getId(),
-                tokenType,
-                receiverSigningService,
-                HashAlgorithm.SHA256,
-                session.receiverNonce()
-        );
-
-        var receivedToken = stateTransitionClient.finalizeTransaction(
-                trustBase,
-                sourceToken,
-                new TokenState(receiverPredicate, null),
-                transferTransaction
-        );
-
-        if (!receivedToken.verify(trustBase).isSuccessful()) {
-            logger.error("Received token verification failed");
-            return new SubmitCommitmentResult(
-                    null,
-                    new PaymentModels.CompletePaymentResponse(
-                    false, "Token verification failed", null, null));
-        }
-        
-        return new SubmitCommitmentResult(receivedToken, null);
+    private SubmitCommitmentResult submitAndFinaliseCommitment(TransferCommitment transferCommitment, PaymentSession session, Token<?> sourceToken) {
+        // The payment flow drove the aggregator through the Java SDK's v1
+        // submit path, which the aggregator no longer serves. Phase 2 of the
+        // BFT-sharding rollout will rewire this against the v2 SDK. Until
+        // then, the handler rejects /api/payment/complete with 501 before
+        // reaching this method; this throw exists as defense in depth for any
+        // caller that bypasses the handler.
+        throw new UnsupportedOperationException(
+            "Payment commitment submission is disabled until the Java SDK v2 upgrade completes.");
     }
 
     private PaymentModels.CompletePaymentResponse validateIncomingCoins(Connection conn, Token<?> sourceToken, PaymentSession session) throws SQLException, JsonProcessingException {

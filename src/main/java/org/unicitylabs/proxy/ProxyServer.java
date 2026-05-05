@@ -131,12 +131,12 @@ public class ProxyServer {
         logger.info("Loading shard configuration from database");
         try {
             ShardConfigRepository.ShardConfigRecord configRecord = shardConfigRepository.getLatestConfig();
-            ShardRouter tempRouter = new DefaultShardRouter(configRecord.config());
+            ShardRouter tempRouter = ShardRouterFactory.create(configRecord.config());
             ShardConfigValidator.validate(tempRouter, configRecord.config(), validateShardConnectivity);
             this.lastConfigId = configRecord.id();
             shardRouter = tempRouter;
-            logger.info("Shard configuration loaded and validated successfully (id: {}, created at: {})",
-                configRecord.id(), configRecord.createdAt());
+            logger.info("Shard configuration loaded and validated successfully (mode: {}, id: {}, created at: {})",
+                configRecord.config().getMode(), configRecord.id(), configRecord.createdAt());
         } catch (Exception e) {
             logger.error("Failed to load or validate shard configuration from database. " +
                 "Application will start with failsafe router. " +
@@ -156,7 +156,7 @@ public class ProxyServer {
         try {
             String jsonContent = ResourceLoader.loadContent(configUri);
             ShardConfig shardConfig = shardConfigRepository.parseShardConfig(jsonContent);
-            ShardRouter tempRouter = new DefaultShardRouter(shardConfig);
+            ShardRouter tempRouter = ShardRouterFactory.create(shardConfig);
             ShardConfigValidator.validate(tempRouter, shardConfig, validateShardConnectivity);
 
             // Save to database as new config
@@ -183,15 +183,15 @@ public class ProxyServer {
                         latestRecord.id(), latestRecord.createdAt());
 
                     try {
-                        ShardRouter newRouter = new DefaultShardRouter(latestRecord.config());
+                        ShardRouter newRouter = ShardRouterFactory.create(latestRecord.config());
                         ShardConfigValidator.validate(newRouter, latestRecord.config(), validateShardConnectivity);
 
                         requestHandler.updateShardRouter(newRouter);
                         paymentHandler.updateShardRouter(newRouter);
                         lastConfigId = latestRecord.id();
 
-                        logger.info("Shard configuration hot-reloaded successfully (id: {}) with {} targets",
-                            latestRecord.id(), newRouter.getAllTargets().size());
+                        logger.info("Shard configuration hot-reloaded successfully (mode: {}, id: {}) with {} targets",
+                            newRouter.getMode(), latestRecord.id(), newRouter.getAllTargets().size());
                     } catch (Exception e) {
                         logger.error("Failed to load or validate new shard configuration (id: {}, created at: {}). " +
                             "Keeping current router. Error: {}", latestRecord.id(), latestRecord.createdAt(), e.getMessage());

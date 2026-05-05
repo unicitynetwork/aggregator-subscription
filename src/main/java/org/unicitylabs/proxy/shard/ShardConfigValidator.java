@@ -25,17 +25,134 @@ public class ShardConfigValidator {
      * @param validateConnectivity whether to validate connectivity by calling getBlockHeight on each shard
      */
     public static void validate(ShardRouter router, ShardConfig config, boolean validateConnectivity) {
+        if (config == null) {
+            throw new IllegalArgumentException("Shard configuration is null");
+        }
+
+        ShardingMode mode = config.getMode();
+
+        if (router instanceof FailsafeShardRouter) {
+            return;
+        }
+
+        if (mode == ShardingMode.BFT_SHARD) {
+            validateBftShardConfig(config, validateConnectivity);
+            if (!(router instanceof BftShardRouter)) {
+                throw new IllegalArgumentException(
+                    "bft-shard config requires BftShardRouter, got: " + router.getClass());
+            }
+        } else {
+            validateAppShardConfig(config, validateConnectivity);
+            if (router instanceof DefaultShardRouter defaultRouter) {
+                validateTreeCompleteness(defaultRouter.getRootNode());
+            } else {
+                throw new IllegalArgumentException(
+                    "app-shard config requires DefaultShardRouter, got: " + router.getClass());
+            }
+        }
+    }
+
+    private static void validateAppShardConfig(ShardConfig config, boolean validateConnectivity) {
         if (config.getShards() == null || config.getShards().isEmpty()) {
             throw new IllegalArgumentException("Shard configuration has no shards");
         }
-
-        validateUniqueShardIds(config.getShards(), validateConnectivity);
-
-        if (router instanceof DefaultShardRouter defaultRouter) {
-            validateTreeCompleteness(defaultRouter.getRootNode());
-        } else if (! (router instanceof FailsafeShardRouter)) {
-            throw new IllegalArgumentException("Unsupported Router instance: " + router.getClass());
+        if (config.getBftShards() != null && !config.getBftShards().isEmpty()) {
+            throw new IllegalArgumentException(
+                "app-shard mode must not populate 'bftShards'; set mode to 'bft-shard' or remove the entries");
         }
+        validateUniqueShardIds(config.getShards(), validateConnectivity);
+    }
+
+    private static void validateBftShardConfig(ShardConfig config, boolean validateConnectivity) {
+        List<BftShardInfo> bftShards = config.getBftShards();
+        if (bftShards == null || bftShards.isEmpty()) {
+            throw new IllegalArgumentException("bft-shard configuration has no bftShards entries");
+        }
+        if (config.getShards() != null && !config.getShards().isEmpty()) {
+            throw new IllegalArgumentException(
+                "bft-shard mode must not populate 'shards'; set mode to 'app-shard' or remove the entries");
+        }
+
+        Set<String> seenPrefixes = new HashSet<>();
+        for (BftShardInfo shard : bftShards) {
+            if (!seenPrefixes.add(shard.prefix())) {
+                throw new IllegalArgumentException("Duplicate bft shard prefix: '" + shard.prefix() + "'");
+            }
+            validateUrl(shard.url(), "bft shard '" + shard.prefix() + "'");
+        }
+
+        validatePrefixFreeAndCovering(bftShards);
+
+        if (validateConnectivity) {
+            for (BftShardInfo shard : bftShards) {
+                validateShardConnectivity(shard.url(), "bft shard '" + shard.prefix() + "'");
+            }
+        }
+    }
+
+    /**
+     * Enforces that the prefix set is both prefix-free (no prefix is a prefix
+     * of another) and covering (every possible bitstring has exactly one
+     * matching prefix).
+     *
+     * <p>Checked by inserting each prefix into a binary tree and then verifying
+     * that every internal node has two children and every leaf has zero.
+     */
+    private static void validatePrefixFreeAndCovering(List<BftShardInfo> shards) {
+        PrefixNode root = new PrefixNode();
+        for (BftShardInfo shard : shards) {
+            insertPrefix(root, shard.prefix());
+        }
+        validateCoverage(root, "");
+    }
+
+    private static void insertPrefix(PrefixNode root, String prefix) {
+        PrefixNode current = root;
+        for (int i = 0; i < prefix.length(); i++) {
+            if (current.terminal) {
+                throw new IllegalArgumentException(
+                    "bft shard prefixes are not prefix-free: '" + prefix + "' extends an existing shard");
+            }
+            char bit = prefix.charAt(i);
+            if (bit == '0') {
+                if (current.zero == null) current.zero = new PrefixNode();
+                current = current.zero;
+            } else {
+                if (current.one == null) current.one = new PrefixNode();
+                current = current.one;
+            }
+        }
+        if (current.terminal) {
+            throw new IllegalArgumentException(
+                "Duplicate bft shard prefix: '" + prefix + "'");
+        }
+        if (current.zero != null || current.one != null) {
+            throw new IllegalArgumentException(
+                "bft shard prefixes are not prefix-free: '" + prefix + "' is a prefix of an existing shard");
+        }
+        current.terminal = true;
+    }
+
+    private static void validateCoverage(PrefixNode node, String path) {
+        if (node.terminal) {
+            return;
+        }
+        if (node.zero == null) {
+            throw new IllegalArgumentException(
+                "bft shard set is not covering: no shard matches stateIds with prefix '" + path + "0'");
+        }
+        if (node.one == null) {
+            throw new IllegalArgumentException(
+                "bft shard set is not covering: no shard matches stateIds with prefix '" + path + "1'");
+        }
+        validateCoverage(node.zero, path + "0");
+        validateCoverage(node.one, path + "1");
+    }
+
+    private static final class PrefixNode {
+        PrefixNode zero;
+        PrefixNode one;
+        boolean terminal;
     }
 
     private static void validateUniqueShardIds(List<ShardInfo> shards, boolean validateConnectivity) {
@@ -49,55 +166,55 @@ public class ShardConfigValidator {
                 throw new IllegalArgumentException("Duplicate shard ID: " + shard.id());
             }
 
-            validateShardUrl(shard.url(), shard.id());
+            validateUrl(shard.url(), "Shard " + shard.id());
         }
 
         if (validateConnectivity) {
             for (ShardInfo shard : shards) {
-                validateShardConnectivity(shard.url(), shard.id());
+                validateShardConnectivity(shard.url(), "Shard " + shard.id());
             }
         }
     }
 
-    private static void validateShardUrl(String url, int shardId) {
+    private static void validateUrl(String url, String shardLabel) {
         if (url == null || url.isBlank()) {
-            throw new IllegalArgumentException("Shard " + shardId + " has empty or null URL");
+            throw new IllegalArgumentException(shardLabel + " has empty or null URL");
         }
 
         URI uri;
         try {
             uri = new URI(url);
         } catch (URISyntaxException e) {
-            throw new IllegalArgumentException("Shard " + shardId + " has malformed URL: " + url + " - " + e.getMessage());
+            throw new IllegalArgumentException(shardLabel + " has malformed URL: " + url + " - " + e.getMessage());
         }
 
         if (uri.getQuery() != null) {
-            throw new IllegalArgumentException("Shard " + shardId + " URL must not contain query parameters: " + url);
+            throw new IllegalArgumentException(shardLabel + " URL must not contain query parameters: " + url);
         }
 
         if (uri.getFragment() != null) {
-            throw new IllegalArgumentException("Shard " + shardId + " URL must not contain fragment: " + url);
+            throw new IllegalArgumentException(shardLabel + " URL must not contain fragment: " + url);
         }
 
         if (uri.getScheme() == null) {
-            throw new IllegalArgumentException("Shard " + shardId + " URL must have a scheme (http or https): " + url);
+            throw new IllegalArgumentException(shardLabel + " URL must have a scheme (http or https): " + url);
         }
 
         if (uri.getHost() == null) {
-            throw new IllegalArgumentException("Shard " + shardId + " URL must have a host: " + url);
+            throw new IllegalArgumentException(shardLabel + " URL must have a host: " + url);
         }
     }
 
-    private static void validateShardConnectivity(String url, int shardId) {
-        logger.debug("Validating connectivity to shard {} at {}", shardId, url);
+    private static void validateShardConnectivity(String url, String shardLabel) {
+        logger.debug("Validating connectivity to {} at {}", shardLabel, url);
         try {
             JsonRpcAggregatorClient client = new JsonRpcAggregatorClient(url);
             long blockHeight = client.getBlockHeight().get();
-            logger.debug("Shard {} at {} is reachable (block height: {})", shardId, url, blockHeight);
+            logger.debug("{} at {} is reachable (block height: {})", shardLabel, url, blockHeight);
         } catch (Exception e) {
             throw new IllegalArgumentException(
-                String.format("Shard %d at %s is not reachable or not a valid aggregator: %s",
-                    shardId, url, e.getMessage()),
+                String.format("%s at %s is not reachable or not a valid aggregator: %s",
+                    shardLabel, url, e.getMessage()),
                 e
             );
         }

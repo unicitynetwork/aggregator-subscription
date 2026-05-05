@@ -13,10 +13,10 @@ import org.unicitylabs.proxy.repository.PaymentRepository;
 import org.unicitylabs.proxy.repository.PricingPlanRepository;
 import org.unicitylabs.proxy.repository.ShardConfigRepository;
 import org.unicitylabs.proxy.service.ApiKeyService;
-import org.unicitylabs.proxy.shard.DefaultShardRouter;
 import org.unicitylabs.proxy.shard.ShardConfig;
 import org.unicitylabs.proxy.shard.ShardConfigValidator;
 import org.unicitylabs.proxy.shard.ShardRouter;
+import org.unicitylabs.proxy.shard.ShardRouterFactory;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MimeTypes;
@@ -542,7 +542,7 @@ public class AdminHandler extends Handler.Abstract {
             ShardConfig shardConfig = mapper.readValue(configJson, ShardConfig.class);
 
             // Validate the configuration
-            ShardRouter shardRouter = new DefaultShardRouter(shardConfig);
+            ShardRouter shardRouter = ShardRouterFactory.create(shardConfig);
             try {
                 ShardConfigValidator.validate(shardRouter, shardConfig, validateShardConnectivity);
             } catch (IllegalArgumentException e) {

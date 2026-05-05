@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "mode": "bft-shard",
+  "bftShards": [
+    {"prefix": "0", "url": "http://aggregator-bft-shard0:3000"},
+    {"prefix": "1", "url": "http://aggregator-bft-shard1:3000"}
+  ]
+}

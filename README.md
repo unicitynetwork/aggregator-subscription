@@ -8,7 +8,7 @@ The proxy is designed to be a transparent layer that forwards all standard HTTP 
 
 ### Authentication and rate limiting
 
-Some aggregator endpoints require authentication, other endpoints can be accessed publicly for free. By default, only the `submit_commitment` JSON-RPC method requires authentication, as it is the only endpoint that writes to the blockchain. To access such authenticated endpoints, users need to pass along an active API key in the HTTP header "X-API-Key" as follows (the API key in the example is "supersecret"):
+Some aggregator endpoints require authentication, other endpoints can be accessed publicly for free. By default, only the `certification_request` JSON-RPC method requires authentication, as it is the write-path method supported by the current proxy/aggregator setup. To access such authenticated endpoints, users need to pass along an active API key in the HTTP header "X-API-Key" as follows (the API key in the example is "supersecret"):
 
 ```http
 X-API-Key: supersecret
@@ -115,7 +115,7 @@ If the user does not complete the payment flow in 15 minutes then the flow expir
 
 In the response, the server has responded with the address where the payment should be sent, the price for the purchase and the accepted coin ID. If a discount applies, the returned price is the discounted value. The "expiresAt" field specifies the current payment session end time, not the subscription end time.
 
-After that, the user sends the transfer commitment data as a JSON object, as well as the token contents.
+After that, the user sends the transfer commitment data as a JSON object, as well as the token contents. Note that this payment-completion path is currently disabled and returns `501 Not Implemented` until the Java SDK/payment flow is migrated to the v2 aggregator surface.
 
 In the same payment session, the user can only pay with one token, which must contain exactly the right amount of the right coins and no other coins.
 
@@ -211,56 +211,48 @@ AGGREGATOR_URL="http://localhost:3000" ./gradlew clean test
 
 To run the project within an IDE, use the main class ```org.unicitylabs.proxy.Main```.
 
-### Docker Compose with Load Balancing
+### Docker Compose
 
-The project includes a sample Docker Compose configuration with HAProxy load balancing across 3 proxy nodes.
+The current sample `docker-compose.yml` starts a single proxy instance and PostgreSQL for local development.
 
-The `.env.sample` file contains the environment variables to declare.
+By default it is wired for the local BFT-shard setup used in `aggregator-go` development:
 
-The following is a quick way to start and use the Docker containers.
+- it mounts `scripts/sharding/shard-config-bft.json`
+- it expects shard aggregators to be reachable at `http://host.docker.internal:3001` and `http://host.docker.internal:3002`
+- it joins the external Docker network `aggregator-go_default`, so the local `aggregator-go` stack should already be running
+
+The following is a quick way to start and use the containers.
 
 ```bash
 # Build images
 docker compose build --no-cache
 
-# Start all services (1 HAProxy + 3 proxy nodes + 1 database)
+# Start proxy + database
 docker compose up -d
 
-# View logs from all services
+# View logs
 docker compose logs -f
-
-# View logs from a specific node
-docker compose logs -f proxy-1
 
 # Check service status
 docker compose ps
 ```
 
-By default, the service assumes a single shard and a single aggregator available at http://localhost:3000. To change this sharding configuration you can use the Admin UI.
+If you need a different shard layout, replace the mounted shard config or update it through the Admin UI.
 
 Here are the key URLs:
 
 - Admin UI: http://localhost:8080/admin.
-- HAProxy stats page: http://localhost:8404/stats.
 - Incoming requests are proxied from here: http://localhost:8080/.
 
 #### Architecture
 
-- **HAProxy**: Load balancer distributing traffic across proxy nodes
-    - Round-robin load balancing for API requests
-    - Cookie-based sticky sessions for admin UI (preserves login state)
-    - Health checks on all backend nodes
-    - Exposed on port 8080 (configurable via `PROXY_PORT`)
-    - Stats page on port 8404 (configurable via `HAPROXY_STATS_PORT`)
-
-- **3 Proxy Nodes** (proxy-1, proxy-2, proxy-3):
-    - Each node runs the same proxy application
-    - Shared PostgreSQL database for API keys, pricing plans, and payments
-    - Independent in-memory rate limiting per node (total capacity = limit × 3)
-    - Independent API key caches (60s TTL)
-    - Separate log volumes for each node
+- **Proxy**: Single proxy instance exposed on port 8080 (configurable via `PROXY_PORT`)
+    - Routes requests to shard aggregators according to the configured sharding mode
+    - Enforces API key authentication and rate limiting for protected JSON-RPC methods
+    - Loads shard configuration either from the database or from `SHARD_CONFIG_URI`
 
 - **PostgreSQL**: Single shared database instance
+    - Stores API keys, pricing plans, payment sessions, and shard configuration
 
 
 ## Administrative interface
@@ -271,10 +263,19 @@ The interface allows to modify API keys, pricing plans and shard configuration. 
 
 ## Sharding
 
-The subscription proxy routes JSON-RPC messages to aggregators in the correct shards. For that purpose, every JSON-RPC message must contain exactly one of the following parameters:
+The subscription proxy supports two sharding modes, selected by the top-level `mode` field in the shard configuration JSON (default: `app-shard` when omitted):
 
-* `requestId`: this is a standard Request ID parameter that is used for aggregator's JSON-RPC endpoints like `submit_commitment`. It contains the Unicity aggregation tree's Request ID in hex, without the "0x" prefix. The subscription proxy automatically routes the request to the correct shard according to the shard configuration.
-* `shardId`: this specifies a Shard ID, a non-negative integer which is assigned also in the shard configuration.
+* `app-shard` — legacy application-level sharding. Routes by v2 `stateId` with the aggregator's legacy LSB-first shard-bit convention against integer shard IDs. Config uses the `shards` array.
+* `bft-shard` — BFT-side sharding for multi-shard BFT aggregator partitions. Routes v2 JSON-RPC (`certification_request`, `get_inclusion_proof.v2`) by `stateId` with MSB-first prefix matching against bitstring shard IDs. Config uses the `bftShards` array.
+
+The two modes are not interchangeable — they use different routing inputs and different shard-ID semantics.
+
+### app-shard mode
+
+Every JSON-RPC message must contain exactly one of the following parameters:
+
+* `stateId`: this is the v2 state identifier in hex (32 raw bytes, optional `0x` prefix accepted). In `app-shard` mode the proxy routes by the aggregator's legacy shard-bit convention: bit `d` is bit `d%8` of byte `d/8` (LSB-first within each byte).
+* `shardId`: this specifies a Shard ID, a non-negative integer in `app-shard` mode, which is assigned in the shard configuration.
 
 The administrative interface allows modifying the shard configuration as a JSON file. When the configuration is updated in the UI, the changes are propagated to all instances of the subscription proxy within seconds. A sample shard configuration is as follows:
 
@@ -298,34 +299,59 @@ The above shard configuration declares 2 shards. Specifically:
 
 * Each shard has an identifier declared (2 and 3, respectively). This identifier is used in 2 ways:
     * For JSON-RPC requests that contain a `shardId` parameter, that parameter value is matched exactly against a shard identifier in the configuration, naturally indicating a shard that the request must be proxied to.
-    * For JSON-RPC requests that contain a `requestId` parameter, the shard identifier here is matched in the following way. The Shard ID works as a binary suffix for Request ID values -- that is, the Request ID must "end with" (its least significant bits should equal) the shard identifier of given shard, except for the first bit of the shard identifier that is always set to '1'. The reason that the Shard ID is prefixed by a binary digit '1' is to allow for encoding leading zeroes. Shard ID values are written in decimal. For example, to match Request IDs that end with two binary zeroes (00), the Shard ID would be 100 in binary, which is 4 in decimal, thus the Shard ID would be written as 4. Note that if there is only one shard, its identifier must be 1 which represents an empty Request ID suffix (as there are no bits left in the binary digit after removing the first binary digit). For more examples of Shard IDs, refer to the example tables below.
+    * For JSON-RPC requests that contain a `stateId` parameter, the shard identifier here is matched in the following way. The Shard ID works as a binary suffix over the routed state-key bits using the aggregator's legacy convention: the least significant routing bit is bit 0 of byte 0, then bit 1 of byte 0, and so on. The first bit of the shard identifier is always set to '1' to encode leading zeroes. Shard ID values are written in decimal. For example, to match state IDs whose first two routed bits are zeroes (00), the Shard ID would be 100 in binary, which is 4 in decimal, thus the Shard ID would be written as 4. Note that if there is only one shard, its identifier must be 1 which represents an empty suffix after removing the leading sentinel bit. For more examples of Shard IDs, refer to the example tables below.
 * Each shard has a corresponding aggregator URL specified. All requests that are matched against the given shard are proxied to that URL.
 
-All requests that are not detected as JSON-RPC requests are proxied to a random shard's URL for load balancing purposes. If needed, cookies can be used to create a "sticky shard" (the names of the cookies are `UNICITY_SHARD_ID` and `UNICITY_REQUEST_ID`; their values are formatted the same way as the JSON-RPC parameters `requestId` and `shardId`).
+All requests that are not detected as JSON-RPC requests are proxied to a random shard's URL for load balancing purposes. If needed, cookies can be used to create a "sticky shard" (the names of the cookies are `UNICITY_SHARD_ID` and `UNICITY_STATE_ID`; their values are formatted the same way as the JSON-RPC parameters `shardId` and `stateId`).
 
 The following examples demonstrate the Shard ID numbering scheme.
 
 If there is only one shard in the system, its ID must be "1":
 
-Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
+Shard ID | Binary   | Suffix Pattern | Matches routed state-bit prefix
 ---------|----------|----------------|--------------------------------
-1        | 1        | (empty)        | All IDs (single shard)
+1        | 1        | (empty)        | All state IDs (single shard)
 
 If there are 2 shards, they must have the following IDs:
 
-Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
+Shard ID | Binary   | Suffix Pattern | Matches routed state-bit prefix
 ---------|----------|----------------|--------------------------------
-2        | 10       | 0              | ...0
-3        | 11       | 1              | ...1
+2        | 10       | 0              | bit0 = 0
+3        | 11       | 1              | bit0 = 1
 
 As a final example, a configuration with 4 shards must have the following IDs:
 
-Shard ID | Binary   | Suffix Pattern | Matches Request IDs ending with
+Shard ID | Binary   | Suffix Pattern | Matches routed state-bit prefix
 ---------|----------|----------------|--------------------------------
-4        | 100      | 00             | ...00
-5        | 101      | 01             | ...01
-6        | 110      | 10             | ...10
-7        | 111      | 11             | ...11
+4        | 100      | 00             | bit0..1 = 00
+5        | 101      | 01             | bit0..1 = 01
+6        | 110      | 10             | bit0..1 = 10
+7        | 111      | 11             | bit0..1 = 11
+
+### bft-shard mode
+
+For multi-shard BFT aggregator partitions, each JSON-RPC request is routed by its `stateId` (hex, exactly 32 raw bytes; optional `0x` prefix accepted) against bitstring shard prefixes (e.g. `"0"`, `"1"`, `"101"`) using **MSB-first** matching on the raw bytes (bit 7 of byte 0 first, descending to bit 0 of byte 31). The routing semantics follow `types.ShardID.Comparator()` in `bft-go-base` and the aggregator's bft-shard admission path.
+
+Sample configuration:
+
+```json
+{
+  "version": 1,
+  "mode": "bft-shard",
+  "bftShards": [
+    {"prefix": "0", "url": "http://haproxy-bft-shard0:3000"},
+    {"prefix": "1", "url": "http://haproxy-bft-shard1:3000"}
+  ]
+}
+```
+
+The shard prefixes must form a **prefix-free covering set** — every possible `stateId` must match exactly one shard (no overlaps, no gaps). Validation enforces this at configuration load.
+
+Shard-bound v2 methods (`certification_request`, `get_inclusion_proof.v2`) require `stateId`. For other JSON-RPC methods the caller may supply either `stateId` (routes by MSB prefix) or `shardId` (in bft-shard mode, `shardId` is a bitstring label like `"0"` or `"101"` matched against a configured shard prefix). Non-JSON-RPC requests without routing cookies fall back to random load balancing across configured shards.
+
+**Client-side proof verification**: Phase 1 of BFT-shard support only covers gateway routing. Clients and testers remain responsible for verifying inclusion proofs themselves, which in bft-shard mode requires verification against a trust base and the expected shard context (not just successful gateway routing). SDK-side verification support will land in a follow-up.
+
+**Payment flow is disabled in this phase.** The payment endpoint `/api/payment/complete` returns `501 Not Implemented` until the Java SDK is upgraded to v2 (Phase 2 follow-up). The current Java SDK/payment path still depends on the old requestId/old inclusion-proof model and must be migrated to `certification_request` + `get_inclusion_proof.v2`. The payment examples earlier in this README describe the intended workflow, but they do not currently execute end-to-end against the v2-only aggregator surface.
 
 ### Running without shards
 
@@ -351,12 +377,25 @@ EOF
 
 ### Retrieving the list of current shard IDs
 
-The active list of shard IDs can be retrieved via the public endpoint `/config/shards`. This endpoint requires no authentication and returns the response in a JSON file of the following format:
+The active list of shard identifiers can be retrieved via the public endpoint `/config/shards`. This endpoint requires no authentication and is mode-aware.
+
+In `app-shard` mode it returns:
 
 ```json
 {
   "version": 1,
+  "mode": "app-shard",
   "shardIds": [2, 3]
+}
+```
+
+In `bft-shard` mode it returns:
+
+```json
+{
+  "version": 1,
+  "mode": "bft-shard",
+  "bftShardPrefixes": ["0", "1"]
 }
 ```
 
@@ -373,7 +412,6 @@ The application supports the following environment variables for configuration:
 - **`SERVER_SECRET`**: Server secret for cryptographic operations (must be a hex string with even length, typically 64 characters for 32 bytes)
   - Example: `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`
 - **`ADMIN_PASSWORD`**: Password for accessing the administrative interface at `/admin`
-- **`HAPROXY_STATS_PASSWORD`**: Password for HAProxy statistics page (Docker Compose only)
 - **`DB_PASSWORD`**: Database password
 
 #### Database Configuration
@@ -438,11 +476,8 @@ The application supports the following environment variables for configuration:
 - **`PROXY_ARGS`**: Command-line arguments passed to the proxy application
   - Docker default: `--port 8080`
 
-- **`PROXY_PORT`**: External port for HAProxy (Docker Compose only). This is the port that users will connect to.
+- **`PROXY_PORT`**: External port for the proxy service (Docker Compose only). This is the port that users will connect to.
   - Default: `8080`
-
-- **`HAPROXY_STATS_PORT`**: Port for HAProxy statistics page (Docker Compose only)
-  - Default: `8404`
 
 - **`POSTGRES_PORT`**: External port for PostgreSQL database (Docker Compose only)
   - Default: `5432`
