@@ -25,7 +25,7 @@ services:
     container_name: aggregator-proxy
     environment:
       # Proxy configuration - container always listens on 8080 internally
-      PROXY_ARGS: "--port 8080 --protected-methods ${PROTECTED_METHODS:-certification_request} --token-type-ids-url file:///etc/aggregator/test-token-types.json"
+      PROXY_ARGS: "--port 8080 --enable-h2c --upstream-h2c --worker-threads ${GATEWAY_WORKER_THREADS:-64} --protected-methods ${PROTECTED_METHODS:-certification_request} --token-type-ids-url file:///etc/aggregator/test-token-types.json"
       # Shard configuration
       SHARD_CONFIG_URI: "file:///etc/aggregator/shard-config.json"
       # Admin dashboard configuration
@@ -41,6 +41,10 @@ services:
     ports:
       # Map host port (configurable) to container port 8080 (fixed)
       - "${PROXY_PORT:-8080}:8080"
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
     depends_on:
       postgres:
         condition: service_healthy

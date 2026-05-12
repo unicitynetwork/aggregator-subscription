@@ -26,6 +26,27 @@ public class ProxyConfig {
     @Parameter(names = {"--idle-timeout"}, description = "Idle timeout in milliseconds")
     private int idleTimeout = 3000;
 
+    @Parameter(names = {"--enable-h2c"}, description = "Enable cleartext HTTP/2 on the inbound listener")
+    private boolean h2cEnabled = false;
+
+    @Parameter(names = {"--upstream-h2c"}, description = "Use cleartext HTTP/2 when proxying to http:// upstream aggregators")
+    private boolean upstreamH2cEnabled = false;
+
+    @Parameter(names = {"--upstream-h2c-max-connections-per-destination"}, description = "Maximum upstream h2c connections per destination")
+    private int upstreamH2cMaxConnectionsPerDestination = 32;
+
+    @Parameter(names = {"--upstream-h2c-max-queued-requests-per-destination"}, description = "Maximum upstream h2c queued requests per destination")
+    private int upstreamH2cMaxQueuedRequestsPerDestination = 100000;
+
+    @Parameter(names = {"--upstream-h2c-initial-session-recv-window"}, description = "Initial upstream h2c session receive window in bytes")
+    private int upstreamH2cInitialSessionRecvWindow = 64 * 1024 * 1024;
+
+    @Parameter(names = {"--upstream-h2c-initial-stream-recv-window"}, description = "Initial upstream h2c stream receive window in bytes")
+    private int upstreamH2cInitialStreamRecvWindow = 16 * 1024 * 1024;
+
+    @Parameter(names = {"--upstream-h2c-max-local-streams"}, description = "Maximum upstream h2c local streams")
+    private int upstreamH2cMaxLocalStreams = 10000;
+
     @Parameter(names = {"--admin-password"}, description = "Admin dashboard password")
     private String adminPassword = null;
 
@@ -82,6 +103,34 @@ public class ProxyConfig {
         return idleTimeout;
     }
 
+    public boolean isH2cEnabled() {
+        return h2cEnabled;
+    }
+
+    public boolean isUpstreamH2cEnabled() {
+        return upstreamH2cEnabled;
+    }
+
+    public int getUpstreamH2cMaxConnectionsPerDestination() {
+        return upstreamH2cMaxConnectionsPerDestination;
+    }
+
+    public int getUpstreamH2cMaxQueuedRequestsPerDestination() {
+        return upstreamH2cMaxQueuedRequestsPerDestination;
+    }
+
+    public int getUpstreamH2cInitialSessionRecvWindow() {
+        return upstreamH2cInitialSessionRecvWindow;
+    }
+
+    public int getUpstreamH2cInitialStreamRecvWindow() {
+        return upstreamH2cInitialStreamRecvWindow;
+    }
+
+    public int getUpstreamH2cMaxLocalStreams() {
+        return upstreamH2cMaxLocalStreams;
+    }
+
     public String getAdminPassword() {
         // Check environment variable first, then command line parameter
         String envPassword = environmentProvider.getEnv(ADMIN_PASSWORD);
@@ -130,13 +179,27 @@ public class ProxyConfig {
         this.tokenTypeName = tokenTypeName;
     }
 
+    void setUpstreamH2cEnabled(boolean upstreamH2cEnabled) {
+        this.upstreamH2cEnabled = upstreamH2cEnabled;
+    }
+
+    void setUpstreamH2cMaxConnectionsPerDestination(int upstreamH2cMaxConnectionsPerDestination) {
+        this.upstreamH2cMaxConnectionsPerDestination = upstreamH2cMaxConnectionsPerDestination;
+    }
+
+    void setUpstreamH2cMaxQueuedRequestsPerDestination(int upstreamH2cMaxQueuedRequestsPerDestination) {
+        this.upstreamH2cMaxQueuedRequestsPerDestination = upstreamH2cMaxQueuedRequestsPerDestination;
+    }
+
     @Override
     public String toString() {
         return String.format(
             "ProxyConfig{port=%d, workerThreads=%d, " +
-            "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, protectedMethods='%s'}",
+            "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, h2cEnabled=%s, upstreamH2cEnabled=%s, " +
+            "upstreamH2cMaxConnectionsPerDestination=%d, upstreamH2cMaxQueuedRequestsPerDestination=%d, protectedMethods='%s'}",
             port, workerThreads,
-            connectTimeout, readTimeout, idleTimeout, protectedMethods
+            connectTimeout, readTimeout, idleTimeout, h2cEnabled, upstreamH2cEnabled,
+            upstreamH2cMaxConnectionsPerDestination, upstreamH2cMaxQueuedRequestsPerDestination, protectedMethods
         );
     }
 }

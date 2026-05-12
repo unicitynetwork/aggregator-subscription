@@ -1,6 +1,7 @@
 package org.unicitylabs.proxy.metrics;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics;
@@ -18,6 +19,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.ToDoubleFunction;
 
 /**
@@ -54,6 +56,9 @@ public final class GatewayMetrics implements AutoCloseable {
     static final String REQUESTS_METRIC = "gateway_requests_total";
     static final String DURATION_METRIC = "gateway_request_duration_seconds";
     static final String UPSTREAM_METRIC = "gateway_upstream_requests_total";
+    static final String UPSTREAM_DURATION_METRIC = "gateway_upstream_request_duration_seconds";
+    static final String INFLIGHT_REQUESTS_METRIC = "gateway_requests_in_flight";
+    static final String INFLIGHT_UPSTREAM_METRIC = "gateway_upstream_requests_in_flight";
 
     /**
      * Methods we expect to see; anything outside this set is collapsed to
@@ -75,6 +80,9 @@ public final class GatewayMetrics implements AutoCloseable {
     private final ConcurrentHashMap<RequestKey, Counter> requestCounters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<TimerKey, Timer> requestTimers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UpstreamKey, Counter> upstreamCounters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UpstreamTimerKey, Timer> upstreamTimers = new ConcurrentHashMap<>();
+    private final AtomicInteger activeRequests = new AtomicInteger();
+    private final AtomicInteger activeUpstreamRequests = new AtomicInteger();
 
     /** URL → stable shard label (e.g. "shard-0"); replaced atomically on shard-config reload. */
     private volatile Map<String, String> shardLabels = Collections.emptyMap();
@@ -87,7 +95,7 @@ public final class GatewayMetrics implements AutoCloseable {
         registry.config().meterFilter(new MeterFilter() {
             @Override
             public DistributionStatisticConfig configure(Meter.Id id, DistributionStatisticConfig config) {
-                if (DURATION_METRIC.equals(id.getName())) {
+                if (DURATION_METRIC.equals(id.getName()) || UPSTREAM_DURATION_METRIC.equals(id.getName())) {
                     return DistributionStatisticConfig.builder()
                         .percentilesHistogram(true)
                         .build()
@@ -108,6 +116,13 @@ public final class GatewayMetrics implements AutoCloseable {
         new ProcessorMetrics().bindTo(registry);
         new UptimeMetrics().bindTo(registry);
         new FileDescriptorMetrics().bindTo(registry);
+
+        Gauge.builder(INFLIGHT_REQUESTS_METRIC, activeRequests, AtomicInteger::get)
+            .description("HTTP requests currently being handled by the gateway")
+            .register(registry);
+        Gauge.builder(INFLIGHT_UPSTREAM_METRIC, activeUpstreamRequests, AtomicInteger::get)
+            .description("Requests currently waiting on an upstream aggregator shard")
+            .register(registry);
     }
 
     @Override
@@ -150,6 +165,30 @@ public final class GatewayMetrics implements AutoCloseable {
         upstreamCounters.computeIfAbsent(key, this::newUpstreamCounter).increment();
     }
 
+    public void recordUpstreamDuration(String shardTarget, String jsonRpcMethod, boolean success, long durationNanos) {
+        String label = resolveShardLabel(shardTarget);
+        String method = normalizeMethod(jsonRpcMethod);
+        UpstreamTimerKey key = new UpstreamTimerKey(label, success, method);
+        upstreamTimers.computeIfAbsent(key, this::newUpstreamTimer)
+            .record(durationNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
+    }
+
+    public void incrementActiveRequests() {
+        activeRequests.incrementAndGet();
+    }
+
+    public void decrementActiveRequests() {
+        activeRequests.updateAndGet(v -> v > 0 ? v - 1 : 0);
+    }
+
+    public void incrementActiveUpstreamRequests() {
+        activeUpstreamRequests.incrementAndGet();
+    }
+
+    public void decrementActiveUpstreamRequests() {
+        activeUpstreamRequests.updateAndGet(v -> v > 0 ? v - 1 : 0);
+    }
+
     public <T> void registerRateLimitBucketGauge(T source, ToDoubleFunction<T> sizeFn) {
         io.micrometer.core.instrument.Gauge.builder("gateway_ratelimit_buckets", source, sizeFn)
             .description("Per-API-key rate-limit buckets currently held in memory. " +
@@ -180,6 +219,15 @@ public final class GatewayMetrics implements AutoCloseable {
             .description("Requests forwarded to upstream aggregator shards")
             .tag("shard", k.shardLabel)
             .tag("outcome", k.success ? "success" : "error")
+            .register(registry);
+    }
+
+    private Timer newUpstreamTimer(UpstreamTimerKey k) {
+        return Timer.builder(UPSTREAM_DURATION_METRIC)
+            .description("Latency waiting for an upstream aggregator shard response")
+            .tag("shard", k.shardLabel)
+            .tag("outcome", k.success ? "success" : "error")
+            .tag("jsonrpc_method", k.method)
             .register(registry);
     }
 
@@ -214,4 +262,5 @@ public final class GatewayMetrics implements AutoCloseable {
     private record RequestKey(Outcome outcome, String method, String statusClass) {}
     private record TimerKey(Outcome outcome, String method) {}
     private record UpstreamKey(String shardLabel, boolean success) {}
+    private record UpstreamTimerKey(String shardLabel, boolean success, String method) {}
 }

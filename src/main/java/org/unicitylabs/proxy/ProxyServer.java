@@ -1,6 +1,7 @@
 package org.unicitylabs.proxy;
 
 import org.eclipse.jetty.server.*;
+import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.slf4j.Logger;
@@ -247,7 +248,14 @@ public class ProxyServer {
 
         HttpConnectionFactory httpFactory = new HttpConnectionFactory(httpConfig);
 
-        ServerConnector connector = new ServerConnector(server, httpFactory);
+        ServerConnector connector;
+        if (config.isH2cEnabled()) {
+            HTTP2CServerConnectionFactory h2cFactory = new HTTP2CServerConnectionFactory(httpConfig);
+            connector = new ServerConnector(server, httpFactory, h2cFactory);
+            logger.info("Inbound h2c enabled on proxy listener");
+        } else {
+            connector = new ServerConnector(server, httpFactory);
+        }
         connector.setPort(config.getPort());
         connector.setHost("0.0.0.0");
         connector.setIdleTimeout(config.getIdleTimeout());
@@ -274,11 +282,15 @@ public class ProxyServer {
             Thread.currentThread().interrupt();
         }
 
-        server.stop();
-        // Release the meter registry's listeners (notably JvmGcMetrics' GC
-        // notification listener) — required when the same JVM constructs
-        // and tears down ProxyServer repeatedly.
-        metrics.close();
+        try {
+            server.stop();
+        } finally {
+            requestHandler.stopUpstreamH2cClient();
+            // Release the meter registry's listeners (notably JvmGcMetrics' GC
+            // notification listener) — required when the same JVM constructs
+            // and tears down ProxyServer repeatedly.
+            metrics.close();
+        }
         logger.info("Proxy server stopped");
     }
     

@@ -23,6 +23,9 @@ repositories {
 dependencies {
     implementation 'org.eclipse.jetty:jetty-server:12.1.4'
     implementation 'org.eclipse.jetty:jetty-client:12.1.4'
+    implementation 'org.eclipse.jetty.http2:jetty-http2-server:12.1.4'
+    implementation 'org.eclipse.jetty.http2:jetty-http2-client:12.1.4'
+    implementation 'org.eclipse.jetty.http2:jetty-http2-client-transport:12.1.4'
     implementation 'org.eclipse.jetty.ee10:jetty-ee10-servlet:12.1.4'
     implementation 'org.eclipse.jetty.ee10:jetty-ee10-proxy:12.1.4'
 

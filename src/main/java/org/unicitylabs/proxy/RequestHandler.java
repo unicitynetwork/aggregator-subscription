@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.Set;
 import java.util.Arrays;
 import java.util.Locale;
@@ -39,6 +40,12 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.eclipse.jetty.client.BufferingResponseListener;
+import org.eclipse.jetty.client.BytesRequestContent;
+import org.eclipse.jetty.client.Result;
+import org.eclipse.jetty.http.HttpVersion;
+import org.eclipse.jetty.http2.client.HTTP2Client;
+import org.eclipse.jetty.http2.client.transport.HttpClientTransportOverHTTP2;
 import org.unicitylabs.proxy.util.CorsUtils;
 import org.unicitylabs.sdk.serializer.cbor.CborDeserializer;
 import org.unicitylabs.sdk.util.HexConverter;
@@ -95,9 +102,11 @@ public class RequestHandler extends Handler.Abstract {
     static final String HEADER_X_STATE_ID = "X-State-ID";
 
     private final HttpClient httpClient;
+    private final org.eclipse.jetty.client.HttpClient upstreamH2cClient;
     private volatile ShardRouter shardRouter;
     private final Duration readTimeout;
     private final boolean useVirtualThreads;
+    private final boolean upstreamH2cEnabled;
     private final CachedApiKeyManager apiKeyManager;
     private final RateLimiterManager rateLimiterManager;
     private final WebUIHandler webUIHandler;
@@ -120,6 +129,7 @@ public class RequestHandler extends Handler.Abstract {
         this.shardRouter = shardRouter;
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
         this.useVirtualThreads = config.isVirtualThreads();
+        this.upstreamH2cEnabled = config.isUpstreamH2cEnabled();
         this.apiKeyManager = CachedApiKeyManager.getInstance();
         this.rateLimiterManager = new RateLimiterManager(apiKeyManager);
         this.webUIHandler = new WebUIHandler(databaseConfig);
@@ -143,8 +153,40 @@ public class RequestHandler extends Handler.Abstract {
         }
         
         this.httpClient = httpClientBuilder.build();
+        this.upstreamH2cClient = upstreamH2cEnabled ? buildUpstreamH2cClient(config) : null;
+        if (upstreamH2cEnabled) {
+            logger.info(
+                "Using Jetty h2c client for http:// upstream aggregators (maxConnectionsPerDestination={}, maxQueuedRequestsPerDestination={})",
+                upstreamH2cClient.getMaxConnectionsPerDestination(),
+                upstreamH2cClient.getMaxRequestsQueuedPerDestination()
+            );
+        }
 
         logger.info("Request handler initialized with {} shard targets", shardRouter.getAllTargets().size());
+    }
+
+    private org.eclipse.jetty.client.HttpClient buildUpstreamH2cClient(ProxyConfig config) {
+        HTTP2Client http2Client = new HTTP2Client();
+        http2Client.setUseALPN(false);
+        http2Client.setConnectTimeout(config.getConnectTimeout());
+        http2Client.setIdleTimeout(config.getIdleTimeout());
+        http2Client.setStreamIdleTimeout(config.getReadTimeout());
+        http2Client.setInitialSessionRecvWindow(config.getUpstreamH2cInitialSessionRecvWindow());
+        http2Client.setInitialStreamRecvWindow(config.getUpstreamH2cInitialStreamRecvWindow());
+        http2Client.setMaxLocalStreams(config.getUpstreamH2cMaxLocalStreams());
+
+        org.eclipse.jetty.client.HttpClient client = new org.eclipse.jetty.client.HttpClient(new HttpClientTransportOverHTTP2(http2Client));
+        client.setConnectTimeout(config.getConnectTimeout());
+        client.setIdleTimeout(config.getIdleTimeout());
+        client.setFollowRedirects(false);
+        client.setMaxConnectionsPerDestination(config.getUpstreamH2cMaxConnectionsPerDestination());
+        client.setMaxRequestsQueuedPerDestination(config.getUpstreamH2cMaxQueuedRequestsPerDestination());
+        try {
+            client.start();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to start upstream h2c client", e);
+        }
+        return client;
     }
     
     @Override
@@ -334,6 +376,11 @@ public class RequestHandler extends Handler.Abstract {
                     logger.debug("Request header: {}: {}", field.getName(), field.getValue()));
             }
 
+            if (shouldUseUpstreamH2c(targetUri)) {
+                proxyRequestWithUpstreamH2c(request, cachedBody, method, targetUrl, targetUri, jsonRpcMethod, response, callback, recorder);
+                return;
+            }
+
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(targetUri))
                 .timeout(readTimeout);
@@ -341,25 +388,101 @@ public class RequestHandler extends Handler.Abstract {
             forwardBody(cachedBody, method, requestBuilder);
             HttpRequest httpRequest = requestBuilder.build();
 
-            httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray())
-                .whenComplete((httpResponse, throwable) -> {
-                    if (throwable != null) {
-                        logger.error("Failed to proxy request to {}: {}", targetUri, throwable.getMessage());
-                        metrics.recordUpstream(targetUrl, false);
-                        recorder.setOutcome(Outcome.UPSTREAM_ERROR);
-                        handleError(response, callback, throwable);
-                    } else {
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("Received response from {}: status {}", targetUri, httpResponse.statusCode());
+            long upstreamStartNanos = System.nanoTime();
+            metrics.incrementActiveUpstreamRequests();
+            try {
+                httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofByteArray())
+                    .whenComplete((httpResponse, throwable) -> {
+                        long upstreamElapsedNanos = System.nanoTime() - upstreamStartNanos;
+                        metrics.decrementActiveUpstreamRequests();
+                        if (throwable != null) {
+                            logger.error("Failed to proxy request to {}: {}", targetUri, throwable.getMessage());
+                            metrics.recordUpstream(targetUrl, false);
+                            metrics.recordUpstreamDuration(targetUrl, jsonRpcMethod, false, upstreamElapsedNanos);
+                            recorder.setOutcome(Outcome.UPSTREAM_ERROR);
+                            handleError(response, callback, throwable);
+                        } else {
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("Received response from {}: status {}", targetUri, httpResponse.statusCode());
+                            }
+                            boolean upstreamSuccess = httpResponse.statusCode() < 500;
+                            metrics.recordUpstream(targetUrl, upstreamSuccess);
+                            metrics.recordUpstreamDuration(targetUrl, jsonRpcMethod, upstreamSuccess, upstreamElapsedNanos);
+                            forwardResponse(response, callback, httpResponse);
                         }
-                        metrics.recordUpstream(targetUrl, httpResponse.statusCode() < 500);
-                        forwardResponse(response, callback, httpResponse);
-                    }
-                });
+                    });
+            } catch (Exception e) {
+                metrics.decrementActiveUpstreamRequests();
+                metrics.recordUpstream(targetUrl, false);
+                metrics.recordUpstreamDuration(targetUrl, jsonRpcMethod, false, System.nanoTime() - upstreamStartNanos);
+                throw e;
+            }
 
         } catch (Exception e) {
             recorder.setOutcome(Outcome.UPSTREAM_ERROR);
             handleError(response, callback, e);
+        }
+    }
+
+    private boolean shouldUseUpstreamH2c(String targetUri) {
+        return upstreamH2cEnabled
+            && upstreamH2cClient != null
+            && targetUri.regionMatches(true, 0, "http://", 0, "http://".length());
+    }
+
+    private void proxyRequestWithUpstreamH2c(
+        Request request,
+        byte[] cachedBody,
+        String method,
+        String targetUrl,
+        String targetUri,
+        String jsonRpcMethod,
+        Response response,
+        Callback callback,
+        RequestMetricsRecorder recorder
+    ) {
+        org.eclipse.jetty.client.Request upstreamRequest = upstreamH2cClient.newRequest(URI.create(targetUri))
+            .method(method)
+            .version(HttpVersion.HTTP_2)
+            .timeout(readTimeout.toMillis(), TimeUnit.MILLISECONDS)
+            .idleTimeout(readTimeout.toMillis(), TimeUnit.MILLISECONDS)
+            .followRedirects(false);
+        forwardAllNonRestrictedHeaders(request, upstreamRequest);
+        forwardBody(cachedBody, method, upstreamRequest);
+
+        long upstreamStartNanos = System.nanoTime();
+        metrics.incrementActiveUpstreamRequests();
+        try {
+            upstreamRequest.send(new BufferingResponseListener(MAX_PAYLOAD_SIZE_BYTES) {
+                @Override
+                public void onComplete(Result result) {
+                    long upstreamElapsedNanos = System.nanoTime() - upstreamStartNanos;
+                    metrics.decrementActiveUpstreamRequests();
+                    if (result.isFailed()) {
+                        Throwable failure = result.getFailure();
+                        logger.error("Failed to proxy h2c request to {}: {}", targetUri, failure.getMessage());
+                        metrics.recordUpstream(targetUrl, false);
+                        metrics.recordUpstreamDuration(targetUrl, jsonRpcMethod, false, upstreamElapsedNanos);
+                        recorder.setOutcome(Outcome.UPSTREAM_ERROR);
+                        handleError(response, callback, failure);
+                        return;
+                    }
+
+                    org.eclipse.jetty.client.Response upstreamResponse = result.getResponse();
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Received h2c response from {}: status {}", targetUri, upstreamResponse.getStatus());
+                    }
+                    boolean upstreamSuccess = upstreamResponse.getStatus() < 500;
+                    metrics.recordUpstream(targetUrl, upstreamSuccess);
+                    metrics.recordUpstreamDuration(targetUrl, jsonRpcMethod, upstreamSuccess, upstreamElapsedNanos);
+                    forwardResponse(response, callback, upstreamResponse, getContent());
+                }
+            });
+        } catch (Exception e) {
+            metrics.decrementActiveUpstreamRequests();
+            metrics.recordUpstream(targetUrl, false);
+            metrics.recordUpstreamDuration(targetUrl, jsonRpcMethod, false, System.nanoTime() - upstreamStartNanos);
+            throw e;
         }
     }
 
@@ -385,6 +508,19 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
+    private void forwardBody(byte[] requestBody, String method, org.eclipse.jetty.client.Request requestBuilder) {
+        if (requestBody != null) {
+            if (logger.isTraceEnabled()) {
+                String bodyStr = new String(requestBody, 0, Math.min(requestBody.length, 1000));
+                logger.trace("Request body (first 1000 chars): {}", bodyStr);
+            }
+
+            requestBuilder.body(new BytesRequestContent(requestBody));
+        } else if (requiresRequestBody(method)) {
+            requestBuilder.body(new BytesRequestContent(new byte[0]));
+        }
+    }
+
     private void forwardAllNonRestrictedHeaders(Request request, HttpRequest.Builder requestBuilder) {
         Set<String> connectionTokens = parseConnectionTokens(request.getHeaders().getField(CONNECTION.asString()));
         request.getHeaders().forEach(field -> {
@@ -392,6 +528,18 @@ public class RequestHandler extends Handler.Abstract {
             if (!isRestrictedHeader(name) && !connectionTokens.contains(name.toLowerCase(Locale.ROOT))) {
                 requestBuilder.header(name, field.getValue());
             }
+        });
+    }
+
+    private void forwardAllNonRestrictedHeaders(Request request, org.eclipse.jetty.client.Request requestBuilder) {
+        Set<String> connectionTokens = parseConnectionTokens(request.getHeaders().getField(CONNECTION.asString()));
+        requestBuilder.headers(headers -> {
+            request.getHeaders().forEach(field -> {
+                String name = field.getName();
+                if (!isRestrictedHeader(name) && !connectionTokens.contains(name.toLowerCase(Locale.ROOT))) {
+                    headers.add(name, field.getValue());
+                }
+            });
         });
     }
 
@@ -425,6 +573,40 @@ public class RequestHandler extends Handler.Abstract {
             logger.error("Error forwarding response", e);
             handleError(response, callback, e);
         }
+    }
+
+    private void forwardResponse(Response response, Callback callback, org.eclipse.jetty.client.Response upstreamResponse, byte[] body) {
+        try {
+            response.setStatus(upstreamResponse.getStatus());
+
+            for (var field : upstreamResponse.getHeaders()) {
+                String name = field.getName();
+                if (!name.equalsIgnoreCase(CONNECTION.asString()) &&
+                    !name.equalsIgnoreCase(TRANSFER_ENCODING.asString()) &&
+                    !CorsUtils.isCorsHeader(name)) {
+                    response.getHeaders().add(name, field.getValue());
+                }
+            }
+
+            if (body.length > 0) {
+                response.write(true, ByteBuffer.wrap(body), callback);
+            } else {
+                callback.succeeded();
+            }
+
+            if (logger.isDebugEnabled()) {
+                logger.debug("H2C response forwarded: {} {}", upstreamResponse.getStatus(), upstreamResponse.getRequest().getURI());
+            }
+        } catch (Exception e) {
+            logger.error("Error forwarding h2c response", e);
+            handleError(response, callback, e);
+        }
+    }
+
+    private boolean requiresRequestBody(String method) {
+        return POST.asString().equals(method)
+            || PUT.asString().equals(method)
+            || "PATCH".equalsIgnoreCase(method);
     }
 
     private void handleError(Response response, Callback callback, Throwable throwable) {
@@ -464,6 +646,17 @@ public class RequestHandler extends Handler.Abstract {
     
     public RateLimiterManager getRateLimiterManager() {
         return rateLimiterManager;
+    }
+
+    public void stopUpstreamH2cClient() {
+        if (upstreamH2cClient == null) {
+            return;
+        }
+        try {
+            upstreamH2cClient.stop();
+        } catch (Exception e) {
+            logger.warn("Failed to stop upstream h2c client", e);
+        }
     }
 
     public CachedApiKeyManager getApiKeyManager() {
@@ -713,6 +906,7 @@ public class RequestHandler extends Handler.Abstract {
         RequestMetricsRecorder(GatewayMetrics metrics, Response response) {
             this.metrics = metrics;
             this.response = response;
+            this.metrics.incrementActiveRequests();
         }
 
         void setJsonRpcMethod(String method) { this.jsonRpcMethod = method; }
@@ -737,7 +931,11 @@ public class RequestHandler extends Handler.Abstract {
         private void recordOnce() {
             if (recorded.compareAndSet(false, true)) {
                 long elapsed = System.nanoTime() - startNanos;
-                metrics.recordRequest(outcome, jsonRpcMethod, response.getStatus(), elapsed);
+                try {
+                    metrics.recordRequest(outcome, jsonRpcMethod, response.getStatus(), elapsed);
+                } finally {
+                    metrics.decrementActiveRequests();
+                }
             }
         }
     }

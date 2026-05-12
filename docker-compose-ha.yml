@@ -6,7 +6,7 @@ x-proxy-service: &proxy-service
     network: host
   environment:
     # Proxy configuration - container always listens on 8080 internally
-    PROXY_ARGS: "--port 8080 "
+    PROXY_ARGS: "--port 8080 --worker-threads ${GATEWAY_WORKER_THREADS:-64} "
     # Admin dashboard configuration
     ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     # Server secret for API operations (must be hex string with even length)
@@ -33,6 +33,10 @@ x-proxy-service: &proxy-service
   depends_on:
     postgres:
       condition: service_healthy
+  ulimits:
+    nofile:
+      soft: 1048576
+      hard: 1048576
   healthcheck:
     test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
     interval: 10s
@@ -77,6 +81,10 @@ services:
       - "${PROXY_PORT:-8080}:8080"
       # Stats/monitoring page
       - "${HAPROXY_STATS_PORT:-8404}:8404"
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
     volumes:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
