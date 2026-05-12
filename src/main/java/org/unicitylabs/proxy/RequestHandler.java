@@ -516,8 +516,6 @@ public class RequestHandler extends Handler.Abstract {
             }
 
             requestBuilder.body(new BytesRequestContent(requestBody));
-        } else if (requiresRequestBody(method)) {
-            requestBuilder.body(new BytesRequestContent(new byte[0]));
         }
     }
 
@@ -603,12 +601,6 @@ public class RequestHandler extends Handler.Abstract {
         }
     }
 
-    private boolean requiresRequestBody(String method) {
-        return POST.asString().equals(method)
-            || PUT.asString().equals(method)
-            || "PATCH".equalsIgnoreCase(method);
-    }
-
     private void handleError(Response response, Callback callback, Throwable throwable) {
         logger.error("Error processing request", throwable);
         
@@ -623,8 +615,8 @@ public class RequestHandler extends Handler.Abstract {
     }
     
     private boolean hasBody(String method) {
-        return POST.asString().equals(method) || PUT.asString().equals(method) ||
-               PATCH.asString().equals(method) || DELETE.asString().equals(method);
+        return POST.asString().equalsIgnoreCase(method) || PUT.asString().equalsIgnoreCase(method) ||
+               PATCH.asString().equalsIgnoreCase(method) || DELETE.asString().equalsIgnoreCase(method);
     }
 
     private boolean isRestrictedHeader(String name) {
