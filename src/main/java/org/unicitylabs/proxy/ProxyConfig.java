@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 public class ProxyConfig {
     public static final String ADMIN_PASSWORD = "ADMIN_PASSWORD";
+    public static final String GATEWAY_UPSTREAM_H2C = "GATEWAY_UPSTREAM_H2C";
 
     private final EnvironmentProvider environmentProvider;
     @Parameter(names = {"--port", "-p"}, description = "Proxy server port")
@@ -46,6 +47,9 @@ public class ProxyConfig {
 
     @Parameter(names = {"--upstream-h2c-max-local-streams"}, description = "Maximum upstream h2c local streams")
     private int upstreamH2cMaxLocalStreams = 10000;
+
+    @Parameter(names = {"--upstream-h2c-worker-threads"}, description = "Number of upstream h2c client worker threads. -1 derives from --worker-threads; 0 uses virtual threads")
+    private int upstreamH2cWorkerThreads = -1;
 
     @Parameter(names = {"--admin-password"}, description = "Admin dashboard password")
     private String adminPassword = null;
@@ -108,7 +112,7 @@ public class ProxyConfig {
     }
 
     public boolean isUpstreamH2cEnabled() {
-        return upstreamH2cEnabled;
+        return getBooleanEnvOrDefault(GATEWAY_UPSTREAM_H2C, upstreamH2cEnabled);
     }
 
     public int getUpstreamH2cMaxConnectionsPerDestination() {
@@ -129,6 +133,16 @@ public class ProxyConfig {
 
     public int getUpstreamH2cMaxLocalStreams() {
         return upstreamH2cMaxLocalStreams;
+    }
+
+    public int getUpstreamH2cWorkerThreads() {
+        if (upstreamH2cWorkerThreads < -1) {
+            throw new IllegalArgumentException("upstream h2c worker threads must be -1, 0, or positive");
+        }
+        if (upstreamH2cWorkerThreads >= 0) {
+            return upstreamH2cWorkerThreads;
+        }
+        return isVirtualThreads() ? 0 : workerThreads;
     }
 
     public String getAdminPassword() {
@@ -171,6 +185,20 @@ public class ProxyConfig {
         return tokenTypeName;
     }
 
+    private boolean getBooleanEnvOrDefault(String key, boolean defaultValue) {
+        String value = environmentProvider.getEnv(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        if ("true".equalsIgnoreCase(value.trim())) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value.trim())) {
+            return false;
+        }
+        throw new IllegalArgumentException(key + " must be true or false");
+    }
+
     public void setTokenTypeIdsUrl(String tokenTypeIdsUrl) {
         this.tokenTypeIdsUrl = tokenTypeIdsUrl;
     }
@@ -181,6 +209,14 @@ public class ProxyConfig {
 
     void setUpstreamH2cEnabled(boolean upstreamH2cEnabled) {
         this.upstreamH2cEnabled = upstreamH2cEnabled;
+    }
+
+    void setWorkerThreads(int workerThreads) {
+        this.workerThreads = workerThreads;
+    }
+
+    void setUpstreamH2cWorkerThreads(int upstreamH2cWorkerThreads) {
+        this.upstreamH2cWorkerThreads = upstreamH2cWorkerThreads;
     }
 
     void setUpstreamH2cMaxConnectionsPerDestination(int upstreamH2cMaxConnectionsPerDestination) {
@@ -196,10 +232,14 @@ public class ProxyConfig {
         return String.format(
             "ProxyConfig{port=%d, workerThreads=%d, " +
             "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, h2cEnabled=%s, upstreamH2cEnabled=%s, " +
-            "upstreamH2cMaxConnectionsPerDestination=%d, upstreamH2cMaxQueuedRequestsPerDestination=%d, protectedMethods='%s'}",
+            "upstreamH2cMaxConnectionsPerDestination=%d, upstreamH2cMaxQueuedRequestsPerDestination=%d, " +
+            "upstreamH2cInitialSessionRecvWindow=%d, upstreamH2cInitialStreamRecvWindow=%d, " +
+            "upstreamH2cMaxLocalStreams=%d, upstreamH2cWorkerThreads=%d, protectedMethods='%s'}",
             port, workerThreads,
-            connectTimeout, readTimeout, idleTimeout, h2cEnabled, upstreamH2cEnabled,
-            upstreamH2cMaxConnectionsPerDestination, upstreamH2cMaxQueuedRequestsPerDestination, protectedMethods
+            connectTimeout, readTimeout, idleTimeout, h2cEnabled, isUpstreamH2cEnabled(),
+            upstreamH2cMaxConnectionsPerDestination, upstreamH2cMaxQueuedRequestsPerDestination,
+            upstreamH2cInitialSessionRecvWindow, upstreamH2cInitialStreamRecvWindow,
+            upstreamH2cMaxLocalStreams, getUpstreamH2cWorkerThreads(), protectedMethods
         );
     }
 }

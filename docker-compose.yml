@@ -25,7 +25,9 @@ services:
     container_name: aggregator-proxy
     environment:
       # Proxy configuration - container always listens on 8080 internally
-      PROXY_ARGS: "--port 8080 --enable-h2c --upstream-h2c --worker-threads ${GATEWAY_WORKER_THREADS:-64} --protected-methods ${PROTECTED_METHODS:-certification_request} --token-type-ids-url file:///etc/aggregator/test-token-types.json"
+      # BFT aggregator upstreams support h2c. Set GATEWAY_UPSTREAM_H2C=false when proxying HTTP/1-only upstreams.
+      GATEWAY_UPSTREAM_H2C: ${GATEWAY_UPSTREAM_H2C:-true}
+      PROXY_ARGS: "--port 8080 --enable-h2c --worker-threads ${GATEWAY_WORKER_THREADS:-64} --protected-methods ${PROTECTED_METHODS:-certification_request} --token-type-ids-url file:///etc/aggregator/test-token-types.json"
       # Shard configuration
       SHARD_CONFIG_URI: "file:///etc/aggregator/shard-config.json"
       # Admin dashboard configuration

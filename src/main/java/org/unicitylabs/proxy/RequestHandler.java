@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.Set;
@@ -103,6 +104,7 @@ public class RequestHandler extends Handler.Abstract {
 
     private final HttpClient httpClient;
     private final org.eclipse.jetty.client.HttpClient upstreamH2cClient;
+    private final ExecutorService upstreamH2cExecutor;
     private volatile ShardRouter shardRouter;
     private final Duration readTimeout;
     private final boolean useVirtualThreads;
@@ -153,10 +155,12 @@ public class RequestHandler extends Handler.Abstract {
         }
         
         this.httpClient = httpClientBuilder.build();
-        this.upstreamH2cClient = upstreamH2cEnabled ? buildUpstreamH2cClient(config) : null;
+        this.upstreamH2cExecutor = upstreamH2cEnabled ? buildUpstreamH2cExecutor(config) : null;
+        this.upstreamH2cClient = upstreamH2cEnabled ? buildUpstreamH2cClient(config, upstreamH2cExecutor) : null;
         if (upstreamH2cEnabled) {
             logger.info(
-                "Using Jetty h2c client for http:// upstream aggregators (maxConnectionsPerDestination={}, maxQueuedRequestsPerDestination={})",
+                "Using Jetty h2c client for http:// upstream aggregators (workerThreads={}, maxConnectionsPerDestination={}, maxQueuedRequestsPerDestination={})",
+                config.getUpstreamH2cWorkerThreads(),
                 upstreamH2cClient.getMaxConnectionsPerDestination(),
                 upstreamH2cClient.getMaxRequestsQueuedPerDestination()
             );
@@ -165,8 +169,23 @@ public class RequestHandler extends Handler.Abstract {
         logger.info("Request handler initialized with {} shard targets", shardRouter.getAllTargets().size());
     }
 
-    private org.eclipse.jetty.client.HttpClient buildUpstreamH2cClient(ProxyConfig config) {
+    private ExecutorService buildUpstreamH2cExecutor(ProxyConfig config) {
+        int threads = config.getUpstreamH2cWorkerThreads();
+        if (threads == 0) {
+            logger.info("Using virtual threads for upstream h2c client");
+            return Executors.newVirtualThreadPerTaskExecutor();
+        }
+
+        logger.info("Using fixed thread pool with {} threads for upstream h2c client", threads);
+        return Executors.newFixedThreadPool(
+            threads,
+            Thread.ofPlatform().name("gateway-upstream-h2c-", 0).daemon(true).factory()
+        );
+    }
+
+    private org.eclipse.jetty.client.HttpClient buildUpstreamH2cClient(ProxyConfig config, ExecutorService executor) {
         HTTP2Client http2Client = new HTTP2Client();
+        http2Client.setExecutor(executor);
         http2Client.setUseALPN(false);
         http2Client.setConnectTimeout(config.getConnectTimeout());
         http2Client.setIdleTimeout(config.getIdleTimeout());
@@ -176,6 +195,7 @@ public class RequestHandler extends Handler.Abstract {
         http2Client.setMaxLocalStreams(config.getUpstreamH2cMaxLocalStreams());
 
         org.eclipse.jetty.client.HttpClient client = new org.eclipse.jetty.client.HttpClient(new HttpClientTransportOverHTTP2(http2Client));
+        client.setExecutor(executor);
         client.setConnectTimeout(config.getConnectTimeout());
         client.setIdleTimeout(config.getIdleTimeout());
         client.setFollowRedirects(false);
@@ -184,6 +204,7 @@ public class RequestHandler extends Handler.Abstract {
         try {
             client.start();
         } catch (Exception e) {
+            executor.shutdownNow();
             throw new IllegalStateException("Failed to start upstream h2c client", e);
         }
         return client;
@@ -641,13 +662,19 @@ public class RequestHandler extends Handler.Abstract {
     }
 
     public void stopUpstreamH2cClient() {
-        if (upstreamH2cClient == null) {
+        if (upstreamH2cClient == null && upstreamH2cExecutor == null) {
             return;
         }
         try {
-            upstreamH2cClient.stop();
+            if (upstreamH2cClient != null) {
+                upstreamH2cClient.stop();
+            }
         } catch (Exception e) {
             logger.warn("Failed to stop upstream h2c client", e);
+        } finally {
+            if (upstreamH2cExecutor != null) {
+                upstreamH2cExecutor.shutdownNow();
+            }
         }
     }
 
