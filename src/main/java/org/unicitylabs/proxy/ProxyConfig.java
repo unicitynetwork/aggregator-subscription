@@ -51,6 +51,9 @@ public class ProxyConfig {
     @Parameter(names = {"--upstream-h2c-worker-threads"}, description = "Number of upstream h2c client worker threads. -1 derives from --worker-threads; 0 uses virtual threads")
     private int upstreamH2cWorkerThreads = -1;
 
+    @Parameter(names = {"--upstream-response-max-buffer-bytes"}, description = "Maximum upstream response bytes to buffer")
+    private int upstreamResponseMaxBufferBytes = 100 * 1024 * 1024;
+
     @Parameter(names = {"--admin-password"}, description = "Admin dashboard password")
     private String adminPassword = null;
 
@@ -145,6 +148,13 @@ public class ProxyConfig {
         return isVirtualThreads() ? 0 : workerThreads;
     }
 
+    public int getUpstreamResponseMaxBufferBytes() {
+        if (upstreamResponseMaxBufferBytes <= 0) {
+            throw new IllegalArgumentException("upstream response max buffer bytes must be positive");
+        }
+        return upstreamResponseMaxBufferBytes;
+    }
+
     public String getAdminPassword() {
         // Check environment variable first, then command line parameter
         String envPassword = environmentProvider.getEnv(ADMIN_PASSWORD);
@@ -219,6 +229,10 @@ public class ProxyConfig {
         this.upstreamH2cWorkerThreads = upstreamH2cWorkerThreads;
     }
 
+    void setUpstreamResponseMaxBufferBytes(int upstreamResponseMaxBufferBytes) {
+        this.upstreamResponseMaxBufferBytes = upstreamResponseMaxBufferBytes;
+    }
+
     void setUpstreamH2cMaxConnectionsPerDestination(int upstreamH2cMaxConnectionsPerDestination) {
         this.upstreamH2cMaxConnectionsPerDestination = upstreamH2cMaxConnectionsPerDestination;
     }
@@ -234,12 +248,14 @@ public class ProxyConfig {
             "connectTimeout=%d, readTimeout=%d, idleTimeout=%d, h2cEnabled=%s, upstreamH2cEnabled=%s, " +
             "upstreamH2cMaxConnectionsPerDestination=%d, upstreamH2cMaxQueuedRequestsPerDestination=%d, " +
             "upstreamH2cInitialSessionRecvWindow=%d, upstreamH2cInitialStreamRecvWindow=%d, " +
-            "upstreamH2cMaxLocalStreams=%d, upstreamH2cWorkerThreads=%d, protectedMethods='%s'}",
+            "upstreamH2cMaxLocalStreams=%d, upstreamH2cWorkerThreads=%d, upstreamResponseMaxBufferBytes=%d, " +
+            "protectedMethods='%s'}",
             port, workerThreads,
             connectTimeout, readTimeout, idleTimeout, h2cEnabled, isUpstreamH2cEnabled(),
             upstreamH2cMaxConnectionsPerDestination, upstreamH2cMaxQueuedRequestsPerDestination,
             upstreamH2cInitialSessionRecvWindow, upstreamH2cInitialStreamRecvWindow,
-            upstreamH2cMaxLocalStreams, getUpstreamH2cWorkerThreads(), protectedMethods
+            upstreamH2cMaxLocalStreams, getUpstreamH2cWorkerThreads(), getUpstreamResponseMaxBufferBytes(),
+            protectedMethods
         );
     }
 }

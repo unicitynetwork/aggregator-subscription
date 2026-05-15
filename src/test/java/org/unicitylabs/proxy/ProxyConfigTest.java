@@ -70,4 +70,20 @@ class ProxyConfigTest {
 
         assertThrows(IllegalArgumentException.class, config::getUpstreamH2cWorkerThreads);
     }
+
+    @Test
+    void upstreamResponseMaxBufferDefaultsAboveRequestPayloadLimit() {
+        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+
+        assertThat(config.getUpstreamResponseMaxBufferBytes()).isGreaterThan(RequestHandler.MAX_PAYLOAD_SIZE_BYTES);
+        assertThat(config.toString()).contains("upstreamResponseMaxBufferBytes=");
+    }
+
+    @Test
+    void upstreamResponseMaxBufferRejectsInvalidValue() {
+        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        config.setUpstreamResponseMaxBufferBytes(0);
+
+        assertThrows(IllegalArgumentException.class, config::getUpstreamResponseMaxBufferBytes);
+    }
 }

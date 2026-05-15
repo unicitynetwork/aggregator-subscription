@@ -107,6 +107,7 @@ public class RequestHandler extends Handler.Abstract {
     private final ExecutorService upstreamH2cExecutor;
     private volatile ShardRouter shardRouter;
     private final Duration readTimeout;
+    private final int upstreamResponseMaxBufferBytes;
     private final boolean useVirtualThreads;
     private final boolean upstreamH2cEnabled;
     private final CachedApiKeyManager apiKeyManager;
@@ -130,6 +131,7 @@ public class RequestHandler extends Handler.Abstract {
         this.metrics = metrics;
         this.shardRouter = shardRouter;
         this.readTimeout = Duration.ofMillis(config.getReadTimeout());
+        this.upstreamResponseMaxBufferBytes = config.getUpstreamResponseMaxBufferBytes();
         this.useVirtualThreads = config.isVirtualThreads();
         this.upstreamH2cEnabled = config.isUpstreamH2cEnabled();
         this.apiKeyManager = CachedApiKeyManager.getInstance();
@@ -474,7 +476,7 @@ public class RequestHandler extends Handler.Abstract {
         long upstreamStartNanos = System.nanoTime();
         metrics.incrementActiveUpstreamRequests();
         try {
-            upstreamRequest.send(new BufferingResponseListener(MAX_PAYLOAD_SIZE_BYTES) {
+            upstreamRequest.send(new BufferingResponseListener(upstreamResponseMaxBufferBytes) {
                 @Override
                 public void onComplete(Result result) {
                     long upstreamElapsedNanos = System.nanoTime() - upstreamStartNanos;
