@@ -26,7 +26,7 @@ services:
     container_name: aggregator-proxy
     environment:
       # Proxy configuration - container always listens on 8080 internally
-      PROXY_ARGS: "--port 8080"
+      PROXY_ARGS: "--port 8080 --idle-timeout 35000"
       # Admin dashboard configuration
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       # Server secret for API operations (must be hex string with even length)

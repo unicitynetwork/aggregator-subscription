@@ -24,7 +24,7 @@ public class ProxyConfig {
     private int readTimeout = 30000;
 
     @Parameter(names = {"--idle-timeout"}, description = "Idle timeout in milliseconds")
-    private int idleTimeout = 3000;
+    private int idleTimeout = 30000;
 
     @Parameter(names = {"--admin-password"}, description = "Admin dashboard password")
     private String adminPassword = null;
