@@ -50,6 +50,11 @@ services:
       # Allow proxy to connect to host machine (for local aggregator)
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
 volumes:
   postgres-data:
