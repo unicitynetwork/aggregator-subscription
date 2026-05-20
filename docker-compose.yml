@@ -60,6 +60,11 @@ services:
       - ${SHARD_CONFIG_FILE:-./scripts/sharding/shard-config-bft-host.json}:/etc/aggregator/shard-config.json:ro
       - ./src/test/resources/test-token-types.json:/etc/aggregator/test-token-types.json:ro
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
 volumes:
   postgres-data:
