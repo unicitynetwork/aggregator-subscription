@@ -239,6 +239,8 @@ docker compose ps
 
 If you need a different shard layout, replace the mounted shard config or update it through the Admin UI.
 
+The compose files request `nofile=1048576` for high-concurrency gateway runs. Docker may clamp this to the host or Docker daemon limit, so verify `ulimit -n` on the host and inside the container; tune `/etc/security/limits.conf` or the Docker systemd unit `LimitNOFILE` if needed.
+
 Here are the key URLs:
 
 - Admin UI: http://localhost:8080/admin.

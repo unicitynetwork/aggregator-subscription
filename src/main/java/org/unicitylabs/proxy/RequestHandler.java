@@ -229,7 +229,7 @@ public class RequestHandler extends Handler.Abstract {
         Callback metricsCallback = recorder.wrap(callback);
 
         // Handle CORS preflight OPTIONS requests
-        if (OPTIONS.asString().equals(method)) {
+        if (OPTIONS.asString().equalsIgnoreCase(method)) {
             response.setStatus(HttpStatus.NO_CONTENT_204);
             metricsCallback.succeeded();
             return true;
@@ -283,7 +283,7 @@ public class RequestHandler extends Handler.Abstract {
     }
 
     private String extractJsonRpcMethodFromBody(String method, byte[] requestBody) {
-        if (POST.asString().equals(method) && requestBody != null) {
+        if (POST.asString().equalsIgnoreCase(method) && requestBody != null) {
             try (JsonParser parser = objectMapper.getFactory().createParser(requestBody)) {
                 if (parser.nextToken() != JsonToken.START_OBJECT) {
                     return null;
@@ -355,7 +355,7 @@ public class RequestHandler extends Handler.Abstract {
     }
 
     private boolean requiresAuthentication(String method, String jsonRpcMethod) {
-        return POST.asString().equals(method)
+        return POST.asString().equalsIgnoreCase(method)
             && jsonRpcMethod != null
             && protectedMethods.contains(jsonRpcMethod);
     }

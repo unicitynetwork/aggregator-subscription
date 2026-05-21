@@ -1,6 +1,8 @@
 package org.unicitylabs.proxy;
 
+import com.beust.jcommander.IParameterValidator;
 import com.beust.jcommander.Parameter;
+import com.beust.jcommander.ParameterException;
 import org.unicitylabs.proxy.util.EnvironmentProvider;
 
 import java.util.Arrays;
@@ -48,10 +50,18 @@ public class ProxyConfig {
     @Parameter(names = {"--upstream-h2c-max-local-streams"}, description = "Maximum upstream h2c local streams")
     private int upstreamH2cMaxLocalStreams = 10000;
 
-    @Parameter(names = {"--upstream-h2c-worker-threads"}, description = "Number of upstream h2c client worker threads. -1 derives from --worker-threads; 0 uses virtual threads")
+    @Parameter(
+        names = {"--upstream-h2c-worker-threads"},
+        description = "Number of upstream h2c client worker threads. -1 derives from --worker-threads; 0 uses virtual threads",
+        validateWith = UpstreamH2cWorkerThreadsValidator.class
+    )
     private int upstreamH2cWorkerThreads = -1;
 
-    @Parameter(names = {"--upstream-response-max-buffer-bytes"}, description = "Maximum upstream response bytes to buffer")
+    @Parameter(
+        names = {"--upstream-response-max-buffer-bytes"},
+        description = "Maximum upstream response bytes to buffer",
+        validateWith = PositiveIntegerValidator.class
+    )
     private int upstreamResponseMaxBufferBytes = 100 * 1024 * 1024;
 
     @Parameter(names = {"--admin-password"}, description = "Admin dashboard password")
@@ -139,9 +149,6 @@ public class ProxyConfig {
     }
 
     public int getUpstreamH2cWorkerThreads() {
-        if (upstreamH2cWorkerThreads < -1) {
-            throw new IllegalArgumentException("upstream h2c worker threads must be -1, 0, or positive");
-        }
         if (upstreamH2cWorkerThreads >= 0) {
             return upstreamH2cWorkerThreads;
         }
@@ -149,9 +156,6 @@ public class ProxyConfig {
     }
 
     public int getUpstreamResponseMaxBufferBytes() {
-        if (upstreamResponseMaxBufferBytes <= 0) {
-            throw new IllegalArgumentException("upstream response max buffer bytes must be positive");
-        }
         return upstreamResponseMaxBufferBytes;
     }
 
@@ -257,5 +261,33 @@ public class ProxyConfig {
             upstreamH2cMaxLocalStreams, getUpstreamH2cWorkerThreads(), getUpstreamResponseMaxBufferBytes(),
             protectedMethods
         );
+    }
+
+    public static final class UpstreamH2cWorkerThreadsValidator implements IParameterValidator {
+        @Override
+        public void validate(String name, String value) {
+            int parsed = parseInteger(name, value);
+            if (parsed < -1) {
+                throw new ParameterException(name + " must be -1, 0, or positive");
+            }
+        }
+    }
+
+    public static final class PositiveIntegerValidator implements IParameterValidator {
+        @Override
+        public void validate(String name, String value) {
+            int parsed = parseInteger(name, value);
+            if (parsed <= 0) {
+                throw new ParameterException(name + " must be positive");
+            }
+        }
+    }
+
+    private static int parseInteger(String name, String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new ParameterException(name + " must be an integer", e);
+        }
     }
 }

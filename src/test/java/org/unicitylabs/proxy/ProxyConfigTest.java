@@ -1,5 +1,7 @@
 package org.unicitylabs.proxy;
 
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.ParameterException;
 import org.junit.jupiter.api.Test;
 import org.unicitylabs.proxy.util.TestEnvironmentProvider;
 
@@ -65,10 +67,8 @@ class ProxyConfigTest {
 
     @Test
     void upstreamH2cWorkerThreadsRejectInvalidValue() {
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
-        config.setUpstreamH2cWorkerThreads(-2);
-
-        assertThrows(IllegalArgumentException.class, config::getUpstreamH2cWorkerThreads);
+        assertThrows(ParameterException.class, () ->
+            parseConfig("--upstream-h2c-worker-threads", "-2"));
     }
 
     @Test
@@ -81,9 +81,16 @@ class ProxyConfigTest {
 
     @Test
     void upstreamResponseMaxBufferRejectsInvalidValue() {
-        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
-        config.setUpstreamResponseMaxBufferBytes(0);
+        assertThrows(ParameterException.class, () ->
+            parseConfig("--upstream-response-max-buffer-bytes", "0"));
+    }
 
-        assertThrows(IllegalArgumentException.class, config::getUpstreamResponseMaxBufferBytes);
+    private ProxyConfig parseConfig(String... args) {
+        ProxyConfig config = new ProxyConfig(new TestEnvironmentProvider());
+        JCommander.newBuilder()
+            .addObject(config)
+            .build()
+            .parse(args);
+        return config;
     }
 }
