@@ -239,10 +239,30 @@ docker compose ps
 
 If you need a different shard layout, replace the mounted shard config or update it through the Admin UI.
 
+The compose files request `nofile=1048576` for high-concurrency gateway runs. Docker may clamp this to the host or Docker daemon limit, so verify `ulimit -n` on the host and inside the container; tune `/etc/security/limits.conf` or the Docker systemd unit `LimitNOFILE` if needed.
+
 Here are the key URLs:
 
 - Admin UI: http://localhost:8080/admin.
 - Incoming requests are proxied from here: http://localhost:8080/.
+
+#### HTTP/2 and HAProxy
+
+Protocol handling is per hop. `--enable-h2c` enables cleartext HTTP/2 for clients connecting to the proxy while still accepting HTTP/1. `--upstream-h2c` makes the proxy use cleartext HTTP/2 when forwarding to `http://` shard URLs.
+
+When HAProxy is in front of a shard, keep the frontend HTTP/1-compatible and enable HTTP/2 on the backend server line:
+
+```haproxy
+frontend shard_frontend
+    bind *:3000
+    default_backend shard_backend
+
+backend shard_backend
+    http-reuse always
+    server shard-leader aggregator-shard:3000 proto h2
+```
+
+With this setup direct HTTP/1 clients can still call HAProxy, while proxy -> HAProxy can use h2c and HAProxy -> aggregator uses HTTP/2.
 
 #### Architecture
 
