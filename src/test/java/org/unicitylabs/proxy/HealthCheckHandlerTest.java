@@ -296,6 +296,26 @@ public class HealthCheckHandlerTest {
     }
 
     @Test
+    @DisplayName("Health check includes CORS headers so cross-origin browser checks are not blocked")
+    void testCorsHeadersInHealthResponse() throws Exception {
+        startHealthServer(createShardRouter());
+
+        CorsTestSupport corsTestSupport = new CorsTestSupport(httpClient, getHealthBaseUrl());
+        HttpResponse<String> response = corsTestSupport.assertCorsHeadersInGetResponse("/health", "https://example.com");
+
+        assertEquals(OK_200, response.statusCode());
+    }
+
+    @Test
+    @DisplayName("Health check handles CORS preflight OPTIONS request")
+    void testCorsPreflightRequest() throws Exception {
+        startHealthServer(createShardRouter());
+
+        CorsTestSupport corsTestSupport = new CorsTestSupport(httpClient, getHealthBaseUrl());
+        corsTestSupport.assertCorsPreflightRequest("/health", "https://example.com");
+    }
+
+    @Test
     @DisplayName("Non-health endpoint requests are not handled")
     void testNonHealthEndpointNotHandled() throws Exception {
         startHealthServer(createShardRouter());
@@ -370,6 +390,10 @@ public class HealthCheckHandlerTest {
         });
         healthServer.start();
         healthServerPort = ((ServerConnector) healthServer.getConnectors()[0]).getLocalPort();
+    }
+
+    private String getHealthBaseUrl() {
+        return "http://localhost:" + healthServerPort;
     }
 
     private HttpResponse<String> sendHealthRequest() throws Exception {
