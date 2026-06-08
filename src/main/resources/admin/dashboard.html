@@ -1297,9 +1297,9 @@
             const activeUntilInput = document.getElementById('editKeyActiveUntil');
             if (key.activeUntil) {
                 activeUntilInput.value = String(key.activeUntil)
-                    .replace(' ', 'T')      // Timestamp form -> ISO-ish
-                    .replace(/\.\d+.*$/, '') // strip fractional seconds and any trailing zone
-                    .replace(/Z$/, '');      // strip explicit Z if present
+                    .replace(' ', 'T')                     // Timestamp form -> ISO-ish
+                    .replace(/\.\d+/, '')                  // strip fractional seconds
+                    .replace(/(Z|[-+]\d{2}:?\d{2})$/, ''); // strip trailing zone (Z or offset)
             } else {
                 activeUntilInput.value = '';
             }
@@ -1438,7 +1438,10 @@
             // We treat it as UTC (matching the modal label) and send an ISO instant
             // so the backend's Instant.parse accepts it without ambiguity.
             if (activeUntilRaw) {
-                payload.activeUntil = activeUntilRaw + 'Z';
+                // datetime-local omits seconds when they are :00 (e.g. "...T09:30");
+                // pad them so the backend's Instant.parse accepts the value.
+                const activeUntilUtc = activeUntilRaw.length === 16 ? activeUntilRaw + ':00' : activeUntilRaw;
+                payload.activeUntil = activeUntilUtc + 'Z';
             }
 
             try {

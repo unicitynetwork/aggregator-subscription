@@ -15,7 +15,7 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -59,9 +59,8 @@ public class AdminUpdateActiveUntilTest extends AbstractIntegrationTest {
 
         // 2) PUT /admin/api/keys/{id} with the new activeUntil — 1 year out.
         Instant newActiveUntil = beforeActiveUntil.toInstant().plusSeconds(365L * 24 * 3600);
-        String body = objectMapper.writeValueAsString(new HashMap<String, String>() {{
-            put("activeUntil", newActiveUntil.toString());
-        }});
+        String body = objectMapper.writeValueAsString(
+            Map.of("activeUntil", newActiveUntil.toString()));
 
         String token = loginAsAdmin();
         HttpRequest put = HttpRequest.newBuilder()
@@ -86,6 +85,8 @@ public class AdminUpdateActiveUntilTest extends AbstractIntegrationTest {
             + " expected(Instant)=" + newActiveUntil);
 
         // 4) Assert: both repo and raw SQL should now show the new value.
+        assertNotNull(afterRaw, "raw SQL active_until should be present after the PUT");
+        assertNotNull(afterRepo, "repo.findByKey active_until should be present after the PUT");
         assertNotEquals(beforeActiveUntil, afterRaw,
             "raw SQL read should NOT match the pre-PUT value — if it does, the UPDATE didn't land");
         assertEquals(newActiveUntil.toEpochMilli(), afterRaw.toInstant().toEpochMilli(),
@@ -103,18 +104,15 @@ public class AdminUpdateActiveUntilTest extends AbstractIntegrationTest {
                  "SELECT active_until FROM api_keys WHERE id = ?")) {
             stmt.setLong(1, id);
             try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getTimestamp("active_until");
-                }
+                assertTrue(rs.next(), "no api_keys row found for id=" + id);
+                return rs.getTimestamp("active_until");
             }
         }
-        return null;
     }
 
     private String loginAsAdmin() throws Exception {
-        String loginPayload = objectMapper.writeValueAsString(new HashMap<String, String>() {{
-            put("password", config.getAdminPassword());
-        }});
+        String loginPayload = objectMapper.writeValueAsString(
+            Map.of("password", config.getAdminPassword()));
         HttpRequest login = HttpRequest.newBuilder()
             .uri(URI.create(getProxyUrl() + "/admin/login"))
             .header("Content-Type", "application/json")
