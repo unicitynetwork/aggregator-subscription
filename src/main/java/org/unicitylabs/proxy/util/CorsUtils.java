@@ -3,6 +3,9 @@ package org.unicitylabs.proxy.util;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
 
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 /**
  * Utility class for handling CORS (Cross-Origin Resource Sharing) headers.
  */
@@ -31,8 +34,10 @@ public final class CorsUtils {
     private static final String DEFAULT_MAX_AGE = "3600";
 
     // Resolved once at class load — process environment is static for the lifetime
-    // of the JVM, so there is no benefit to re-reading it on every request.
-    private static final String ALLOWED_HEADERS = resolveAllowedHeaders(System.getenv(ENV_CORS_ALLOWED_HEADERS));
+    // of the JVM, so there is no benefit to re-reading it on every request. Env
+    // access goes through EnvironmentProvider to match the rest of the codebase.
+    private static final String ALLOWED_HEADERS = resolveAllowedHeaders(
+        EnvironmentProvider.SystemEnvironmentProvider.getInstance().getEnv(ENV_CORS_ALLOWED_HEADERS));
 
     private CorsUtils() {
         // Utility class, prevent instantiation
@@ -89,7 +94,17 @@ public final class CorsUtils {
      * @return the allowed-headers list to advertise in {@code Access-Control-Allow-Headers}
      */
     static String resolveAllowedHeaders(String envValue) {
-        return (envValue != null && !envValue.isBlank()) ? envValue.trim() : DEFAULT_ALLOWED_HEADERS;
+        if (envValue == null || envValue.isBlank()) {
+            return DEFAULT_ALLOWED_HEADERS;
+        }
+        // Normalize per-element: trim each header and drop empties, so stray inner
+        // spaces or consecutive/trailing commas (e.g. "Content-Type,, X-State-ID ,")
+        // can't produce a malformed Access-Control-Allow-Headers value.
+        String resolved = Arrays.stream(envValue.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(Collectors.joining(", "));
+        return resolved.isEmpty() ? DEFAULT_ALLOWED_HEADERS : resolved;
     }
 
     /**

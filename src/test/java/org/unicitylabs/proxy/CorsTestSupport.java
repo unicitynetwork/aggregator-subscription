@@ -5,6 +5,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Arrays;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.jetty.http.HttpStatus.NO_CONTENT_204;
@@ -45,15 +47,11 @@ public class CorsTestSupport {
         assertThat(response.headers().firstValue("Access-Control-Allow-Methods"))
             .isPresent()
             .hasValueSatisfying(value -> assertThat(value).contains("POST"));
-        assertThat(response.headers().firstValue("Access-Control-Allow-Headers"))
-            .isPresent()
-            .hasValueSatisfying(value -> {
-                assertThat(value).contains("Content-Type");
-                assertThat(value).contains("Authorization");
-                // The proxy routes by the X-State-ID header, so browsers must be
-                // allowed to send it on the preflight (regression: it was missing).
-                assertThat(value).contains("X-State-ID");
-            });
+        assertAllowsHeader(response, "Content-Type");
+        assertAllowsHeader(response, "Authorization");
+        // The proxy routes by the X-State-ID header, so browsers must be allowed
+        // to send it on the preflight (regression: it was missing).
+        assertAllowsHeader(response, "X-State-ID");
         assertThat(response.headers().firstValue("Access-Control-Max-Age"))
             .isPresent();
     }
@@ -80,9 +78,25 @@ public class CorsTestSupport {
 
         assertThat(response.statusCode()).isEqualTo(NO_CONTENT_204);
         assertCorsHeaders(response, origin);
+        assertAllowsHeader(response, requestedHeader);
+    }
+
+    /**
+     * Asserts that {@code Access-Control-Allow-Headers} advertises {@code header} as a
+     * distinct entry. HTTP header field-names are case-insensitive, so the comparison
+     * splits the comma-separated list, trims, and matches case-insensitively — avoiding
+     * the false positives of a raw substring check (e.g. "State-ID" inside "X-State-ID").
+     */
+    public void assertAllowsHeader(HttpResponse<String> response, String header) {
         assertThat(response.headers().firstValue("Access-Control-Allow-Headers"))
             .isPresent()
-            .hasValueSatisfying(value -> assertThat(value).contains(requestedHeader));
+            .hasValueSatisfying(value -> {
+                List<String> allowed = Arrays.stream(value.split(","))
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .toList();
+                assertThat(allowed).contains(header.toLowerCase());
+            });
     }
 
     /**

@@ -39,4 +39,14 @@ class CorsUtilsTest {
         assertThat(CorsUtils.resolveAllowedHeaders("  Content-Type, X-Foo  "))
             .isEqualTo("Content-Type, X-Foo");
     }
+
+    @Test
+    @DisplayName("Override is normalized: inner spaces + empty/consecutive commas collapsed")
+    void envValueIsNormalized() {
+        assertThat(CorsUtils.resolveAllowedHeaders("Content-Type,,  X-State-ID , "))
+            .isEqualTo("Content-Type, X-State-ID");
+        // a value with no real entries (only separators/whitespace) falls back to default
+        assertThat(CorsUtils.resolveAllowedHeaders(" , , "))
+            .isEqualTo(CorsUtils.resolveAllowedHeaders(null));
+    }
 }
