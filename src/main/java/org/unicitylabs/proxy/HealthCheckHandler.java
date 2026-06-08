@@ -2,6 +2,7 @@ package org.unicitylabs.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.MimeTypes;
 import org.eclipse.jetty.server.Handler;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.repository.DatabaseConfig;
 import org.unicitylabs.proxy.shard.ShardRouter;
+import org.unicitylabs.proxy.util.CorsUtils;
 import org.unicitylabs.sdk.api.JsonRpcAggregatorClient;
 
 import java.nio.ByteBuffer;
@@ -77,6 +79,16 @@ public class HealthCheckHandler extends Handler.Abstract {
 
         if (!"/health".equals(path)) {
             return false;
+        }
+
+        // Add CORS headers so cross-origin health checks are not blocked in browsers
+        CorsUtils.addCorsHeaders(request, response);
+
+        // Handle CORS preflight OPTIONS requests
+        if (HttpMethod.OPTIONS.asString().equals(request.getMethod())) {
+            response.setStatus(HttpStatus.NO_CONTENT_204);
+            callback.succeeded();
+            return true;
         }
 
         Map<String, Object> components = new LinkedHashMap<>();

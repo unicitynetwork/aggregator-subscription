@@ -863,6 +863,10 @@
                     <input type="text" id="editKeyDescription" placeholder="e.g., Production API Key">
                 </div>
                 <div class="form-group">
+                    <label for="editKeyActiveUntil">Active Until (UTC)</label>
+                    <input type="datetime-local" id="editKeyActiveUntil" step="1">
+                </div>
+                <div class="form-group">
                     <label for="editKeyPlan">Pricing Plan</label>
                     <select id="editKeyPlan" required>
                         <!-- Options will be populated dynamically -->
@@ -1284,6 +1288,22 @@
             document.getElementById('editKeyApiKey').value = key.apiKey;
             document.getElementById('editKeyDescription').value = key.description || '';
 
+            // Populate Active Until.
+            // Backend returns either an ISO instant ("2027-05-20T09:31:14Z") or
+            // java.sql.Timestamp.toString() form ("2027-05-20 09:31:14.0").
+            // <input type="datetime-local"> wants "YYYY-MM-DDTHH:MM:SS" (no tz).
+            // We treat the value as UTC for both display and submit (see form
+            // submit handler below) to keep round-trips consistent.
+            const activeUntilInput = document.getElementById('editKeyActiveUntil');
+            if (key.activeUntil) {
+                activeUntilInput.value = String(key.activeUntil)
+                    .replace(' ', 'T')                     // Timestamp form -> ISO-ish
+                    .replace(/\.\d+/, '')                  // strip fractional seconds
+                    .replace(/(Z|[-+]\d{2}:?\d{2})$/, ''); // strip trailing zone (Z or offset)
+            } else {
+                activeUntilInput.value = '';
+            }
+
             // Populate plan selector
             const planSelect = document.getElementById('editKeyPlan');
             planSelect.innerHTML = '';
@@ -1411,11 +1431,23 @@
             const id = document.getElementById('editKeyId').value;
             const description = document.getElementById('editKeyDescription').value;
             const pricingPlanId = parseInt(document.getElementById('editKeyPlan').value);
+            const activeUntilRaw = document.getElementById('editKeyActiveUntil').value;
+
+            const payload = { description, pricingPlanId };
+            // The input value is a naive local-time string ("2027-05-20T09:31:14").
+            // We treat it as UTC (matching the modal label) and send an ISO instant
+            // so the backend's Instant.parse accepts it without ambiguity.
+            if (activeUntilRaw) {
+                // datetime-local omits seconds when they are :00 (e.g. "...T09:30");
+                // pad them so the backend's Instant.parse accepts the value.
+                const activeUntilUtc = activeUntilRaw.length === 16 ? activeUntilRaw + ':00' : activeUntilRaw;
+                payload.activeUntil = activeUntilUtc + 'Z';
+            }
 
             try {
                 const response = await apiCall(`/admin/api/keys/${id}`, {
                     method: 'PUT',
-                    body: JSON.stringify({ description, pricingPlanId })
+                    body: JSON.stringify(payload)
                 });
                 if (response.ok) {
                     closeModal('editKeyModal');
