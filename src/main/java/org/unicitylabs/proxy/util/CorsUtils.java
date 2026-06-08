@@ -15,10 +15,24 @@ public final class CorsUtils {
     public static final String CORS_EXPOSE_HEADERS = "Access-Control-Expose-Headers";
     public static final String CORS_ALLOW_CREDENTIALS = "Access-Control-Allow-Credentials";
 
-    // Default CORS values
+    // Env var that overrides the CORS allowed-headers list WITHOUT a code change /
+    // rebuild. When set (non-blank) its value REPLACES DEFAULT_ALLOWED_HEADERS; when
+    // unset the built-in default (which already includes X-State-ID) is used.
+    public static final String ENV_CORS_ALLOWED_HEADERS = "CORS_ALLOWED_HEADERS";
+
+    // Default CORS values.
+    // X-State-ID MUST be allowed: the proxy reads it (RequestHandler.HEADER_X_STATE_ID)
+    // to route a request to the owning shard without parsing the JSON-RPC body. It is a
+    // non-simple request header, so a browser only sends it once the CORS preflight
+    // advertises it here — otherwise the preflight fails with "Request header field
+    // x-state-id is not allowed by Access-Control-Allow-Headers".
     private static final String DEFAULT_ALLOWED_METHODS = "GET, POST, PUT, DELETE, OPTIONS";
-    private static final String DEFAULT_ALLOWED_HEADERS = "Content-Type, Authorization, X-API-Key, X-Requested-With, Accept, Origin";
+    private static final String DEFAULT_ALLOWED_HEADERS = "Content-Type, Authorization, X-API-Key, X-Requested-With, Accept, Origin, X-State-ID";
     private static final String DEFAULT_MAX_AGE = "3600";
+
+    // Resolved once at class load — process environment is static for the lifetime
+    // of the JVM, so there is no benefit to re-reading it on every request.
+    private static final String ALLOWED_HEADERS = resolveAllowedHeaders(System.getenv(ENV_CORS_ALLOWED_HEADERS));
 
     private CorsUtils() {
         // Utility class, prevent instantiation
@@ -52,8 +66,9 @@ public final class CorsUtils {
         // Allow common HTTP methods
         response.getHeaders().put(CORS_ALLOW_METHODS, DEFAULT_ALLOWED_METHODS);
 
-        // Allow common headers including auth headers
-        response.getHeaders().put(CORS_ALLOW_HEADERS, DEFAULT_ALLOWED_HEADERS);
+        // Allow common headers including auth + the X-State-ID routing header
+        // (overridable via the CORS_ALLOWED_HEADERS env var)
+        response.getHeaders().put(CORS_ALLOW_HEADERS, ALLOWED_HEADERS);
 
         // Cache preflight response for 1 hour (3600 seconds)
         response.getHeaders().put(CORS_MAX_AGE, DEFAULT_MAX_AGE);
@@ -62,6 +77,19 @@ public final class CorsUtils {
         if (exposeHeaders != null && !exposeHeaders.isEmpty()) {
             response.getHeaders().put(CORS_EXPOSE_HEADERS, exposeHeaders);
         }
+    }
+
+    /**
+     * Resolves the effective CORS allowed-headers list: the {@code CORS_ALLOWED_HEADERS}
+     * env value when set (non-blank), otherwise the built-in default (which includes
+     * {@code X-State-ID}). Package-private and pure so it can be unit-tested without
+     * mutating the process environment.
+     *
+     * @param envValue the raw {@code CORS_ALLOWED_HEADERS} value (may be null/blank)
+     * @return the allowed-headers list to advertise in {@code Access-Control-Allow-Headers}
+     */
+    static String resolveAllowedHeaders(String envValue) {
+        return (envValue != null && !envValue.isBlank()) ? envValue.trim() : DEFAULT_ALLOWED_HEADERS;
     }
 
     /**

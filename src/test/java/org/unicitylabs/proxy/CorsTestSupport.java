@@ -50,9 +50,39 @@ public class CorsTestSupport {
             .hasValueSatisfying(value -> {
                 assertThat(value).contains("Content-Type");
                 assertThat(value).contains("Authorization");
+                // The proxy routes by the X-State-ID header, so browsers must be
+                // allowed to send it on the preflight (regression: it was missing).
+                assertThat(value).contains("X-State-ID");
             });
         assertThat(response.headers().firstValue("Access-Control-Max-Age"))
             .isPresent();
+    }
+
+    /**
+     * Tests that a CORS preflight advertises a specific request header as allowed —
+     * i.e. a browser asking permission for {@code requestedHeader} is granted it.
+     *
+     * @param path the path to test
+     * @param origin the Origin header value to send
+     * @param requestedHeader the header the client asks to send (Access-Control-Request-Headers)
+     */
+    public void assertCorsPreflightAllowsRequestHeader(String path, String origin, String requestedHeader)
+            throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(baseUrl + path))
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+            .header("Origin", origin)
+            .header("Access-Control-Request-Method", "POST")
+            .header("Access-Control-Request-Headers", requestedHeader)
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(NO_CONTENT_204);
+        assertCorsHeaders(response, origin);
+        assertThat(response.headers().firstValue("Access-Control-Allow-Headers"))
+            .isPresent()
+            .hasValueSatisfying(value -> assertThat(value).contains(requestedHeader));
     }
 
     /**

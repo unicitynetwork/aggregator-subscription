@@ -365,6 +365,15 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("CORS preflight allows the X-State-ID shard-routing header (issue #37)")
+    void testCorsPreflightAllowsStateIdHeader() throws Exception {
+        // The proxy routes by X-State-ID; a browser can only send it if the preflight
+        // advertises it. Regression for the "x-state-id is not allowed" CORS failure.
+        CorsTestSupport corsTestSupport = new CorsTestSupport(httpClient, getProxyUrl());
+        corsTestSupport.assertCorsPreflightAllowsRequestHeader("/api/data", "https://example.com", "X-State-ID");
+    }
+
+    @Test
     @DisplayName("Should include CORS headers in regular responses")
     void testCorsHeadersInRegularResponse() throws Exception {
         CorsTestSupport corsTestSupport = new CorsTestSupport(httpClient, getProxyUrl());
