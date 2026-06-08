@@ -365,6 +365,33 @@ class ProxyServerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("CORS preflight allows the X-State-ID shard-routing header (issue #37)")
+    void testCorsPreflightAllowsStateIdHeader() throws Exception {
+        // The proxy routes by X-State-ID; a browser can only send it if the preflight
+        // advertises it. Regression for the "x-state-id is not allowed" CORS failure.
+        CorsTestSupport corsTestSupport = new CorsTestSupport(httpClient, getProxyUrl());
+        corsTestSupport.assertCorsPreflightAllowsRequestHeader("/api/data", "https://example.com", "X-State-ID");
+    }
+
+    @Test
+    @DisplayName("CORS_ALLOWED_HEADERS env override fully replaces the advertised preflight headers")
+    void testCorsAllowedHeadersEnvOverride() throws Exception {
+        // Rebuild the server with the override set on the injected provider, proving the
+        // env value flows through ProxyConfig -> handler -> response (full-replace semantics).
+        proxyServer.stop();
+        testEnvironmentProvider.setEnv("CORS_ALLOWED_HEADERS", "Content-Type, X-State-ID, X-Custom-Header");
+        setUpNewProxyServer();
+
+        CorsTestSupport corsTestSupport = new CorsTestSupport(httpClient, getProxyUrl());
+        HttpResponse<String> response = corsTestSupport.sendPreflight("/api/data", "https://example.com");
+
+        assertThat(response.statusCode()).isEqualTo(NO_CONTENT_204);
+        corsTestSupport.assertAllowsHeader(response, "X-Custom-Header");   // override applied
+        corsTestSupport.assertAllowsHeader(response, "X-State-ID");        // present in the override
+        corsTestSupport.assertDoesNotAllowHeader(response, "Authorization"); // dropped by full-replace
+    }
+
+    @Test
     @DisplayName("Should include CORS headers in regular responses")
     void testCorsHeadersInRegularResponse() throws Exception {
         CorsTestSupport corsTestSupport = new CorsTestSupport(httpClient, getProxyUrl());

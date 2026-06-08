@@ -491,6 +491,19 @@ The application supports the following environment variables for configuration:
 - **`LOG_DIR`**: Directory for log files (Docker only)
   - Default: `/var/log/aggregator`
 
+#### CORS
+
+- **`CORS_ALLOWED_HEADERS`**: Comma-separated list of request headers advertised in the
+  `Access-Control-Allow-Headers` preflight response. When set, it **fully replaces** the
+  default list (the operator owns the list). Use it to permit additional client headers
+  without a code change/rebuild.
+  - Default: `Content-Type, Authorization, X-API-Key, X-Requested-With, Accept, Origin, X-State-ID`
+  - **Important:** because it is a full replace, an override must keep every header the
+    proxy depends on, or browser clients break (the dropped header fails preflight):
+    - `X-State-ID` — shard routing
+    - `Content-Type` — JSON-RPC `application/json` POSTs
+    - `Authorization` and `X-API-Key` — credentials for protected methods (e.g. `certification_request`)
+
 #### Docker/Proxy Configuration
 
 - **`PROXY_ARGS`**: Command-line arguments passed to the proxy application

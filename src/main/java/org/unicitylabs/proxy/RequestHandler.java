@@ -114,6 +114,7 @@ public class RequestHandler extends Handler.Abstract {
     private final RateLimiterManager rateLimiterManager;
     private final WebUIHandler webUIHandler;
     private final Set<String> protectedMethods;
+    private final String corsAllowedHeaders;
     private final ObjectMapper objectMapper = ObjectMapperUtils.createObjectMapper();
     private final GatewayMetrics metrics;
 
@@ -138,6 +139,7 @@ public class RequestHandler extends Handler.Abstract {
         this.rateLimiterManager = new RateLimiterManager(apiKeyManager);
         this.webUIHandler = new WebUIHandler(databaseConfig);
         this.protectedMethods = config.getProtectedMethods();
+        this.corsAllowedHeaders = config.getCorsAllowedHeaders();
 
         var httpClientBuilder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(config.getConnectTimeout()))
@@ -223,7 +225,7 @@ public class RequestHandler extends Handler.Abstract {
         }
 
         // Add CORS headers to all responses
-        CorsUtils.addCorsHeaders(request, response, HEADER_X_RATE_LIMIT_REMAINING);
+        CorsUtils.addCorsHeaders(request, response, HEADER_X_RATE_LIMIT_REMAINING, corsAllowedHeaders);
 
         RequestMetricsRecorder recorder = new RequestMetricsRecorder(metrics, response);
         Callback metricsCallback = recorder.wrap(callback);

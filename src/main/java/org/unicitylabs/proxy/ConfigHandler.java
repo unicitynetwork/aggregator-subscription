@@ -27,9 +27,11 @@ public class ConfigHandler extends Handler.Abstract {
     private static final ObjectMapper mapper = ObjectMapperUtils.createObjectMapper();
 
     private final ShardConfigRepository shardConfigRepository;
+    private final String corsAllowedHeaders;
 
-    public ConfigHandler(ShardConfigRepository shardConfigRepository) {
+    public ConfigHandler(ShardConfigRepository shardConfigRepository, String corsAllowedHeaders) {
         this.shardConfigRepository = shardConfigRepository;
+        this.corsAllowedHeaders = corsAllowedHeaders;
     }
 
     @Override
@@ -42,7 +44,7 @@ public class ConfigHandler extends Handler.Abstract {
         }
 
         // Add CORS headers to all responses
-        CorsUtils.addCorsHeaders(request, response);
+        CorsUtils.addCorsHeaders(request, response, null, corsAllowedHeaders);
 
         // Handle CORS preflight OPTIONS requests
         if (OPTIONS.asString().equals(method)) {
