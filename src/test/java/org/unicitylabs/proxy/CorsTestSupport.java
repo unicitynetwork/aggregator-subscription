@@ -79,24 +79,52 @@ public class CorsTestSupport {
         assertThat(response.statusCode()).isEqualTo(NO_CONTENT_204);
         assertCorsHeaders(response, origin);
         assertAllowsHeader(response, requestedHeader);
+        // Negative control: the server advertises a FIXED list and does NOT echo
+        // Access-Control-Request-Headers, so a header not in the configured list is
+        // never advertised. Asserting this keeps the test from passing tautologically.
+        assertDoesNotAllowHeader(response, "X-Definitely-Not-Allowed");
     }
 
     /**
-     * Asserts that {@code Access-Control-Allow-Headers} advertises {@code header} as a
-     * distinct entry. HTTP header field-names are case-insensitive, so the comparison
-     * splits the comma-separated list, trims, and matches case-insensitively — avoiding
-     * the false positives of a raw substring check (e.g. "State-ID" inside "X-State-ID").
+     * Performs a CORS preflight OPTIONS and returns the response for custom assertions.
+     */
+    public HttpResponse<String> sendPreflight(String path, String origin) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(baseUrl + path))
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+            .header("Origin", origin)
+            .header("Access-Control-Request-Method", "POST")
+            .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * Splits {@code Access-Control-Allow-Headers} into trimmed, lower-cased entries.
+     * HTTP header field-names are case-insensitive, so callers compare on this list
+     * rather than substring-matching the raw value (which false-positives, e.g.
+     * "State-ID" inside "X-State-ID").
+     */
+    private static List<String> allowedHeaderEntries(HttpResponse<String> response) {
+        return response.headers().firstValue("Access-Control-Allow-Headers")
+            .map(value -> Arrays.stream(value.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .toList())
+            .orElseThrow(() -> new AssertionError("Access-Control-Allow-Headers header is absent"));
+    }
+
+    /**
+     * Asserts {@code Access-Control-Allow-Headers} advertises {@code header} as a distinct entry.
      */
     public void assertAllowsHeader(HttpResponse<String> response, String header) {
-        assertThat(response.headers().firstValue("Access-Control-Allow-Headers"))
-            .isPresent()
-            .hasValueSatisfying(value -> {
-                List<String> allowed = Arrays.stream(value.split(","))
-                    .map(String::trim)
-                    .map(String::toLowerCase)
-                    .toList();
-                assertThat(allowed).contains(header.toLowerCase());
-            });
+        assertThat(allowedHeaderEntries(response)).contains(header.toLowerCase());
+    }
+
+    /**
+     * Asserts {@code Access-Control-Allow-Headers} does NOT advertise {@code header}.
+     */
+    public void assertDoesNotAllowHeader(HttpResponse<String> response, String header) {
+        assertThat(allowedHeaderEntries(response)).doesNotContain(header.toLowerCase());
     }
 
     /**

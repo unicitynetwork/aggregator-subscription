@@ -3,6 +3,7 @@ package org.unicitylabs.proxy;
 import com.beust.jcommander.IParameterValidator;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
+import org.unicitylabs.proxy.util.CorsUtils;
 import org.unicitylabs.proxy.util.EnvironmentProvider;
 
 import java.util.Arrays;
@@ -166,6 +167,15 @@ public class ProxyConfig {
             return envPassword;
         }
         throw new IllegalArgumentException("Missing administrator password");
+    }
+
+    /**
+     * The Access-Control-Allow-Headers list to advertise, from the {@code CORS_ALLOWED_HEADERS}
+     * env var (read through the injected provider) with the proxy-required headers always
+     * unioned in. See {@link CorsUtils#resolveAllowedHeaders(String)}.
+     */
+    public String getCorsAllowedHeaders() {
+        return CorsUtils.resolveAllowedHeaders(environmentProvider.getEnv(CorsUtils.ENV_CORS_ALLOWED_HEADERS));
     }
 
     public boolean isHelp() {

@@ -3,6 +3,9 @@ package org.unicitylabs.proxy.util;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -14,11 +17,12 @@ class CorsUtilsTest {
     @Test
     @DisplayName("Default allowed headers include X-State-ID and the standard set (issue #37)")
     void defaultIncludesStateIdHeader() {
-        String headers = CorsUtils.resolveAllowedHeaders(null);
-        assertThat(headers)
-            .contains("X-State-ID")
-            .contains("Content-Type")
-            .contains("Authorization");
+        // Discrete-entry membership (not substring) so a malformed constant like
+        // "...X-State-IDX" can't pass — mirrors CorsTestSupport's exact matching.
+        List<String> entries = Arrays.stream(CorsUtils.resolveAllowedHeaders(null).split(","))
+            .map(String::trim)
+            .toList();
+        assertThat(entries).contains("X-State-ID", "Content-Type", "Authorization", "X-API-Key");
     }
 
     @Test

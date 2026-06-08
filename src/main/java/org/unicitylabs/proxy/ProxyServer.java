@@ -82,7 +82,7 @@ public class ProxyServer {
         HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig, requestHandler::getShardRouter);
 
         // Create config handler for public config endpoints
-        ConfigHandler configHandler = new ConfigHandler(shardConfigRepository);
+        ConfigHandler configHandler = new ConfigHandler(shardConfigRepository, config.getCorsAllowedHeaders());
 
         MetricsHandler metricsHandler = new MetricsHandler(metrics);
 
