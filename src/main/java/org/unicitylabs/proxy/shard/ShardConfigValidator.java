@@ -58,24 +58,38 @@ public class ShardConfigValidator {
             return;
         }
 
-        if (mode == ShardingMode.BFT_SHARD) {
-            validateBftShardConfig(config, validateConnectivity, upstreamH2c);
-            if (!(router instanceof BftShardRouter)) {
-                throw new IllegalArgumentException(
-                    "bft-shard config requires BftShardRouter, got: " + router.getClass());
-            }
-        } else {
-            validateAppShardConfig(config, validateConnectivity, upstreamH2c);
-            if (router instanceof DefaultShardRouter defaultRouter) {
-                validateTreeCompleteness(defaultRouter.getRootNode());
+        // One shared h2c client for every connectivity probe in this pass — starting/stopping a
+        // Jetty client per shard would churn thread pools/selectors. Built only when probing h2c.
+        HttpClient h2cClient = (validateConnectivity && upstreamH2c) ? startH2cClient() : null;
+        try {
+            if (mode == ShardingMode.BFT_SHARD) {
+                validateBftShardConfig(config, validateConnectivity, upstreamH2c, h2cClient);
+                if (!(router instanceof BftShardRouter)) {
+                    throw new IllegalArgumentException(
+                        "bft-shard config requires BftShardRouter, got: " + router.getClass());
+                }
             } else {
-                throw new IllegalArgumentException(
-                    "app-shard config requires DefaultShardRouter, got: " + router.getClass());
+                validateAppShardConfig(config, validateConnectivity, upstreamH2c, h2cClient);
+                if (router instanceof DefaultShardRouter defaultRouter) {
+                    validateTreeCompleteness(defaultRouter.getRootNode());
+                } else {
+                    throw new IllegalArgumentException(
+                        "app-shard config requires DefaultShardRouter, got: " + router.getClass());
+                }
+            }
+        } finally {
+            if (h2cClient != null) {
+                // Guard stop() so a teardown failure can't mask the real validation outcome.
+                try {
+                    h2cClient.stop();
+                } catch (Exception e) {
+                    logger.warn("Failed to stop h2c connectivity-probe client", e);
+                }
             }
         }
     }
 
-    private static void validateAppShardConfig(ShardConfig config, boolean validateConnectivity, boolean upstreamH2c) {
+    private static void validateAppShardConfig(ShardConfig config, boolean validateConnectivity, boolean upstreamH2c, HttpClient h2cClient) {
         if (config.getShards() == null || config.getShards().isEmpty()) {
             throw new IllegalArgumentException("Shard configuration has no shards");
         }
@@ -83,10 +97,10 @@ public class ShardConfigValidator {
             throw new IllegalArgumentException(
                 "app-shard mode must not populate 'bftShards'; set mode to 'bft-shard' or remove the entries");
         }
-        validateUniqueShardIds(config.getShards(), validateConnectivity, upstreamH2c);
+        validateUniqueShardIds(config.getShards(), validateConnectivity, upstreamH2c, h2cClient);
     }
 
-    private static void validateBftShardConfig(ShardConfig config, boolean validateConnectivity, boolean upstreamH2c) {
+    private static void validateBftShardConfig(ShardConfig config, boolean validateConnectivity, boolean upstreamH2c, HttpClient h2cClient) {
         List<BftShardInfo> bftShards = config.getBftShards();
         if (bftShards == null || bftShards.isEmpty()) {
             throw new IllegalArgumentException("bft-shard configuration has no bftShards entries");
@@ -108,7 +122,7 @@ public class ShardConfigValidator {
 
         if (validateConnectivity) {
             for (BftShardInfo shard : bftShards) {
-                validateShardConnectivity(shard.url(), "bft shard '" + shard.prefix() + "'", upstreamH2c);
+                validateShardConnectivity(shard.url(), "bft shard '" + shard.prefix() + "'", upstreamH2c, h2cClient);
             }
         }
     }
@@ -178,7 +192,7 @@ public class ShardConfigValidator {
         boolean terminal;
     }
 
-    private static void validateUniqueShardIds(List<ShardInfo> shards, boolean validateConnectivity, boolean upstreamH2c) {
+    private static void validateUniqueShardIds(List<ShardInfo> shards, boolean validateConnectivity, boolean upstreamH2c, HttpClient h2cClient) {
         if (shards == null) {
             return;
         }
@@ -194,7 +208,7 @@ public class ShardConfigValidator {
 
         if (validateConnectivity) {
             for (ShardInfo shard : shards) {
-                validateShardConnectivity(shard.url(), "Shard " + shard.id(), upstreamH2c);
+                validateShardConnectivity(shard.url(), "Shard " + shard.id(), upstreamH2c, h2cClient);
             }
         }
     }
@@ -228,7 +242,7 @@ public class ShardConfigValidator {
         }
     }
 
-    private static void validateShardConnectivity(String url, String shardLabel, boolean upstreamH2c) {
+    private static void validateShardConnectivity(String url, String shardLabel, boolean upstreamH2c, HttpClient h2cClient) {
         // Mirror RequestHandler.shouldUseUpstreamH2c: cleartext h2c applies ONLY to http:// upstreams.
         // For https:// the runtime proxies over normal TLS, so the probe must use the (TLS-capable)
         // SDK client too — probing an https:// endpoint with a cleartext-only h2c client would
@@ -242,7 +256,7 @@ public class ShardConfigValidator {
                 // upstream — e.g. an HAProxy 'bind ... proto h2' frontend, which speaks cleartext
                 // HTTP/2 prior-knowledge and rejects HTTP/1.1 with "unexpected end of stream".
                 // Probe over the same h2c transport the proxy uses for real traffic instead.
-                long blockHeight = probeBlockHeightH2c(url);
+                long blockHeight = probeBlockHeightH2c(h2cClient, url);
                 logger.debug("{} at {} is reachable over h2c (block height: {})", shardLabel, url, blockHeight);
             } else {
                 JsonRpcAggregatorClient client = new JsonRpcAggregatorClient(url);
@@ -259,29 +273,42 @@ public class ShardConfigValidator {
     }
 
     /**
-     * Probes get_block_height over cleartext HTTP/2 (h2c, prior-knowledge) — the same transport
-     * the proxy uses for upstream traffic when --upstream-h2c is enabled (Jetty HTTP2Client with
-     * ALPN disabled). Returns the reported block height; throws if the upstream is unreachable
-     * over h2c or does not answer get_block_height like an aggregator.
+     * Builds and starts the shared Jetty h2c client used for all connectivity probes in a single
+     * validation pass. ALPN disabled = cleartext HTTP/2 prior-knowledge, matching the upstream
+     * client the proxy uses for real traffic (RequestHandler.buildUpstreamH2cClient).
      */
-    private static long probeBlockHeightH2c(String url) throws Exception {
+    private static HttpClient startH2cClient() {
         HTTP2Client h2Client = new HTTP2Client();
         h2Client.setUseALPN(false); // cleartext h2c prior-knowledge (no ALPN/TLS, no h1 upgrade)
         HttpClient client = new HttpClient(new HttpClientTransportOverHTTP2(h2Client));
         client.setConnectTimeout(5000);
         try {
-            client.start(); // inside try so a start() failure is still torn down by finally
-            String requestBody = "{\"jsonrpc\":\"2.0\",\"method\":\"get_block_height\",\"params\":{},\"id\":1}";
-            ContentResponse response = client.newRequest(url)
-                .method(HttpMethod.POST)
-                .headers(h -> h.put(HttpHeader.CONTENT_TYPE, "application/json"))
-                .body(new StringRequestContent("application/json", requestBody))
-                .timeout(10, TimeUnit.SECONDS)
-                .send();
-            return parseBlockHeightResponse(response.getStatus(), response.getContentAsString());
-        } finally {
-            client.stop();
+            client.start();
+        } catch (Exception e) {
+            try {
+                client.stop();
+            } catch (Exception ignored) {
+                // best effort — start() already failed
+            }
+            throw new IllegalStateException("Failed to start h2c connectivity-probe client", e);
         }
+        return client;
+    }
+
+    /**
+     * Probes get_block_height over the supplied (already-started) cleartext-h2c client. Returns the
+     * reported block height; throws if the upstream is unreachable over h2c or does not answer
+     * get_block_height like an aggregator. The client's lifecycle is owned by the caller.
+     */
+    private static long probeBlockHeightH2c(HttpClient client, String url) throws Exception {
+        String requestBody = "{\"jsonrpc\":\"2.0\",\"method\":\"get_block_height\",\"params\":{},\"id\":1}";
+        ContentResponse response = client.newRequest(url)
+            .method(HttpMethod.POST)
+            .headers(h -> h.put(HttpHeader.CONTENT_TYPE, "application/json"))
+            .body(new StringRequestContent("application/json", requestBody))
+            .timeout(10, TimeUnit.SECONDS)
+            .send();
+        return parseBlockHeightResponse(response.getStatus(), response.getContentAsString());
     }
 
     /**
