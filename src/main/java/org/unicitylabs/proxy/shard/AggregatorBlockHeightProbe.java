@@ -39,8 +39,12 @@ import java.util.concurrent.TimeUnit;
 public final class AggregatorBlockHeightProbe implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(AggregatorBlockHeightProbe.class);
     private static final ObjectMapper MAPPER = ObjectMapperUtils.createObjectMapper();
-    private static final int CONNECT_TIMEOUT_MS = 5_000;
-    private static final long REQUEST_TIMEOUT_SECONDS = 10;
+    // Kept under HealthCheckHandler.AGGREGATOR_CHECK_TIMEOUT_SECONDS (5s): that path bounds each
+    // check with CompletableFuture.orTimeout, which does NOT interrupt this blocking send(), so a
+    // probe slower than 5s would keep a (cached-pool) health-check thread alive past the timeout
+    // and let threads accumulate under upstream slowness. 3s connect + 4s total request stays inside.
+    private static final int CONNECT_TIMEOUT_MS = 3_000;
+    private static final long REQUEST_TIMEOUT_SECONDS = 4;
     private static final String GET_BLOCK_HEIGHT_REQUEST =
         "{\"jsonrpc\":\"2.0\",\"method\":\"get_block_height\",\"params\":{},\"id\":1}";
 
@@ -64,6 +68,9 @@ public final class AggregatorBlockHeightProbe implements AutoCloseable {
      *         valid aggregator (HTTP error, JSON-RPC error, missing result, protocol mismatch, ...)
      */
     public long blockHeight(String url) throws Exception {
+        if (url == null || url.isBlank()) {
+            throw new IllegalArgumentException("aggregator URL must not be null or blank");
+        }
         if (useH2c(url)) {
             ContentResponse response = h2cClient().newRequest(url)
                 .method(HttpMethod.POST)
