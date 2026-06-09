@@ -73,7 +73,8 @@ public class ProxyServer {
             this.rateLimiterManager,
             config.getMinimumPaymentAmount(),
             databaseConfig,
-            validateShardConnectivity
+            validateShardConnectivity,
+            config.isUpstreamH2cEnabled()
         );
 
         this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter, databaseConfig);
@@ -145,7 +146,7 @@ public class ProxyServer {
         try {
             ShardConfigRepository.ShardConfigRecord configRecord = shardConfigRepository.getLatestConfig();
             ShardRouter tempRouter = ShardRouterFactory.create(configRecord.config());
-            ShardConfigValidator.validate(tempRouter, configRecord.config(), validateShardConnectivity);
+            ShardConfigValidator.validate(tempRouter, configRecord.config(), validateShardConnectivity, config.isUpstreamH2cEnabled());
             this.lastConfigId = configRecord.id();
             shardRouter = tempRouter;
             metrics.setShardLabels(buildShardLabels(configRecord.config()));
@@ -171,7 +172,7 @@ public class ProxyServer {
             String jsonContent = ResourceLoader.loadContent(configUri);
             ShardConfig shardConfig = shardConfigRepository.parseShardConfig(jsonContent);
             ShardRouter tempRouter = ShardRouterFactory.create(shardConfig);
-            ShardConfigValidator.validate(tempRouter, shardConfig, validateShardConnectivity);
+            ShardConfigValidator.validate(tempRouter, shardConfig, validateShardConnectivity, config.isUpstreamH2cEnabled());
 
             // Save to database as new config
             int insertedId = shardConfigRepository.saveConfig(shardConfig, "environment");
@@ -199,7 +200,7 @@ public class ProxyServer {
 
                     try {
                         ShardRouter newRouter = ShardRouterFactory.create(latestRecord.config());
-                        ShardConfigValidator.validate(newRouter, latestRecord.config(), validateShardConnectivity);
+                        ShardConfigValidator.validate(newRouter, latestRecord.config(), validateShardConnectivity, config.isUpstreamH2cEnabled());
 
                         requestHandler.updateShardRouter(newRouter);
                         paymentHandler.updateShardRouter(newRouter);
