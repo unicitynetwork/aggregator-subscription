@@ -13,9 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unicitylabs.proxy.model.ObjectMapperUtils;
 import org.unicitylabs.proxy.repository.DatabaseConfig;
+import org.unicitylabs.proxy.shard.AggregatorBlockHeightProbe;
 import org.unicitylabs.proxy.shard.ShardRouter;
 import org.unicitylabs.proxy.util.CorsUtils;
-import org.unicitylabs.sdk.api.JsonRpcAggregatorClient;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -55,8 +55,15 @@ public class HealthCheckHandler extends Handler.Abstract {
         long checkHealth(String url) throws Exception;
     }
 
+    // Default HTTP/1.1 checker for callers that don't inject one — reuses the shared block-height
+    // probe so the get_block_height check lives in exactly one place. Stateless (upstreamH2c=false
+    // builds no client), safe as a singleton. ProxyServer injects an h2c-aware probe in production
+    // so the periodic /health check uses the same transport as the proxy (see issue #40 fallout:
+    // an HTTP/1.1 health probe against an h2c-only HAProxy frontend marks every shard unhealthy).
+    private static final AggregatorBlockHeightProbe DEFAULT_H1_PROBE = new AggregatorBlockHeightProbe(false);
+
     public HealthCheckHandler(DatabaseConfig databaseConfig, Supplier<ShardRouter> shardRouterSupplier) {
-        this(databaseConfig, shardRouterSupplier, HealthCheckHandler::defaultAggregatorCheck);
+        this(databaseConfig, shardRouterSupplier, DEFAULT_H1_PROBE::blockHeight);
     }
 
     public HealthCheckHandler(DatabaseConfig databaseConfig, Supplier<ShardRouter> shardRouterSupplier,
@@ -64,13 +71,6 @@ public class HealthCheckHandler extends Handler.Abstract {
         this.databaseConfig = databaseConfig;
         this.shardRouterSupplier = shardRouterSupplier;
         this.aggregatorHealthChecker = aggregatorHealthChecker;
-    }
-
-    private static long defaultAggregatorCheck(String url) throws Exception {
-        // Note: JsonRpcAggregatorClient from the SDK does not implement AutoCloseable
-        // and does not hold persistent resources that require cleanup
-        JsonRpcAggregatorClient client = new JsonRpcAggregatorClient(url);
-        return client.getBlockHeight().get();
     }
 
     @Override

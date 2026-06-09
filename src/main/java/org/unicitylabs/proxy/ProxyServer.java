@@ -35,6 +35,7 @@ public class ProxyServer {
     private final ScheduledExecutorService configPoller;
     private final boolean validateShardConnectivity;
     private final GatewayMetrics metrics;
+    private final AggregatorBlockHeightProbe healthCheckProbe;
 
     private volatile int lastConfigId;
 
@@ -80,7 +81,12 @@ public class ProxyServer {
         this.paymentHandler = new PaymentHandler(config, serverSecret, shardRouter, databaseConfig);
 
         // Create health check handler with dynamic access to the current shard router via supplier
-        HealthCheckHandler healthCheckHandler = new HealthCheckHandler(databaseConfig, requestHandler::getShardRouter);
+        // The periodic /health worker must probe shards over the SAME transport the proxy uses
+        // (h2c when --upstream-h2c) — an HTTP/1.1 probe against an h2c-only HAProxy frontend would
+        // mark every shard unhealthy and take the gateway out of the ALB. Closed in stop().
+        this.healthCheckProbe = new AggregatorBlockHeightProbe(config.isUpstreamH2cEnabled());
+        HealthCheckHandler healthCheckHandler = new HealthCheckHandler(
+            databaseConfig, requestHandler::getShardRouter, healthCheckProbe::blockHeight);
 
         // Create config handler for public config endpoints
         ConfigHandler configHandler = new ConfigHandler(shardConfigRepository, config.getCorsAllowedHeaders());
@@ -287,6 +293,7 @@ public class ProxyServer {
             server.stop();
         } finally {
             requestHandler.stopUpstreamH2cClient();
+            healthCheckProbe.close();
             // Release the meter registry's listeners (notably JvmGcMetrics' GC
             // notification listener) — required when the same JVM constructs
             // and tears down ProxyServer repeatedly.
