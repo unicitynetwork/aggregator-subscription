@@ -45,11 +45,14 @@ public final class AggregatorBlockHeightProbe implements AutoCloseable {
         "{\"jsonrpc\":\"2.0\",\"method\":\"get_block_height\",\"params\":{},\"id\":1}";
 
     private final boolean upstreamH2c;
-    private final HttpClient h2cClient; // non-null iff upstreamH2c; reused across calls (thread-safe)
+    // Lazily started on the first h2c probe (double-checked locking over a volatile field):
+    // constructing a probe never starts a Jetty client / thread pool, so it can't leak one if the
+    // surrounding construction later fails, and a probe that never hits an http:// upstream
+    // allocates nothing. Started at most once, then reused for the health worker's parallel probes.
+    private volatile HttpClient h2cClient;
 
     public AggregatorBlockHeightProbe(boolean upstreamH2c) {
         this.upstreamH2c = upstreamH2c;
-        this.h2cClient = upstreamH2c ? startH2cClient() : null;
     }
 
     /**
@@ -62,7 +65,7 @@ public final class AggregatorBlockHeightProbe implements AutoCloseable {
      */
     public long blockHeight(String url) throws Exception {
         if (useH2c(url)) {
-            ContentResponse response = h2cClient.newRequest(url)
+            ContentResponse response = h2cClient().newRequest(url)
                 .method(HttpMethod.POST)
                 .headers(h -> h.put(HttpHeader.CONTENT_TYPE, "application/json"))
                 .body(new StringRequestContent("application/json", GET_BLOCK_HEIGHT_REQUEST))
@@ -75,6 +78,21 @@ public final class AggregatorBlockHeightProbe implements AutoCloseable {
 
     private boolean useH2c(String url) {
         return upstreamH2c && url != null && url.regionMatches(true, 0, "http://", 0, "http://".length());
+    }
+
+    /** Lazily starts the shared h2c client on first use (double-checked locking over the volatile field). */
+    private HttpClient h2cClient() {
+        HttpClient client = h2cClient;
+        if (client == null) {
+            synchronized (this) {
+                client = h2cClient;
+                if (client == null) {
+                    client = startH2cClient();
+                    h2cClient = client;
+                }
+            }
+        }
+        return client;
     }
 
     /**
@@ -124,9 +142,10 @@ public final class AggregatorBlockHeightProbe implements AutoCloseable {
 
     @Override
     public void close() {
-        if (h2cClient != null) {
+        HttpClient client = h2cClient;
+        if (client != null) {
             try {
-                h2cClient.stop();
+                client.stop();
             } catch (Exception e) {
                 logger.warn("Failed to stop h2c aggregator-probe client", e);
             }
