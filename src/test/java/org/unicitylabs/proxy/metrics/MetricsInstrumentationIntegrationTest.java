@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.eclipse.jetty.http.HttpStatus.BAD_GATEWAY_502;
 import static org.eclipse.jetty.http.HttpStatus.BAD_REQUEST_400;
+import static org.eclipse.jetty.http.HttpStatus.INTERNAL_SERVER_ERROR_500;
 import static org.eclipse.jetty.http.HttpStatus.OK_200;
 import static org.eclipse.jetty.http.HttpStatus.TOO_MANY_REQUESTS_429;
 import static org.eclipse.jetty.http.HttpStatus.UNAUTHORIZED_401;
@@ -143,6 +144,30 @@ class MetricsInstrumentationIntegrationTest extends AbstractIntegrationTest {
         long upstreamFailures = counter(scrape, "gateway_upstream_requests_total",
             "outcome=\"error\"");
         assertThat(upstreamFailures).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void internalErrorOnSyncPathIncrementsInternalErrorCounter() throws Exception {
+        // An exception escaping the synchronous handling path (the real-world
+        // trigger is the API-key DB lookup throwing when the database is down)
+        // must still be RECORDED as a 5xx, not silently dropped from
+        // gateway_requests_total. We reproduce it deterministically via a
+        // rate-limit bucket factory that throws — it runs in tryConsume() on the
+        // same synchronous path, right after auth, before any response is written.
+        getRateLimiterManager().setBucketFactory(info -> {
+            throw new RuntimeException("simulated internal failure (e.g. DB unreachable)");
+        });
+
+        HttpResponse<String> response = performJsonRpcRequest(
+            getAuthorizedRequestBuilder("/"), CERTIFICATION_REQUEST_JSON);
+        assertThat(response.statusCode()).isEqualTo(INTERNAL_SERVER_ERROR_500);
+
+        String scrape = scrapeMetrics();
+        long internalErrors = counter(scrape, "gateway_requests_total",
+            "outcome=\"internal_error\"",
+            "jsonrpc_method=\"certification_request\"",
+            "status_class=\"5xx\"");
+        assertThat(internalErrors).isGreaterThanOrEqualTo(1);
     }
 
     @Test
