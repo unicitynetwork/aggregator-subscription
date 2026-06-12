@@ -2,6 +2,7 @@ package org.unicitylabs.proxy.metrics;
 
 import org.junit.jupiter.api.Test;
 import org.unicitylabs.proxy.AbstractIntegrationTest;
+import org.unicitylabs.proxy.RateLimiterManager;
 
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -154,20 +155,28 @@ class MetricsInstrumentationIntegrationTest extends AbstractIntegrationTest {
         // gateway_requests_total. We reproduce it deterministically via a
         // rate-limit bucket factory that throws — it runs in tryConsume() on the
         // same synchronous path, right after auth, before any response is written.
-        getRateLimiterManager().setBucketFactory(info -> {
-            throw new RuntimeException("simulated internal failure (e.g. DB unreachable)");
-        });
+        // setUp() recreates the server (and resets the factory) per test, but
+        // restore in a finally anyway so this stays isolated if that ever changes.
+        try {
+            getRateLimiterManager().setBucketFactory(info -> {
+                throw new RuntimeException("simulated internal failure (e.g. DB unreachable)");
+            });
 
-        HttpResponse<String> response = performJsonRpcRequest(
-            getAuthorizedRequestBuilder("/"), CERTIFICATION_REQUEST_JSON);
-        assertThat(response.statusCode()).isEqualTo(INTERNAL_SERVER_ERROR_500);
+            HttpResponse<String> response = performJsonRpcRequest(
+                getAuthorizedRequestBuilder("/"), CERTIFICATION_REQUEST_JSON);
+            assertThat(response.statusCode()).isEqualTo(INTERNAL_SERVER_ERROR_500);
 
-        String scrape = scrapeMetrics();
-        long internalErrors = counter(scrape, "gateway_requests_total",
-            "outcome=\"internal_error\"",
-            "jsonrpc_method=\"certification_request\"",
-            "status_class=\"5xx\"");
-        assertThat(internalErrors).isGreaterThanOrEqualTo(1);
+            String scrape = scrapeMetrics();
+            long internalErrors = counter(scrape, "gateway_requests_total",
+                "outcome=\"internal_error\"",
+                "jsonrpc_method=\"certification_request\"",
+                "status_class=\"5xx\"");
+            assertThat(internalErrors).isGreaterThanOrEqualTo(1);
+        } finally {
+            // Restore the harness default (deterministic testTimeMeter, as in setUp).
+            getRateLimiterManager().setBucketFactory(info ->
+                RateLimiterManager.createBucketWithTimeMeter(info, testTimeMeter));
+        }
     }
 
     @Test

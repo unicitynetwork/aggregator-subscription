@@ -295,7 +295,7 @@ public class RequestHandler extends Handler.Abstract {
             // (handleRequestAsync) has its own catch -> 502/upstream_error; this
             // only closes the pre-dispatch gap, tagged internal_error to keep it
             // distinct from upstream (shard) failures.
-            logger.error("Unhandled error processing {} {}: {}", method, path, e.toString(), e);
+            logger.error("Unhandled error processing {} {}", method, path, e);
             recorder.setOutcome(Outcome.INTERNAL_ERROR);
             if (response.isCommitted()) {
                 // Response already started downstream; status can't be changed.
