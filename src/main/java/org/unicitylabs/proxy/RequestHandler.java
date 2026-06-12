@@ -230,58 +230,84 @@ public class RequestHandler extends Handler.Abstract {
         RequestMetricsRecorder recorder = new RequestMetricsRecorder(metrics, response);
         Callback metricsCallback = recorder.wrap(callback);
 
-        // Handle CORS preflight OPTIONS requests
-        if (OPTIONS.asString().equalsIgnoreCase(method)) {
-            response.setStatus(HttpStatus.NO_CONTENT_204);
-            metricsCallback.succeeded();
+        try {
+            // Handle CORS preflight OPTIONS requests
+            if (OPTIONS.asString().equalsIgnoreCase(method)) {
+                response.setStatus(HttpStatus.NO_CONTENT_204);
+                metricsCallback.succeeded();
+                return true;
+            }
+
+            // Handle web UI routes
+            if ("/index.html".equals(path) || "/generate".equals(path)) {
+                return webUIHandler.handle(request, response, metricsCallback);
+            }
+
+            byte[] requestBody;
+            if (hasBody(request.getMethod())) {
+                try {
+                    requestBody = readBodyWithLimit(request);
+                } catch (IOException e) {
+                    // Client transport failed mid-body. Without this catch, the
+                    // exception bubbles out of handle(), Jetty's default error
+                    // path runs, and our wrapped callback never fires — so the
+                    // request is missing from gateway_requests_total.
+                    logger.warn("Failed to read request body: {}", e.getMessage());
+                    recorder.setOutcome(Outcome.BAD_REQUEST);
+                    response.setStatus(HttpStatus.BAD_REQUEST_400);
+                    response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
+                    response.write(true, ByteBuffer.wrap("Failed to read request body".getBytes()), metricsCallback);
+                    return true;
+                }
+            } else {
+                requestBody = null;
+            }
+
+            String jsonRpcMethod = extractJsonRpcMethodFromBody(method, requestBody);
+            recorder.setJsonRpcMethod(jsonRpcMethod);
+
+            if (requiresAuthentication(request.getMethod(), jsonRpcMethod)) {
+                if (!performAuthenticationAndRateLimiting(request, response, metricsCallback, method, path, recorder)) {
+                    return true;
+                }
+            }
+
+            if (!performValidationOnRequestSizeLimits(request, response, metricsCallback, recorder)) {
+                return true;
+            }
+
+            if (useVirtualThreads) {
+                Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, jsonRpcMethod, response, metricsCallback, recorder));
+            } else {
+                handleRequestAsync(request, requestBody, jsonRpcMethod, response, metricsCallback, recorder);
+            }
+
             return true;
-        }
-
-        // Handle web UI routes
-        if ("/index.html".equals(path) || "/generate".equals(path)) {
-            return webUIHandler.handle(request, response, metricsCallback);
-        }
-
-        byte[] requestBody;
-        if (hasBody(request.getMethod())) {
-            try {
-                requestBody = readBodyWithLimit(request);
-            } catch (IOException e) {
-                // Client transport failed mid-body. Without this catch, the
-                // exception bubbles out of handle(), Jetty's default error
-                // path runs, and our wrapped callback never fires — so the
-                // request is missing from gateway_requests_total.
-                logger.warn("Failed to read request body: {}", e.getMessage());
-                recorder.setOutcome(Outcome.BAD_REQUEST);
-                response.setStatus(HttpStatus.BAD_REQUEST_400);
+        } catch (Exception e) {
+            // Catch-all for the SYNCHRONOUS handling path. The dominant trigger
+            // is the API-key DB lookup (isValidApiKey) throwing when the
+            // database is unreachable. Without this, the exception bubbles out
+            // of handle(), Jetty's default error path sends a 5xx to the client,
+            // but our wrapped metricsCallback never fires — so the request is
+            // absent from gateway_requests_total (hiding DB outages from
+            // dashboards and the 5xx-ratio alert) and gateway_active_requests
+            // leaks. Map it to a RECORDED 5xx. The async proxy path
+            // (handleRequestAsync) has its own catch -> 502/upstream_error; this
+            // only closes the pre-dispatch gap, tagged internal_error to keep it
+            // distinct from upstream (shard) failures.
+            logger.error("Unhandled error processing {} {}", method, path, e);
+            recorder.setOutcome(Outcome.INTERNAL_ERROR);
+            if (response.isCommitted()) {
+                // Response already started downstream; status can't be changed.
+                // Still ensure the request is recorded and the callback completes.
+                metricsCallback.failed(e);
+            } else {
+                response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR_500);
                 response.getHeaders().put(HttpHeader.CONTENT_TYPE, TEXT_PLAIN.asString());
-                response.write(true, ByteBuffer.wrap("Failed to read request body".getBytes()), metricsCallback);
-                return true;
+                response.write(true, ByteBuffer.wrap("Internal Server Error".getBytes()), metricsCallback);
             }
-        } else {
-            requestBody = null;
-        }
-
-        String jsonRpcMethod = extractJsonRpcMethodFromBody(method, requestBody);
-        recorder.setJsonRpcMethod(jsonRpcMethod);
-
-        if (requiresAuthentication(request.getMethod(), jsonRpcMethod)) {
-            if (!performAuthenticationAndRateLimiting(request, response, metricsCallback, method, path, recorder)) {
-                return true;
-            }
-        }
-
-        if (!performValidationOnRequestSizeLimits(request, response, metricsCallback, recorder)) {
             return true;
         }
-
-        if (useVirtualThreads) {
-            Thread.startVirtualThread(() -> handleRequestAsync(request, requestBody, jsonRpcMethod, response, metricsCallback, recorder));
-        } else {
-            handleRequestAsync(request, requestBody, jsonRpcMethod, response, metricsCallback, recorder);
-        }
-
-        return true;
     }
 
     private String extractJsonRpcMethodFromBody(String method, byte[] requestBody) {

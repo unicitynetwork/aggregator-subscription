@@ -40,7 +40,8 @@ public final class GatewayMetrics implements AutoCloseable {
         RATE_LIMITED("rate_limited"),
         BAD_REQUEST("bad_request"),
         ROUTING_ERROR("routing_error"),
-        UPSTREAM_ERROR("upstream_error");
+        UPSTREAM_ERROR("upstream_error"),
+        INTERNAL_ERROR("internal_error");
 
         private final String label;
 
